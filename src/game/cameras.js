@@ -87,7 +87,7 @@ export class CameraRig {
     this.focus.y = damp(this.focus.y, _f.y, 2.2, dt);
     this.focus.z = damp(this.focus.z, _f.z, 3.0, dt);
     const drop = clamp((DIM.RAIL_Y - rig.sprPos.y - 6) / 16, 0, 1);
-    let dist = lerp(33, 38, 1 - drop) * this.zoom;
+    let dist = lerp(39, 44, 1 - drop) * this.zoom;
     let fov = 42;
     if (portrait) {
       dist *= 1.0 + (1 - aspect) * 0.9;
@@ -95,8 +95,8 @@ export class CameraRig {
     } else if (aspect < 1.5) {
       dist *= 1.0 + (1.5 - aspect) * 0.5;
     }
-    const baseYaw = -0.2 + this.yaw; // slightly from the quay side
-    const basePitch = clamp(0.44 + this.pitch, 0.18, 1.15);
+    const baseYaw = 0.16 + this.yaw; // a touch from seaward: quay on the left, ship in front
+    const basePitch = clamp(0.5 + this.pitch, 0.18, 1.15);
     _off.set(Math.sin(baseYaw) * Math.cos(basePitch), Math.sin(basePitch), Math.cos(baseYaw) * Math.cos(basePitch)).multiplyScalar(dist);
     _p.copy(this.focus).add(_off);
     _p.y = Math.max(_p.y, DIM.QUAY_Y + 2.5);

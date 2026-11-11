@@ -114,8 +114,10 @@ export class Water {
           vec3 sky = mix(uSkyGlow * 0.85, uSkyTop, smoothstep(0.0, 0.35, ry));
           sky += uFlash * vec3(0.5, 0.6, 0.9);
 
-          vec3 col = mix(uDeep, uMid, clamp(0.35 + vCrest * 0.6, 0.0, 1.0));
-          col = mix(col, sky, fres * 0.85);
+          vec3 col = mix(uDeep, uMid, clamp(0.4 + vCrest * 0.7, 0.0, 1.0));
+          // facet tint: slopes facing the viewer read a shade lighter (keeps the sea legible in the dark)
+          col *= 0.8 + 0.5 * ndv;
+          col = mix(col, sky, fres * 0.9);
 
           // harbour lights: a broad smear plus a tight sparkle per facet
           vec3 glint = vec3(0.0);
@@ -125,9 +127,9 @@ export class Water {
             vec3 l = lv * inversesqrt(d2);
             float rl = max(dot(r, l), 0.0);
             float att = 1.0 / (1.0 + d2 * 0.0009);
-            glint += uLightCol[i] * (pow(rl, 26.0) * 0.5 + pow(rl, 240.0) * 3.2) * att;
+            glint += uLightCol[i] * (pow(rl, 20.0) * 0.2 + pow(rl, 180.0) * 1.15) * att;
           }
-          col += glint;
+          col += min(glint, vec3(0.95, 0.8, 0.62));
 
           // foam + contact shadow around the hull and along the quay wall
           float dh = sdBox(vWorld.xz - uHull.xy, uHull.zw);
@@ -140,7 +142,7 @@ export class Water {
           foam = max(foam, smoothstep(0.78, 1.05, vCrest * (0.5 + uAmp)) * 0.6 * uAmp);
           float ao = mix(1.0, 0.55, smoothstep(3.0, 0.0, dh) * uHullOn);
           col *= ao;
-          col = mix(col, vec3(0.62, 0.72, 0.74) * (0.35 + 0.65 * length(glint + 0.25)), clamp(foam, 0.0, 1.0) * 0.55);
+          col = mix(col, vec3(0.34, 0.44, 0.46) + glint * 0.35, clamp(foam, 0.0, 1.0) * 0.6);
 
           float fog = 1.0 - exp(-dist * dist * uFogDensity * uFogDensity);
           col = mix(col, uFogColor + uFlash * vec3(0.18, 0.22, 0.3), clamp(fog, 0.0, 1.0));

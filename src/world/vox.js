@@ -162,7 +162,7 @@ export function initMaterials({ mobile }) {
     : new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.42, metalness: 0.08 });
   // Self-lit pieces (lamps, windows, beacons). Colour is pushed past 1.0 so bloom catches it.
   MAT.glow = new THREE.MeshBasicMaterial({ vertexColors: true, fog: false, toneMapped: true });
-  MAT.glow.color.setScalar(mobile ? 1.6 : 2.6);
+  MAT.glow.color.setScalar(mobile ? 1.3 : 1.7);
   MAT.glowSoft = new THREE.MeshBasicMaterial({ vertexColors: true, fog: true });
   MAT.glowSoft.color.setScalar(1.25);
   MAT.dark = new THREE.MeshBasicMaterial({ color: 0x05090d, fog: true });

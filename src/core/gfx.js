@@ -92,7 +92,7 @@ class Gfx {
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.12;
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.type = THREE.PCFShadowMap;
     renderer.info.autoReset = true;
     this.maxAniso = renderer.capabilities.getMaxAnisotropy ? renderer.capabilities.getMaxAnisotropy() : 1;
     canvas.addEventListener('webglcontextlost', (e) => {
@@ -178,7 +178,7 @@ class Gfx {
     composer.setPixelRatio(this.pixelRatio);
     composer.setSize(window.innerWidth, window.innerHeight);
     composer.addPass(new RenderPass(this.scene, this.camera));
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(w / 2, h / 2), 0.62, 0.72, 0.82);
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(w / 2, h / 2), 0.46, 0.55, 0.92);
     composer.addPass(this.bloom);
     this.grade = new ShaderPass(GradeShader);
     composer.addPass(this.grade);

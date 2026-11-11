@@ -332,6 +332,7 @@ async function runIntro(level, s) {
   }
   if (app.session !== s) return;
   setCab(app.cams.mode === 'cab');
+  input.clear();
   app.mode = 'play';
   showHud(true);
   s.start();
@@ -693,6 +694,12 @@ function frame(now) {
   requestAnimationFrame(frame);
   const raw = Math.min(0.1, Math.max(0, (now - last) / 1000 || 0.016));
   last = now;
+  tick(raw);
+  gfx.render(raw, app.time);
+  input.endFrame();
+}
+
+function tick(raw) {
   input.poll();
   const frozen = app.mode === 'paused' || sdk.adActive;
   const dt = frozen ? 0 : raw;
@@ -750,8 +757,6 @@ function frame(now) {
   }
   updateAmbience(dt);
   audio.update();
-  gfx.render(raw, app.time);
-  input.endFrame();
 }
 
 window.addEventListener('error', (e) => {
@@ -759,6 +764,24 @@ window.addEventListener('error', (e) => {
   if (typeof __DEV__ !== 'undefined' && __DEV__) console.error(e.error || e.message);
 });
 
-if (typeof __DEV__ !== 'undefined' && __DEV__) window.__nsc = { app, gfx, audio, save, input, SHIFTS, THREE };
+if (typeof __DEV__ !== 'undefined' && __DEV__) {
+  // development-only hooks (stripped from the production bundle)
+  window.__nsc = {
+    app,
+    gfx,
+    audio,
+    save,
+    input,
+    SHIFTS,
+    THREE,
+    sim(sec, step = 1 / 60) {
+      const n = Math.round(sec / step);
+      for (let i = 0; i < n; i++) {
+        tick(step);
+        input.endFrame();
+      }
+    },
+  };
+}
 
 boot();

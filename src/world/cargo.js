@@ -13,6 +13,8 @@ const BRANDS = [
   { name: 'NORDSEE', mark: 'ring' },
 ];
 
+const GENERIC = [0x5d7f3a, 0x7a4466, 0x4f6f86, 0xb9b09a, 0x8c5a36, 0x3f6b62];
+
 const AT = 512;
 // atlas regions in pixels: [x, y, w, h]
 const REG = {
@@ -245,7 +247,8 @@ function buildAtlas(zoneId, type, brandIdx, seed) {
   const rng = makeRng(seed * 977 + brandIdx * 31 + 5);
   const c = makeCanvas(AT, AT);
   const g = c.getContext('2d');
-  const paint = zone.color;
+  // un-zoned boxes get liveries that never clash with the four destination colours
+  const paint = zoneId === 'ANY' ? GENERIC[brandIdx % GENERIC.length] : zone.color;
   const isReefer = type === 'reefer';
   const body = isReefer ? '#d9d6cb' : '#' + new THREE.Color(paint).getHexString();
   const bodyDark = shade(isReefer ? 0xd9d6cb : paint, 0.62);

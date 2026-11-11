@@ -121,16 +121,21 @@ export class CraneView {
       // hangers carrying the girders under the portal beam
       for (const sz of [-1, 1]) v.box(x, (DIM.RAIL_Y + 1.6 + top - 1.0) / 2, sz * 3.35, 0.7, top - 1.0 - DIM.RAIL_Y - 1.6, 0.7, main);
     }
-    // side frames (X direction) with X-bracing: only at z = ±LZ so the load path stays clear
+    // side frames (sea-to-land direction): plain portals so the working view stays open
     for (const sz of [-1, 1]) {
       const z = sz * LZ;
       v.box((xw + xl) / 2, q + 13.5, z, xw - xl - 0.9, 0.7, 0.6, main);
       v.box((xw + xl) / 2, top - 0.45, z, xw - xl - 0.9, 0.9, 0.7, main);
-      v.beam(xl, q + 13.8, z, xw, top - 1.0, z, 0.34, main);
-      v.beam(xw, q + 13.8, z, xl, top - 1.0, z, 0.34, main);
-      v.beam(xl, q + 1.9, z, (xw + xl) / 2, q + 13.2, z, 0.3, main);
-      v.beam(xw, q + 1.9, z, (xw + xl) / 2, q + 13.2, z, 0.3, main);
+      v.beam(xl, q + 10.6, z, xl + 2.9, q + 13.3, z, 0.3, main);
+      v.beam(xw, q + 10.6, z, xw - 2.9, q + 13.3, z, 0.3, main);
+      v.beam(xl, top - 3.6, z, xl + 3.2, top - 0.9, z, 0.3, main);
+      v.beam(xw, top - 3.6, z, xw - 3.2, top - 0.9, z, 0.3, main);
     }
+    // the land-side frame carries the cross bracing (edge-on to the camera, clear of the lanes)
+    v.beam(xl, q + 13.9, -LZ, xl, top - 1.0, LZ, 0.34, main);
+    v.beam(xl, q + 13.9, LZ, xl, top - 1.0, -LZ, 0.34, main);
+    v.beam(xl, q + 2.0, -LZ, xl, q + 13.2, 0, 0.3, main);
+    v.beam(xl, q + 2.0, LZ, xl, q + 13.2, 0, 0.3, main);
 
     // twin box girders (the boom) + walkway
     const x0 = -27.5;
@@ -340,7 +345,7 @@ export class CraneView {
     if (state === this.ledState) return;
     this.ledState = state;
     const col = state === 'locked' ? 0x4dff88 : state === 'ready' ? 0xffb020 : state === 'error' ? 0xff2a1e : 0xff5a3c;
-    const k = this.mobile ? 1.5 : 2.6;
+    const k = this.mobile ? 1.4 : 2.0;
     for (const l of this.leds) l.material.color.setHex(col).multiplyScalar(k);
     this.ledGlow.material.color.setHex(col);
     this.ledGlow.material.opacity = state === 'idle' ? 0.3 : 0.7;
@@ -399,7 +404,7 @@ export class CraneView {
 
   _buildLights() {
     // The one real shadow-casting light: the trolley work light, always above the load.
-    const spot = new THREE.SpotLight(PAL.sodiumHot, 5200, 70, 0.62, 0.55, 1.6);
+    const spot = new THREE.SpotLight(PAL.sodiumHot, 165, 84, 0.66, 0.6, 1.0);
     spot.position.set(0, -0.6, 0);
     spot.target.position.set(0, -30, 0);
     spot.castShadow = true;

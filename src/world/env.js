@@ -386,7 +386,7 @@ export class Harbor {
           map: halo.material.map,
           color: col,
           transparent: true,
-          opacity: 0.2,
+          opacity: 0.1,
           blending: THREE.AdditiveBlending,
           depthWrite: false,
           fog: true,
@@ -429,7 +429,7 @@ export class Harbor {
     this.scene.add(this.moon);
     // Real point lights only where the action is.
     const mk = (lamp, intensity, dist) => {
-      const l = new THREE.PointLight(lamp.color, intensity, dist, 1.7);
+      const l = new THREE.PointLight(lamp.color, intensity, dist, 1.2);
       l.position.copy(lamp.pos).y -= 0.6;
       this.scene.add(l);
       lamp.light = l;
@@ -437,8 +437,8 @@ export class Harbor {
       this.lampLights.push(l);
     };
     const ids = this.mobile ? [2] : [1, 2, 3];
-    for (const i of ids) mk(this.mainLamps[i], this.mobile ? 2400 : 1900, 64);
-    if (!this.mobile) mk(this.mainLamps[4], 1500, 60);
+    for (const i of ids) mk(this.mainLamps[i], this.mobile ? 110 : 70, 72);
+    if (!this.mobile) mk(this.mainLamps[4], 60, 66);
   }
 
   // ---------------------------------------------------------------- container yard
@@ -816,7 +816,7 @@ export class Harbor {
       const dip = n > 0.72 ? 0.25 + 0.5 * (noise1(t * 43.0) * 0.5 + 0.5) : 1;
       f.halo.material.opacity = 0.95 * dip;
       f.cone.material.uniforms.uOpacity.value = 0.075 * dip;
-      f.pool.material.opacity = 0.2 * dip;
+      f.pool.material.opacity = 0.1 * dip;
       if (f.light) f.light.intensity = f.baseIntensity * dip;
       f.flick = dip;
     }

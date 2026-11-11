@@ -202,14 +202,14 @@ export class Ship {
         const x = (i - (n - 1) / 2) * 1.3;
         const lit = rng() < 0.62;
         const col = lit ? (rng() < 0.75 ? 0xffd89a : 0xbfe3ff) : 0x1c2a33;
-        (lit ? glow : v).box(x, wy, wy > dy + 5 ? frontZ - 0.3 : frontZ, 0.72, 0.6, 0.08, col);
+        (lit ? glow : v).box(x, wy, wy > dy + 5 ? frontZ - 0.3 : frontZ, 0.72, 0.6, 0.08, col, null, lit ? 0.5 : 1);
       }
     }
     // bridge windows: a continuous band, cool light
     const nb = Math.floor((bw + 1.6) / 1.05);
     for (let i = 0; i < nb; i++) {
       const x = (i - (nb - 1) / 2) * 1.05;
-      glow.box(x, dy + 9.25, zb1 - 1.02 + 0.2, 0.86, 0.72, 0.08, 0xcfeaff, null, 0.8);
+      glow.box(x, dy + 9.25, zb1 - 1.02 + 0.2, 0.86, 0.72, 0.08, 0xcfeaff, null, 0.42);
     }
     // side portholes
     for (const sx of [-1, 1]) {
@@ -374,6 +374,8 @@ export class Ship {
     const len = this.zShoulder - this.zStern;
     // main hull + deck slab
     p.box(hb - 0.1, (dy + 2.2) / 2, len / 2, { body: this.body, y: (dy - 2.2) / 2, z: (this.zShoulder + this.zStern) / 2, friction: 0.85, tag });
+    // hatch covers: the surface boxes actually sit on
+    p.box((this.rows * DIM.CELL_X) / 2 + 0.15, 0.06, this.cargoLen / 2 - 0.1, { body: this.body, y: dy + 0.06, friction: 0.85, tag });
     // bow wedge (two rotated slabs approximating the taper)
     p.box(hb * 0.62, (dy + 3.7) / 2, 4.2, { body: this.body, y: (dy + 1.5 - 2.2) / 2, z: this.zShoulder + 3.6, tag });
     // bulwarks: quay side, sea side, stern
