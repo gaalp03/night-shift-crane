@@ -37,6 +37,11 @@ export const sdk = {
 
   /** Resolves quickly even if the script is blocked or we are not on CrazyGames. */
   async init() {
+    // the SDK script tag is async: give it a moment to arrive, but never hold the game hostage
+    const t0 = performance.now();
+    while (!(window.CrazyGames && window.CrazyGames.SDK) && !window.__cgSdkFailed && performance.now() - t0 < 2500) {
+      await new Promise((r) => setTimeout(r, 60));
+    }
     const cg = window.CrazyGames && window.CrazyGames.SDK;
     if (!cg) return false;
     try {

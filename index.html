@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <title>Night Shift Crane</title>
+    <meta name="description" content="Run a harbour container crane through the night: swing, stack and lock cargo onto a rolling ship. A 3D physics stacking game." />
+    <meta name="theme-color" content="#04080f" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <link rel="icon" href="assets/icon.svg" type="image/svg+xml" />
+    <link rel="preload" href="assets/fonts/bungee.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="assets/fonts/barlow-condensed-700.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href="styles.css" />
+    <!-- CrazyGames SDK v3: optional. The game runs without it (GitHub Pages, local, ad blockers). -->
+    <script src="https://sdk.crazygames.com/crazygames-sdk-v3.js" async onerror="window.__cgSdkFailed = true"></script>
+  </head>
+  <body>
+    <canvas id="game" aria-label="Night Shift Crane"></canvas>
+    <div id="vignette"></div>
+    <div id="ui">
+      <div id="cab-overlay" class="hidden"></div>
+      <div id="hud" class="hidden"></div>
+      <div id="bursts"></div>
+      <div id="touch" class="hidden"></div>
+      <div id="tutorial" class="hidden"></div>
+      <div id="toasts"></div>
+      <div id="letterbox" class="hidden">
+        <div class="bar top"></div>
+        <div class="bar bottom"></div>
+        <div class="caption"></div>
+        <div class="skip"></div>
+      </div>
+      <div id="screens"></div>
+      <div id="wipe" aria-hidden="true">
+        <div class="door left"></div>
+        <div class="door right"></div>
+      </div>
+      <div id="loading">
+        <div class="loading-inner">
+          <div class="logo small">
+            <span class="logo-top">NIGHT SHIFT</span>
+            <span class="logo-main">CRANE</span>
+          </div>
+          <div class="loadbar"><div class="loadbar-fill" id="loadfill"></div></div>
+          <div class="loadtext" id="loadtext">Clocking in…</div>
+        </div>
+      </div>
+    </div>
+    <noscript>Night Shift Crane needs JavaScript and WebGL.</noscript>
+    <script src="build/game.js"></script>
+  </body>
+</html>
