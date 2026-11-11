@@ -1213,8 +1213,8 @@ input[type='range']::-moz-range-thumb {
 }
 .report .stampmark {
   position: absolute;
-  right: 0.9em;
-  top: 2.6em;
+  right: 1.1em;
+  bottom: 1.5em;
   padding: 0.12em 0.5em 0.14em;
   border: 0.16em solid currentColor;
   border-radius: 0.2em;
@@ -1237,7 +1237,7 @@ input[type='range']::-moz-range-thumb {
   transition: transform 0.22s cubic-bezier(0.3, 1.6, 0.5, 1), opacity 0.12s;
 }
 .report .newbest {
-  align-self: center;
+  align-self: flex-start;
   margin-top: 0.3em;
   padding: 0.1em 0.7em;
   background: #d24a17;
@@ -1250,7 +1250,7 @@ input[type='range']::-moz-range-thumb {
 }
 .report-actions {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 0.6em;
   justify-content: center;
   margin-top: 0.9em;
@@ -1258,6 +1258,12 @@ input[type='range']::-moz-range-thumb {
 }
 .report-actions .btn {
   flex: 1 1 auto;
+  font-size: 1em;
+  padding-left: 0.9em;
+  padding-right: 0.9em;
+}
+.report-actions .btn.icon {
+  flex: 0 0 auto;
 }
 .results-wrap {
   display: flex;
@@ -1265,7 +1271,7 @@ input[type='range']::-moz-range-thumb {
   align-items: center;
   gap: 0.4em;
   max-height: 100%;
-  width: min(100%, 31em);
+  width: min(100%, 35em);
 }
 .results-wrap.col {
   transform: translateY(1em);

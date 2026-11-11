@@ -185,7 +185,7 @@ export class Session extends Emitter {
     this.failReason = success ? null : reason;
     let timeBonus = 0;
     if (success && !this.endless) {
-      timeBonus = Math.round(Math.max(0, this.time) * 5);
+      timeBonus = Math.round(Math.max(0, this.time) * 2);
       this.score += timeBonus;
     }
     this.stats.timeBonus = timeBonus;

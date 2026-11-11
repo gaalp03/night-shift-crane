@@ -175,7 +175,8 @@ export function parScore(level) {
   const zoned = level.ship.zones.some((z) => z !== 'ANY');
   for (const c of level.manifest) base += SCORE.great + SCORE.soft * 0.5 + (zoned ? SCORE.zone : 0) + SCORE.speedMax * 0.55 + (CARGO_TYPES[c.type] || CARGO_TYPES.std).value * 0.8;
   for (const p of level.preload || []) if (p.discharge) base += SCORE.great + SCORE.speedMax * 0.5;
-  return Math.round(base * 1.12);
+  // a tidy run finishes with a little under half the clock left (2 points per second)
+  return Math.round(base * 1.12 + (level.time || 0) * 0.45 * 2);
 }
 
 export function starThresholds(level) {
