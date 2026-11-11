@@ -24,6 +24,7 @@ export const SHIFTS = [
     weather: { rain: 0.25, wind: 0, fog: 0.0105, sea: 0.08, clouds: 0.5 },
     tutorial: true,
     tour: true,
+    start: { x: 0.5, z: 6 },
   },
   {
     id: 's02',

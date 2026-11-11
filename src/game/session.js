@@ -101,9 +101,10 @@ export class Session extends Emitter {
       p.box(0.4, 0.95, DIM.LEG_HALF_Z, { body: this.gantryBody, x, y: DIM.QUAY_Y + 0.95, groups: GROUPS.crane, tag });
     }
     this._makeShip(this.level);
+    const st = this.level.start || { x: DIM.LANE_X, z: 0 };
     this.rig = new Rig(p, {
-      x: DIM.LANE_X,
-      z: 0,
+      x: st.x,
+      z: st.z,
       rope: 7.5,
       mods: { trolley: this.mods.trolley, gantry: this.mods.gantry, hoist: this.mods.hoist, sway: TUNE.swayDamp * this.mods.swayMul },
     });
@@ -223,7 +224,7 @@ export class Session extends Emitter {
 
     if (this.phase === 'play') {
       this.elapsed += dt;
-      if (!this.endless || this.time > 0) this.time -= dt;
+      if ((!this.endless || this.time > 0) && !this.timeFrozen) this.time -= dt;
       this._handleActions();
       this._updateTrucks(dt);
       this._checkEnd(dt);
@@ -1068,7 +1069,7 @@ export class Session extends Emitter {
     const t = this.simT;
     for (const tr of this.trucks) tr.update(dt, t);
     this.trucks = this.trucks.filter((tr) => tr.state !== 'gone');
-    if (this.phase !== 'play') return;
+    if (this.phase !== 'play' && this.phase !== 'pre') return;
     // lane 1: deliveries
     const l1 = this.lanes[0];
     if (!l1.truck || l1.truck.state === 'gone' || (l1.truck.state === 'out' && l1.truck.z > l1.z + 13)) {
