@@ -281,8 +281,9 @@ export class Session extends Emitter {
     const w = this.ctx.weather.wind;
     this.env.wind.x = w.x * this.windScale;
     this.env.wind.z = w.z * this.windScale;
-    this._computeAssist();
-    rig.fixedUpdate(h, warm ? { x: 0, z: 0, hoist: 0 } : this._controls(), this.env);
+    const ctl = warm ? { x: 0, z: 0, hoist: 0 } : this._controls();
+    this._computeAssist(ctl);
+    rig.fixedUpdate(h, ctl, this.env);
     this.gantryBody.setNextKinematicTranslation({ x: 0, y: 0, z: rig.z });
     this.ship.fixedUpdate(this.simT, h);
     // water forces on anything that went overboard
@@ -447,7 +448,7 @@ export class Session extends Emitter {
     return null;
   }
 
-  _computeAssist() {
+  _computeAssist(ctl) {
     const rig = this.rig;
     const a = this.assist;
     a.x = 0;
@@ -477,11 +478,14 @@ export class Session extends Emitter {
         gap = g.dy;
       }
     }
-    if (tx !== null && gap < 3.8 && gap > -0.4) {
-      const near = clamp(1 - gap / 3.8, 0.2, 1);
+    if (tx !== null && gap < 6.5 && gap > -0.4) {
+      // Flipper / cell-guide assist: starts centring well above the neighbouring stacks so the box
+      // does not snag on them, and backs off while the player is actively steering.
+      const steer = ctl ? Math.max(Math.abs(ctl.x), Math.abs(ctl.z)) : 0;
+      const near = clamp(1 - gap / 6.5, 0.3, 1) * (1 - 0.65 * steer);
       const v = rig.sprVel;
-      a.x = clamp(tx * k * near - (v.x - rig.vx) * 1.1 * near, -4.5, 4.5);
-      a.z = clamp(tz * k * near - (v.z - rig.vz) * 1.1 * near, -4.5, 4.5);
+      a.x = clamp(tx * k * 1.25 * near - (v.x - rig.vx) * 1.2 * near, -5, 5);
+      a.z = clamp(tz * k * 1.25 * near - (v.z - rig.vz) * 1.2 * near, -5, 5);
     }
   }
 
@@ -1481,6 +1485,7 @@ export class Session extends Emitter {
       else if (s && s.problem === 'heavy') hint = 'TOO HEAVY FOR THIS STACK';
       else if (s && s.problem === 'full') hint = 'STACK FULL';
       else if (s && s.seated) hint = 'OFF THE LOCK POINTS';
+      else if (s && rig.slack > 0.12 && s.gap > 0.45) hint = 'SNAGGED — LIFT AND RE-CENTRE';
       else hint = 'CARRYING';
     } else if (g && g.ready) {
       action = 'lock';
@@ -1509,7 +1514,7 @@ export class Session extends Emitter {
       seat: s,
       action,
       hint,
-      state: c ? (s && s.seated ? (s.valid && s.zoneOk && !s.problem ? 'good' : 'bad') : 'carry') : g && g.ready ? 'ready' : 'idle',
+      state: c ? (s && s.seated ? (s.valid && s.zoneOk && !s.problem ? 'good' : 'bad') : s && rig.slack > 0.12 && s.gap > 0.45 ? 'bad' : 'carry') : g && g.ready ? 'ready' : 'idle',
       altitude: this.altitude,
       wind: this.ctx.weather.windSpeed * this.windScale,
       windAngle: this.ctx.weather.windAngle,
