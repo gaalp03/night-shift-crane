@@ -487,8 +487,7 @@ export class Screens {
       endless ? null : h('div.stars', ...stars),
       !ok && !endless ? h('div', { style: { fontWeight: 700, margin: '0 0 0.4em', lineHeight: '1.25' } }, failText[res.reason] || '') : null,
       h('div.rows', ...rows),
-      meta.newBest && !endless ? h('div.newbest', 'New best') : null,
-      mark
+      h('div.stampzone', meta.newBest && !endless ? h('div.newbest', 'New best') : null, mark)
     );
     const actions = h('div.report-actions');
     const add = (cls, label, ic, fn, sound) => actions.appendChild(h('button.btn' + cls, { onclick: fn, 'data-sound': sound || 'ui_click', html: icon(ic) + label }));

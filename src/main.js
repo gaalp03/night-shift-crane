@@ -729,7 +729,7 @@ function tick(raw) {
   // --- lighting reacts to weather
   const w = app.weather.cur;
   app.scene.fog.density = w.fog;
-  app.harbor.hemi.intensity = 0.5 + flash * 3.5;
+  app.harbor.hemi.intensity = app.harbor.hemiBase + flash * 3.5;
   app.harbor.moon.intensity = 0.42 * (1 - w.clouds * 0.45) + flash * 2.2;
   app.harbor.skyUniforms.uClouds.value = w.clouds;
   app.harbor.setVisibility(clamp(1.25 - w.fog * 38, 0.06, 1));

@@ -422,7 +422,8 @@ export class Harbor {
 
   _lights() {
     // Moon/sky fill
-    this.hemi = new THREE.HemisphereLight(0x5f7fa8, 0x1a1410, 0.5);
+    this.hemiBase = this.mobile ? 0.72 : 0.5;
+    this.hemi = new THREE.HemisphereLight(0x5f7fa8, 0x1a1410, this.hemiBase);
     this.scene.add(this.hemi);
     this.moon = new THREE.DirectionalLight(PAL.moon, 0.42);
     this.moon.position.set(42, 50, -76);
@@ -436,8 +437,8 @@ export class Harbor {
       lamp.baseIntensity = intensity;
       this.lampLights.push(l);
     };
-    const ids = this.mobile ? [2] : [1, 2, 3];
-    for (const i of ids) mk(this.mainLamps[i], this.mobile ? 110 : 70, 72);
+    const ids = [1, 2, 3];
+    for (const i of ids) mk(this.mainLamps[i], this.mobile ? 82 : 70, 72);
     if (!this.mobile) mk(this.mainLamps[4], 60, 66);
   }
 

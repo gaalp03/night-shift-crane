@@ -1211,10 +1211,18 @@ input[type='range']::-moz-range-thumb {
 .rrow.pay .v {
   color: #1f7a3b;
 }
+.report .stampzone {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6em;
+  min-height: 3.1em;
+  margin-top: 0.2em;
+  padding: 0 0.4em 0 0;
+}
 .report .stampmark {
-  position: absolute;
-  right: 1.1em;
-  bottom: 1.5em;
+  margin-left: auto;
   padding: 0.12em 0.5em 0.14em;
   border: 0.16em solid currentColor;
   border-radius: 0.2em;
@@ -1237,8 +1245,6 @@ input[type='range']::-moz-range-thumb {
   transition: transform 0.22s cubic-bezier(0.3, 1.6, 0.5, 1), opacity 0.12s;
 }
 .report .newbest {
-  align-self: flex-start;
-  margin-top: 0.3em;
   padding: 0.1em 0.7em;
   background: #d24a17;
   color: #fff3e0;
@@ -2385,5 +2391,80 @@ body.touch .status .kbd {
   .pts,
   .banner {
     animation-duration: 0.9s;
+  }
+}
+
+/* ------------------------------------------------------------------ compact results (phones in landscape) */
+@media (orientation: landscape) and (max-height: 560px) {
+  .results-wrap {
+    flex-direction: row;
+    align-items: center;
+    gap: 1.4em;
+    width: min(100%, 54em);
+  }
+  .report {
+    font-size: 0.78em;
+    padding: 1.9em 1.4em 0.8em;
+    flex: 1 1 auto;
+  }
+  .report .stars {
+    height: 3.6em;
+    margin: 0;
+  }
+  .report .star {
+    width: 3.1em;
+    height: 3.1em;
+  }
+  .report .star:nth-child(2) {
+    width: 3.7em;
+    height: 3.7em;
+  }
+  .rrow {
+    height: 1.55em;
+  }
+  .report-actions {
+    flex-direction: column;
+    flex: 0 0 auto;
+    margin-top: 0;
+    transform: none;
+    width: 13em;
+  }
+  .report-actions .btn,
+  .report-actions .btn.icon {
+    width: 100%;
+    flex: 0 0 auto;
+  }
+  .card {
+    font-size: 0.9em;
+  }
+}
+
+/* ------------------------------------------------------------------ portrait HUD: two tidy columns */
+@media (orientation: portrait) {
+  .hud-tc {
+    left: calc(var(--pad) + var(--sl));
+    top: calc(4.5em + var(--st));
+    transform: none;
+    align-items: flex-start;
+  }
+  .hud-tr {
+    max-width: 46vw;
+  }
+  .timer {
+    font-size: 1.9em;
+  }
+  .progress .pips2 {
+    display: none;
+  }
+  .hud-tl .queue {
+    display: none;
+  }
+  .hud-bl,
+  body.touch .hud-bl {
+    bottom: auto;
+    top: calc(11.2em + var(--st));
+  }
+  #toasts {
+    padding-top: calc(15.4em + var(--st));
   }
 }
