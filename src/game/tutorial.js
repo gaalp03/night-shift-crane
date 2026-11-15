@@ -20,7 +20,11 @@ export class Tutorial {
       {
         text: T ? 'Drag the stick to park the spreader over the truck' : `Park the spreader over the container on the truck`,
         sub: T ? 'Left / right runs the trolley · up / down drives the whole crane' : `${K('A', 'D')} trolley &nbsp; ${K('W', 'S')} drive the crane along the quay`,
-        ok: (s) => s.grab && Math.hypot(s.grab.lx, s.grab.lz) < 1.3,
+        ok: (s) => {
+          const lane = s.lanes[0];
+          if (!lane.truck || !lane.truck.parked) return false;
+          return Math.hypot(s.rig.sprPos.x - lane.x, s.rig.sprPos.z - lane.z) < 1.3 && Math.abs(s.rig.vx) + Math.abs(s.rig.vz) < 1.5;
+        },
       },
       {
         text: T ? 'Hold LOWER and set the spreader down on the box' : 'Lower the spreader onto the box',

@@ -354,8 +354,18 @@ async function runIntro(level, s) {
   sdk.gameplayStart();
 }
 
+/** Short vibration on phones that support it (Android); silently ignored elsewhere. */
+function buzz(pattern) {
+  if (!app.touchMode || !navigator.vibrate) return;
+  try {
+    navigator.vibrate(pattern);
+  } catch (e) {}
+}
+
 function bindSession(s) {
   const j = app.juice;
+  s.on('grab', () => buzz(18));
+  s.on('release', () => buzz(10));
   s.on('burst', (b) => j.burst(b));
   s.on('points', (p) => j.points(p));
   s.on('toast', (t) => j.toast(t));
@@ -374,6 +384,7 @@ function bindSession(s) {
     });
     if (e.reason === 'sea') audio.play('vox_yell', { vol: 0.5, delay: 0.5 });
     j.flash('red');
+    buzz([60, 50, 90]);
   });
   s.on('shipDone', (e) => {
     j.banner('SHIP LOADED', `+${e.bonus} · next vessel inbound`, 3000);
@@ -393,7 +404,10 @@ function bindSession(s) {
   });
   s.on('placed', (e) => {
     if (e.grade === 'perfect' || e.grade === 'great') app.crew.react('cheer', e.grade === 'perfect' ? 1.9 : 1.1);
-    if (e.grade === 'perfect') app.hitStop = 0.07;
+    if (e.grade === 'perfect') {
+      app.hitStop = 0.07;
+      buzz([12, 40, 24]);
+    }
   });
   s.on('overboard', () => app.crew.react('wince', 2.6));
   s.on('impact', (e) => {
@@ -401,6 +415,7 @@ function bindSession(s) {
       app.crew.react('duck', 1.2);
       app.hitStop = Math.max(app.hitStop, 0.05);
     }
+    if (e.dv > 4) buzz(Math.min(60, Math.round(e.dv * 5)));
   });
 }
 
@@ -627,6 +642,16 @@ function bindGlobalInput() {
   );
   input.anyKeyHandlers.add((e) => {
     if (app.mode === 'intro' && app._skipTour && (e.code === 'Space' || e.code === 'Enter' || e.code === 'Escape')) app._skipTour();
+    // Enter = the highlighted action, Esc = back, on any open menu
+    const scr = app.screens && app.screens.current;
+    if (!scr || app.busy) return;
+    if (e.code === 'Enter' || e.code === 'NumpadEnter') {
+      const b = scr.querySelector('.btn.primary:not([disabled]), .btn.teal:not([disabled])');
+      if (b) b.click();
+    } else if (e.code === 'Escape' && app.mode !== 'paused') {
+      const b = scr.querySelector('.btn[data-sound="ui_back"]:not([disabled])');
+      if (b) b.click();
+    }
   });
 }
 
@@ -680,32 +705,43 @@ const _fogA = new THREE.Color(PAL.fog);
 const _fogB = new THREE.Color(0x2a3338);
 const _crewCtx = { focus: null, shadow: { x: 0, z: 0, h: 99 }, carrying: false };
 const _lights = [];
-const _col = new THREE.Color();
+const _lightPool = Array.from({ length: 16 }, () => ({ pos: new THREE.Vector3(), color: new THREE.Color(), power: 1 }));
 const _tmp = new THREE.Vector3();
 function waterLights() {
   _lights.length = 0;
+  let n = 0;
+  const add = (x, y, z, hex, power) => {
+    if (n >= _lightPool.length) return null;
+    const l = _lightPool[n++];
+    l.pos.set(x, y, z);
+    l.color.set(hex);
+    l.power = power;
+    _lights.push(l);
+    return l;
+  };
   const s = app.session;
   const crane = app.crane;
   // trolley work light: the brightest thing over the water
-  _tmp.set(crane.trolley.position.x, DIM.RAIL_Y - 0.6, crane.gantry.position.z);
-  _lights.push({ pos: _tmp.clone(), color: _col.set(PAL.sodiumHot).clone(), power: 1.3 });
+  add(crane.trolley.position.x, DIM.RAIL_Y - 0.6, crane.gantry.position.z, PAL.sodiumHot, 1.3);
   for (let i = 0; i < crane.floodPositions.length; i += 2) {
     const p = crane.floodPositions[i];
     if (p.x < 0) continue;
-    _lights.push({ pos: new THREE.Vector3(p.x, p.y, p.z + crane.gantry.position.z), color: _col.set(PAL.sodiumHot).clone(), power: 0.7 });
+    add(p.x, p.y, p.z + crane.gantry.position.z, PAL.sodiumHot, 0.7);
   }
   if (s && s.ship) {
     const sh = s.ship;
-    for (const p of [sh.mastTop, sh.foreLight, ...sh.deckLamps]) {
-      _lights.push({ pos: sh.localToWorld(p, new THREE.Vector3()), color: _col.set(0xffe2b0).clone(), power: 0.7 });
+    for (const p of [sh.mastTop, sh.foreLight, sh.deckLamps[0], sh.deckLamps[1]]) {
+      sh.localToWorld(p, _tmp);
+      add(_tmp.x, _tmp.y, _tmp.z, 0xffe2b0, 0.7);
     }
   }
   for (const l of app.harbor.lampHeads) {
-    if (_lights.length >= 16) break;
     if (l.pos.x < -30) continue;
-    _lights.push({ pos: l.pos, color: l.color, power: (l.hgt > 12 ? 0.8 : 0.6) * (l.flick == null ? 1 : l.flick) });
+    const e = add(l.pos.x, l.pos.y, l.pos.z, 0, (l.hgt > 12 ? 0.8 : 0.6) * (l.flick == null ? 1 : l.flick));
+    if (e) e.color.copy(l.color);
   }
-  if (_lights.length < 16) _lights.push({ pos: app.harbor.lighthouse.position, color: _col.set(0xfff2d0).clone(), power: 0.8 });
+  const lh = app.harbor.lighthouse.position;
+  add(lh.x, lh.y, lh.z, 0xfff2d0, 0.8);
   app.water.setLights(_lights);
 }
 

@@ -233,6 +233,13 @@ export class Session extends Emitter {
       this._updateTrucks(dt);
     }
     if (this.phase === 'swap') this._updateSwap(dt);
+    if (this.phase === 'over' && this.result && this.result.success && !this.endless) {
+      // the loaded ship eases off the berth behind the results
+      this.departT = (this.departT || 0) + dt;
+      const k = Math.max(0, this.departT - 2.2);
+      this.ship.offsetZ = Math.min(170, 0.42 * k * k);
+      this.ship.offsetX = Math.min(9, 0.05 * k * k);
+    }
     for (const k in this.cool) this.cool[k] -= dt;
     if (this.rig.carry) this.carryT += dt;
     this._updateReefers(dt);
@@ -244,6 +251,13 @@ export class Session extends Emitter {
   _controls() {
     // while ships change over, the spreader lifts itself clear of the passing wheelhouse
     if (this.phase === 'swap') return { x: 0, z: 0, hoist: this.rig.rope > 4.6 ? 1 : 0 };
+    // shift done: lift clear so the ship can cast off
+    if (this.phase === 'over' && this.result && this.result.success) return { x: 0, z: 0, hoist: this.rig.rope > 6 ? 1 : 0 };
+    // menu backdrop: the crane idles through a slow cycle on its own
+    if (this.attract) {
+      const t = this.simT;
+      return { x: Math.sin(t * 0.21) * 0.45, z: Math.sin(t * 0.13 + 1) * 0.3, hoist: Math.sin(t * 0.33 + 2) * 0.35 };
+    }
     if (this.phase !== 'play' || this.controlsLocked) return { x: 0, z: 0, hoist: 0 };
     let hoist = this.allow.hoist ? input.hoist : 0;
     if (hoist < 0 && this.altitude < 2.3) {
@@ -1385,6 +1399,7 @@ export class Session extends Emitter {
   }
 
   _updateAudio(dt) {
+    if (this.attract) return;
     const rig = this.rig;
     const L = this.loops;
     if (!L.trolley) {
