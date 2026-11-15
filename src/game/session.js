@@ -114,6 +114,7 @@ export class Session extends Emitter {
     harbor.markPickup(this.lanes[0].x, this.lanes[0].z);
     if (this._needsLane2()) harbor.markPickup(this.lanes[1].x, this.lanes[1].z);
     weather.set(this.level.weather, true);
+    harbor.setSky(this.level.sky || (this.level.n >= 9 ? 'predawn' : this.level.n >= 4 ? 'night' : 'evening'), true);
     crane.setPose(this.rig.z, this.rig.x);
     this._syncVisuals(0);
     // a couple of physics steps so everything rests before the camera shows it
@@ -1242,6 +1243,7 @@ export class Session extends Emitter {
         this.ship._applyPose(this.simT);
         this.ship.snapBody();
         this.ctx.weather.set(def.weather);
+        this.ctx.harbor.setSky(['evening', 'night', 'night', 'predawn'][this.shipIndex % 4]);
         this.swapStage = 1;
         this.swapT = 0;
         this.emit('shipIncoming', { n: this.shipIndex + 1, def });

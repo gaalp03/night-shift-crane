@@ -200,6 +200,12 @@ export class Water {
     this.uniforms.uHullOn.value = on;
   }
 
+  /** Keep the sea's sky reflection in step with the sky dome. */
+  setSky(mid, glow) {
+    this.uniforms.uSkyTop.value.copy(mid);
+    this.uniforms.uSkyGlow.value.copy(glow);
+  }
+
   update(dt, { amp, fogColor, fogDensity, rain, flash }) {
     this.time += dt;
     this.amp = amp;

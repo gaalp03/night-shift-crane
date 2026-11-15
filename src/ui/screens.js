@@ -547,9 +547,15 @@ export class Screens {
     const el = this._mount('results', h('div.screen.dim', h('div.results-wrap.col', report, actions)));
     for (const b of actions.children) b.disabled = true;
 
-    // ---- the reveal: rows tick in, stars get stamped, the total counts up
+    // ---- the reveal: rows tick in, stars get stamped, the total counts up (tap to hurry it along)
     const token = (this._resToken = (this._resToken || 0) + 1);
     const alive = () => this._resToken === token && this.current === el;
+    let fast = false;
+    const hurry = () => {
+      fast = true;
+    };
+    el.addEventListener('pointerdown', hurry);
+    const wait = (ms) => new Promise((r) => setTimeout(r, fast ? 0 : ms));
     (async () => {
       await wait(420);
       for (let i = 0; i < rows.length - 2; i++) {
@@ -566,7 +572,7 @@ export class Screens {
         const dur = 800;
         const step = () => {
           if (!alive()) return resolve();
-          const k = clamp((performance.now() - t0) / dur, 0, 1);
+          const k = fast ? 1 : clamp((performance.now() - t0) / dur, 0, 1);
           totalV.textContent = fmtNum(res.score * (1 - Math.pow(1 - k, 3)));
           if (k < 1) requestAnimationFrame(step);
           else resolve();
@@ -594,6 +600,7 @@ export class Screens {
       audio.play('ui_stamp', { rate: 0.8 });
       app.shake(0.22);
       if (ok && res.stars >= 3) app.celebrate();
+      el.removeEventListener('pointerdown', hurry);
       for (const b of actions.children) b.disabled = false;
     })();
     return el;

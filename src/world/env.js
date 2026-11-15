@@ -864,6 +864,22 @@ export class Harbor {
     return out;
   }
 
+  /** Sky mood for the hour: 'evening' (shift start), 'night' (small hours), 'predawn' (last ships). */
+  setSky(name, instant = false) {
+    const P = {
+      evening: { top: 0x04080f, mid: 0x0d1826, glow: 0x55341f },
+      night: { top: 0x02050a, mid: 0x08101b, glow: 0x3a251d },
+      predawn: { top: 0x050a16, mid: 0x131d36, glow: 0x4b3552 },
+    }[name] || null;
+    if (!P) return;
+    this.skyTarget = { top: new THREE.Color(P.top), mid: new THREE.Color(P.mid), glow: new THREE.Color(P.glow) };
+    if (instant) {
+      this.skyUniforms.uTop.value.copy(this.skyTarget.top);
+      this.skyUniforms.uMid.value.copy(this.skyTarget.mid);
+      this.skyUniforms.uGlow.value.copy(this.skyTarget.glow);
+    }
+  }
+
   /** 0..1 visibility of the far shore (fog shifts lower this). */
   setVisibility(v) {
     for (const m of this.skylineMats) m.color.setScalar(1.15 * v);
@@ -896,6 +912,12 @@ export class Harbor {
           this.farShip.position.z = -430;
         }
       }
+    }
+    if (this.skyTarget) {
+      const k = Math.min(1, dt * 0.6);
+      this.skyUniforms.uTop.value.lerp(this.skyTarget.top, k);
+      this.skyUniforms.uMid.value.lerp(this.skyTarget.mid, k);
+      this.skyUniforms.uGlow.value.lerp(this.skyTarget.glow, k);
     }
     this.skyUniforms.uTime.value = t;
     this.skyUniforms.uFlash.value = flash;

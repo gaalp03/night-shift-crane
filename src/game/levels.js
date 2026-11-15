@@ -181,7 +181,7 @@ export function parScore(level) {
 
 export function starThresholds(level) {
   const par = parScore(level);
-  return [Math.round(par * 0.42), Math.round(par * 0.7), Math.round(par * 0.98)];
+  return [Math.round(par * 0.42), Math.round(par * 0.72), Math.round(par * 1.06)];
 }
 
 export function starsFor(level, score) {

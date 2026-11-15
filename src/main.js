@@ -119,6 +119,7 @@ const app = {
   resume() {
     if (app.mode !== 'paused') return;
     app.screens.hide();
+    input.clear(); // the key that closed the menu must not double as "release"
     app.mode = 'play';
     audio.setMuffle(app.cams.mode === 'cab' ? 0.32 : 0);
     showHud(true);
@@ -823,6 +824,7 @@ function tick(raw) {
   app.harbor.skyUniforms.uClouds.value = w.clouds;
   app.harbor.setVisibility(clamp(1.25 - w.fog * 38, 0.06, 1));
   if (flash > 0.02 && gfx.flash < flash * 0.5) gfx.flash = flash * 0.5;
+  app.water.setSky(app.harbor.skyUniforms.uMid.value, app.harbor.skyUniforms.uGlow.value);
   app.water.update(dt, { amp: 0.16 + w.sea * 0.9, fogColor: app.scene.fog.color, fogDensity: w.fog, rain: w.rain, flash });
   waterLights();
 
