@@ -237,7 +237,25 @@ export class Guides {
 
   dispose() {
     this.hideAll();
-    for (const g of this.ghosts) if (g.parent) g.parent.remove(g);
+    for (const g of this.ghosts) {
+      if (g.parent) g.parent.remove(g);
+      g.material.dispose();
+      g.userData.fill.material.dispose();
+    }
+    this.ghostGeo.dispose();
+    this.ghostFillGeo.dispose();
+    const seen = new Set();
+    this.group.traverse((o) => {
+      if (o.geometry && !seen.has(o.geometry)) {
+        seen.add(o.geometry);
+        o.geometry.dispose();
+      }
+      if (o.material && !seen.has(o.material)) {
+        seen.add(o.material);
+        o.material.dispose();
+      }
+    });
+    for (const k in this.tagTex) this.tagTex[k].dispose();
     this.scene.remove(this.group);
   }
 }

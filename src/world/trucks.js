@@ -210,6 +210,15 @@ export class Truck {
       this.cargo.state = 'gone';
       this.cargo.collider = null;
     }
+    // free the per-truck light props (the body geometry is shared and stays)
+    for (const ch of this.group.children) {
+      if (ch.userData.cargo) continue;
+      if (ch.isSprite) ch.material.dispose();
+      else if (ch.material && ch.material.isShaderMaterial) {
+        ch.geometry.dispose();
+        ch.material.dispose();
+      }
+    }
     this.scene.remove(this.group);
   }
 }
