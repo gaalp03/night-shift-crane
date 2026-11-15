@@ -257,7 +257,8 @@ export class Session extends Emitter {
     // menu backdrop: the crane idles through a slow cycle on its own
     if (this.attract) {
       const t = this.simT;
-      return { x: Math.sin(t * 0.21) * 0.45, z: Math.sin(t * 0.13 + 1) * 0.3, hoist: Math.sin(t * 0.33 + 2) * 0.35 };
+      // (kept high: the idle cycle must never touch the ship)
+      return { x: Math.sin(t * 0.21) * 0.45, z: Math.sin(t * 0.13 + 1) * 0.3, hoist: this.rig.rope > 8.5 ? 0.6 : Math.sin(t * 0.33 + 2) * 0.35 };
     }
     if (this.phase !== 'play' || this.controlsLocked) return { x: 0, z: 0, hoist: 0 };
     let hoist = this.allow.hoist ? input.hoist : 0;
@@ -1036,6 +1037,7 @@ export class Session extends Emitter {
   }
 
   _impact({ dv, pos, cargo, other, mass, vel, carried, viaSpreader }) {
+    if (this.attract) return;
     const kind = other ? other.kind : 'none';
     const fx = this.ctx.fx;
     const onMetal = kind === 'cargo' || kind === 'spreader' || kind === 'crane' || kind === 'bridge';

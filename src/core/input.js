@@ -5,8 +5,9 @@ const KEYS_X_NEG = ['KeyA', 'ArrowLeft'];
 const KEYS_X_POS = ['KeyD', 'ArrowRight'];
 const KEYS_Z_FAR = ['KeyW', 'ArrowUp'];
 const KEYS_Z_NEAR = ['KeyS', 'ArrowDown'];
+// (no Ctrl bindings: Ctrl+W / Ctrl+S / Ctrl+D would trigger browser shortcuts mid-lift)
 const KEYS_UP = ['KeyE', 'KeyR', 'ShiftLeft', 'ShiftRight', 'PageUp'];
-const KEYS_DOWN = ['KeyQ', 'KeyF', 'ControlLeft', 'ControlRight', 'PageDown'];
+const KEYS_DOWN = ['KeyQ', 'KeyF', 'PageDown'];
 
 class Input {
   constructor() {
