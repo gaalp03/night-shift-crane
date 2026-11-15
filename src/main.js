@@ -15,6 +15,7 @@ import { Water } from './world/water.js';
 import { Weather } from './world/weather.js';
 import { Fx } from './world/fx.js';
 import { CraneView } from './world/crane.js';
+import { Crew } from './world/crew.js';
 import { CameraRig } from './game/cameras.js';
 import { Session } from './game/session.js';
 import { Tutorial } from './game/tutorial.js';
@@ -384,7 +385,15 @@ function bindSession(s) {
   });
   s.on('finish', (res) => onFinish(s, res));
   s.on('horn', () => {
+    app.crew.react('wave', 1.6);
     if (Math.random() < 0.4) audio.play('vox_laugh', { delay: 0.6, vol: 0.5 });
+  });
+  s.on('placed', (e) => {
+    if (e.grade === 'perfect' || e.grade === 'great') app.crew.react('cheer', e.grade === 'perfect' ? 1.9 : 1.1);
+  });
+  s.on('overboard', () => app.crew.react('wince', 2.6));
+  s.on('impact', (e) => {
+    if (e.dv > 7) app.crew.react('duck', 1.2);
   });
 }
 
@@ -523,6 +532,7 @@ async function boot() {
   app.weather = new Weather(scene, { count: gfx.rainCount, mobile });
   app.fx = new Fx(scene, { budget: gfx.particleBudget, mobile });
   app.crane = new CraneView(scene, { paint: save.data.paint, mobile });
+  app.crew = new Crew(scene);
   app.cams = new CameraRig(camera);
   app.cams.shakeEnabled = save.data.settings.shake !== false;
   app.tweens = new Tweens();
@@ -659,6 +669,7 @@ function updateAmbience(dt) {
 
 // ====================================================================== frame
 
+const _crewCtx = { focus: null, shadow: { x: 0, z: 0, h: 99 }, carrying: false };
 const _lights = [];
 const _col = new THREE.Color();
 const _tmp = new THREE.Vector3();
@@ -723,6 +734,14 @@ function tick(raw) {
   app.harbor.update(dt, app.time, flash);
   const gantryMove = s ? Math.abs(s.rig.vz) / 4.8 : 0;
   app.crane.update(dt, app.time, gantryMove);
+  if (s) {
+    _crewCtx.focus = s.rig.sprPos;
+    _crewCtx.shadow.x = s.rig.sprPos.x;
+    _crewCtx.shadow.z = s.rig.sprPos.z;
+    _crewCtx.shadow.h = s.rig.sprPos.y - DIM.QUAY_Y;
+    _crewCtx.carrying = !!s.rig.carry && app.mode === 'play';
+    app.crew.update(dt, app.time, _crewCtx);
+  }
   app.fx.update(dt);
   app.tweens.update(dt);
 

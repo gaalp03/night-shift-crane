@@ -241,11 +241,19 @@ export class Session extends Emitter {
   }
 
   _controls() {
+    // while ships change over, the spreader lifts itself clear of the passing wheelhouse
+    if (this.phase === 'swap') return { x: 0, z: 0, hoist: this.rig.rope > 4.6 ? 1 : 0 };
     if (this.phase !== 'play' || this.controlsLocked) return { x: 0, z: 0, hoist: 0 };
+    let hoist = this.allow.hoist ? input.hoist : 0;
+    if (hoist < 0 && this.altitude < 2.3) {
+      // creep speed for the last couple of metres, like a real hoist: no accidental slams
+      const cap = TUNE.creepSpeed / (TUNE.hoistSpeed * this.mods.hoist);
+      hoist = Math.max(hoist, -lerp(cap, 1, clamp((this.altitude - 0.4) / 1.9, 0, 1)));
+    }
     return {
       x: this.allow.x ? input.axisX : 0,
       z: this.allow.z ? input.axisZ : 0,
-      hoist: this.allow.hoist ? input.hoist : 0,
+      hoist,
     };
   }
 
@@ -451,8 +459,8 @@ export class Session extends Emitter {
         gap = g.dy;
       }
     }
-    if (tx !== null && gap < 2.6 && gap > -0.4) {
-      const near = clamp(1 - gap / 2.6, 0.15, 1);
+    if (tx !== null && gap < 3.8 && gap > -0.4) {
+      const near = clamp(1 - gap / 3.8, 0.2, 1);
       const v = rig.sprVel;
       a.x = clamp(tx * k * near - (v.x - rig.vx) * 1.1 * near, -4.5, 4.5);
       a.z = clamp(tz * k * near - (v.z - rig.vz) * 1.1 * near, -4.5, 4.5);

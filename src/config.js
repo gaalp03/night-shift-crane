@@ -92,8 +92,9 @@ export const TUNE = {
   hoistAccel: 26,
   swayDamp: 0.45, // base horizontal damping on the hanging load
   lockTol: 0.52, // max horizontal error (m) for a twist-lock placement
-  grabTolX: 0.5,
-  grabTolZ: 0.75,
+  grabTolX: 0.78,
+  grabTolZ: 1.1,
+  creepSpeed: 1.9, // lowering speed cap just above a surface (m/s)
   perfect: 0.14,
   great: 0.3,
   softLanding: 1.6, // landing speed (m/s) under which a touchdown is "soft"
