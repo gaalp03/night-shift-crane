@@ -213,6 +213,7 @@ function showHud(v) {
 function setCab(on, silent) {
   const want = on ? 'cab' : 'chase';
   $('cab-overlay').classList.toggle('hidden', !on);
+  app.crane.setCabView(on);
   app.hud.setCameraMode(want);
   if (!silent) audio.setMuffle(on ? 0.32 : 0);
   if (!on) applyCabGhost(null);

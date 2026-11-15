@@ -223,6 +223,7 @@ export class CraneView {
     p3.rotation.y = -Math.PI / 2;
     this.gantry.add(p3);
     this.extraDisposables.push(p1, p2, p3);
+    this.portalPlates = [p2, p3];
 
     // amber travel beacons on the bogies
     for (const x of [xw, xl]) {
@@ -404,7 +405,7 @@ export class CraneView {
 
   _buildLights() {
     // The one real shadow-casting light: the trolley work light, always above the load.
-    const spot = new THREE.SpotLight(PAL.sodiumHot, 165, 84, 0.66, 0.6, 1.0);
+    const spot = new THREE.SpotLight(PAL.sodiumHot, 27, 84, 0.66, 0.6, 0.5);
     spot.position.set(0, -0.6, 0);
     spot.target.position.set(0, -30, 0);
     spot.castShadow = true;
@@ -437,6 +438,11 @@ export class CraneView {
         this.gantry.add(c);
       }
     }
+  }
+
+  /** The portal number plates would hang right under the cab camera: hide them in that view. */
+  setCabView(on) {
+    if (this.portalPlates) for (const p of this.portalPlates) p.visible = !on;
   }
 
   setPose(gantryZ, trolleyX) {
