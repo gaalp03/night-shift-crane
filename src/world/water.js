@@ -139,7 +139,7 @@ export class Water {
           float dq = vWorld.x;
           float quayFoam = smoothstep(1.1, 0.0, dq) * step(0.0, dq) * smoothstep(0.2, 0.8, sin(vWorld.z * 1.7 + uTime * 1.3 + noise(vWorld.zz * 0.7) * 4.0) * 0.5 + 0.5);
           foam = max(foam, quayFoam * 0.7);
-          foam = max(foam, smoothstep(0.78, 1.05, vCrest * (0.5 + uAmp)) * 0.6 * uAmp);
+          foam = max(foam, smoothstep(0.8, 1.1, vCrest * (0.5 + uAmp)) * 0.34 * uAmp);
           float ao = mix(1.0, 0.55, smoothstep(3.0, 0.0, dh) * uHullOn);
           col *= ao;
           col = mix(col, vec3(0.34, 0.44, 0.46) + glint * 0.35, clamp(foam, 0.0, 1.0) * 0.6);

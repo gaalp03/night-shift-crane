@@ -669,6 +669,8 @@ function updateAmbience(dt) {
 
 // ====================================================================== frame
 
+const _fogA = new THREE.Color(PAL.fog);
+const _fogB = new THREE.Color(0x2a3338);
 const _crewCtx = { focus: null, shadow: { x: 0, z: 0, h: 99 }, carrying: false };
 const _lights = [];
 const _col = new THREE.Color();
@@ -748,6 +750,11 @@ function tick(raw) {
   // --- lighting reacts to weather
   const w = app.weather.cur;
   app.scene.fog.density = w.fog;
+  // thick fog scatters the sodium light: the haze itself brightens and warms
+  const thick = clamp((w.fog - 0.0105) / 0.024, 0, 1);
+  app.scene.fog.color.copy(_fogA).lerp(_fogB, thick);
+  app.harbor.skyUniforms.uFogCol.value.copy(app.scene.fog.color);
+  app.harbor.skyUniforms.uFogMix.value = clamp(thick * 1.15, 0, 0.96);
   app.harbor.hemi.intensity = app.harbor.hemiBase + flash * 3.5;
   app.harbor.moon.intensity = 0.42 * (1 - w.clouds * 0.45) + flash * 2.2;
   app.harbor.skyUniforms.uClouds.value = w.clouds;

@@ -181,6 +181,8 @@ export class Harbor {
       uFlash: { value: 0 },
       uTime: { value: 0 },
       uClouds: { value: 0.6 },
+      uFogCol: { value: new THREE.Color(PAL.fog) },
+      uFogMix: { value: 0 },
     };
     const mat = new THREE.ShaderMaterial({
       side: THREE.BackSide,
@@ -198,6 +200,7 @@ export class Harbor {
       fragmentShader: /* glsl */ `
         uniform vec3 uTop; uniform vec3 uMid; uniform vec3 uGlow;
         uniform float uFlash; uniform float uTime; uniform float uClouds;
+        uniform vec3 uFogCol; uniform float uFogMix;
         varying vec3 vDir;
         float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
         float noise(vec2 p) {
@@ -228,6 +231,7 @@ export class Harbor {
           float m = dot(d, md);
           col += vec3(0.85, 0.9, 1.0) * smoothstep(0.9993, 0.9996, m) * (1.0 - cover * 0.8);
           col += vec3(0.25, 0.32, 0.45) * pow(max(m, 0.0), 180.0) * 0.6;
+          col = mix(col, uFogCol, uFogMix * (0.55 + 0.45 * smoothstep(0.5, 0.0, h)));
           col += vec3(0.6, 0.7, 1.0) * uFlash * (0.25 + 0.75 * smoothstep(0.6, 0.0, h));
           gl_FragColor = vec4(col, 1.0);
         }
