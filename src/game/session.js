@@ -74,6 +74,7 @@ export class Session extends Emitter {
     this.allow = { x: true, z: true, hoist: true, lock: true }; // tutorial gates
     this.usedContinue = false;
     this.shipIndex = 0;
+    this.shipBase = 0; // boxes delivered before the current ship (Overtime)
     this.seed = opts.seed || Math.floor(Math.random() * 1e9);
     this.loops = {};
     this.sprVis = { pos: new THREE.Vector3(), quat: new THREE.Quaternion(), t: 1 };
@@ -1161,7 +1162,7 @@ export class Session extends Emitter {
     } else this._doneT = 0;
     if (this.time <= 0 && this.phase === 'play') {
       if (this.endless) this._finish(false, 'time');
-      else this._finish(this.delivered >= this.quota, 'time');
+      else this._finish(this.delivered >= Math.ceil(this.quota * 0.6), 'time');
     }
   }
 
@@ -1206,6 +1207,7 @@ export class Session extends Emitter {
         this.cargos = this.cargos.filter((c) => c.state !== 'gone');
         ship.dispose();
         this.shipIndex++;
+        this.shipBase = this.delivered;
         const def = endlessShip(this.shipIndex, this.seed);
         this.level = def;
         this.manifest = def.manifest.slice();
@@ -1472,7 +1474,7 @@ export class Session extends Emitter {
       maxStrikes: this.maxStrikes,
       delivered: this.delivered,
       quota: this.endless ? this.manifest.length : this.quota,
-      shipDelivered: this.endless ? this.manifestIdx - waiting.length - (c && !c.preload ? 1 : 0) : this.delivered,
+      shipDelivered: this.delivered - this.shipBase,
       carry: c,
       seat: s,
       action,

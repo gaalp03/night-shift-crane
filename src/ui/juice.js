@@ -105,9 +105,10 @@ export class Juice {
     setTimeout(() => el.remove(), dur + 50);
   }
 
-  flash() {
-    this.flashEl.classList.remove('on');
+  flash(kind) {
+    this.flashEl.classList.remove('on', 'red');
     void this.flashEl.offsetWidth;
+    if (kind === 'red') this.flashEl.classList.add('red');
     this.flashEl.classList.add('on');
   }
 

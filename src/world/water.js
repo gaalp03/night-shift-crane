@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { PAL } from '../config.js';
 
-const MAX_LIGHTS = 16;
+let MAX_LIGHTS = 16;
 
 // direction (x, z), wavelength, speed, amplitude share
 const WAVES = [
@@ -15,6 +15,9 @@ const WAVES = [
 
 export class Water {
   constructor(scene, { mobile = false } = {}) {
+    // fewer glint lights on phones: the loop runs for every water pixel
+    MAX_LIGHTS = mobile ? 8 : 16;
+    this.maxLights = MAX_LIGHTS;
     const seg = mobile ? 110 : 170;
     const R = 520;
     const geo = new THREE.PlaneGeometry(2, 2, seg, seg);
@@ -181,8 +184,8 @@ export class Water {
   setLights(list) {
     const P = this.uniforms.uLightPos.value;
     const C = this.uniforms.uLightCol.value;
-    const n = Math.min(MAX_LIGHTS, list.length);
-    for (let i = 0; i < MAX_LIGHTS; i++) {
+    const n = Math.min(this.maxLights, list.length);
+    for (let i = 0; i < this.maxLights; i++) {
       if (i < n) {
         P[i].copy(list[i].pos);
         C[i].copy(list[i].color).multiplyScalar(list[i].power == null ? 1 : list[i].power);

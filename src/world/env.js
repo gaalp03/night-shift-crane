@@ -167,6 +167,8 @@ export class Harbor {
     this._props();
     this._skyline();
     this._farPort();
+    this._windsock();
+    this._passingShip();
     this._lights();
   }
 
@@ -795,6 +797,66 @@ export class Harbor {
     this.group.add(g.mesh(MAT.glow, { cast: false, receive: false }));
   }
 
+  // ---------------------------------------------------------------- windsock + far traffic
+
+  _windsock() {
+    const q = DIM.QUAY_Y;
+    const v = new Vox();
+    const px = -1.7;
+    const pz = -15.5;
+    v.cyl(px, q + 0.2, pz, 0.3, 0.4, 0x3a4046, 8);
+    v.cyl(px, q + 3.3, pz, 0.07, 6.2, 0xc9c4b6, 6);
+    this.group.add(v.mesh(MAT.vox));
+    const sock = new THREE.Group();
+    sock.position.set(px, q + 6.3, pz);
+    this.group.add(sock);
+    this.sockSegs = [];
+    let parent = sock;
+    const cols = [0xff6a1a, 0xf1ecdd, 0xff6a1a, 0xf1ecdd, 0xff6a1a];
+    for (let i = 0; i < cols.length; i++) {
+      const seg = new THREE.Group();
+      seg.position.x = i === 0 ? 0.1 : 0.52;
+      parent.add(seg);
+      const r0 = 0.3 - i * 0.045;
+      const geo = new THREE.CylinderGeometry(r0 - 0.045, r0, 0.52, 8, 1, true);
+      geo.rotateZ(-Math.PI / 2);
+      geo.translate(0.26, 0, 0);
+      const m = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: cols[i], side: THREE.DoubleSide }));
+      seg.add(m);
+      this.sockSegs.push(seg);
+      parent = seg;
+    }
+    this.sock = sock;
+    this.sockDroop = 1.2;
+  }
+
+  _passingShip() {
+    const v = new Vox();
+    const g = new Vox();
+    g.shade = false;
+    v.box(0, 3, 0, 13, 8, 86, 0x0d141a);
+    v.box(0, 12, -32, 10, 12, 12, 0x141c23);
+    v.box(0, 20, -32, 3, 6, 3, 0x141c23);
+    for (let i = 0; i < 9; i++) {
+      const hgt = 3 + ((i * 5) % 3) * 2.6;
+      v.box(0, 7 + hgt / 2, -18 + i * 6.6, 11, hgt, 6.2, [0x241a18, 0x16242a, 0x26221a, 0x171d2a][i % 4]);
+    }
+    for (let i = 0; i < 6; i++) g.box(-5.1, 13 + (i % 2) * 2.4, -36 + Math.floor(i / 2) * 3.2, 0.1, 0.9, 1.4, i % 3 ? 0xffd9a0 : 0xbfe3ff, null, 0.8);
+    g.box(0, 24, -32, 0.8, 0.8, 0.8, 0xfff2d0);
+    g.box(-6.6, 8, 38, 0.6, 0.6, 0.6, 0xff4a3a);
+    g.box(0, 9.5, 42, 0.6, 0.6, 0.6, 0xfff2d0);
+    const grp = new THREE.Group();
+    grp.add(v.mesh(new THREE.MeshBasicMaterial({ vertexColors: true, fog: false }), { cast: false, receive: false }));
+    const gm = new THREE.MeshBasicMaterial({ vertexColors: true, fog: false });
+    gm.color.setScalar(1.5);
+    grp.add(g.mesh(gm, { cast: false, receive: false }));
+    grp.position.set(175, -1.5, -420);
+    this.group.add(grp);
+    this.farShip = grp;
+    this.farShipT = 20;
+    this.farShipGo = false;
+  }
+
   /** Lamp positions (and colours) nearest to the play area, for water glints. */
   glintLights() {
     const out = [];
@@ -808,7 +870,33 @@ export class Harbor {
     this.lighthouseGlow.material.opacity = v;
   }
 
-  update(dt, t, flash = 0) {
+  update(dt, t, flash = 0, weather = null) {
+    // windsock: swings to the wind, lifts with its strength
+    if (weather && this.sock) {
+      const sp = weather.windSpeed;
+      const lift = Math.min(1, sp / 1.6);
+      this.sock.rotation.y = -weather.windAngle + Math.sin(t * 1.7) * 0.08 * (1 - lift * 0.5);
+      this.sockDroop += ((1 - lift) * 1.25 + 0.06 - this.sockDroop) * Math.min(1, dt * 2.5);
+      for (let i = 0; i < this.sockSegs.length; i++) {
+        this.sockSegs[i].rotation.z = -(this.sockDroop / this.sockSegs.length) * (i === 0 ? 1.4 : 1) + Math.sin(t * (5 + sp * 3) + i * 1.3) * 0.07 * (0.3 + lift);
+      }
+    }
+    // a freighter crosses the far channel every few minutes
+    if (this.farShip) {
+      if (this.farShipGo) {
+        this.farShip.position.z += dt * 5.2;
+        if (this.farShip.position.z > 430) {
+          this.farShipGo = false;
+          this.farShipT = 70 + Math.random() * 120;
+        }
+      } else {
+        this.farShipT -= dt;
+        if (this.farShipT <= 0) {
+          this.farShipGo = true;
+          this.farShip.position.z = -430;
+        }
+      }
+    }
     this.skyUniforms.uTime.value = t;
     this.skyUniforms.uFlash.value = flash;
     this.lighthouse.rotation.y = t * 0.55;

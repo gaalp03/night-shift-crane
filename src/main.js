@@ -40,6 +40,7 @@ const app = {
   nowPlaying: null,
   touchMode: isTouchDevice() && isMobile(),
   cabGhost: null,
+  hitStop: 0,
   ambT: { crow: rand(12, 30), bell: rand(8, 20), horn: rand(40, 90), smoke: 0 },
 
   // ---------------------------------------------------------------- queries used by the UI
@@ -361,6 +362,7 @@ function bindSession(s) {
   s.on('flash', () => {
     gfx.flash = 1;
     j.flash();
+    app.hitStop = 0.12;
   });
   s.on('strike', (e) => {
     const left = e.max - e.strikes;
@@ -371,6 +373,7 @@ function bindSession(s) {
       silent: true,
     });
     if (e.reason === 'sea') audio.play('vox_yell', { vol: 0.5, delay: 0.5 });
+    j.flash('red');
   });
   s.on('shipDone', (e) => {
     j.banner('SHIP LOADED', `+${e.bonus} · next vessel inbound`, 3000);
@@ -390,10 +393,14 @@ function bindSession(s) {
   });
   s.on('placed', (e) => {
     if (e.grade === 'perfect' || e.grade === 'great') app.crew.react('cheer', e.grade === 'perfect' ? 1.9 : 1.1);
+    if (e.grade === 'perfect') app.hitStop = 0.07;
   });
   s.on('overboard', () => app.crew.react('wince', 2.6));
   s.on('impact', (e) => {
-    if (e.dv > 7) app.crew.react('duck', 1.2);
+    if (e.dv > 7) {
+      app.crew.react('duck', 1.2);
+      app.hitStop = Math.max(app.hitStop, 0.05);
+    }
   });
 }
 
@@ -715,7 +722,12 @@ function frame(now) {
 function tick(raw) {
   input.poll();
   const frozen = app.mode === 'paused' || sdk.adActive;
-  const dt = frozen ? 0 : raw;
+  // hit-stop: a few frozen frames on the big moments
+  let dt = frozen ? 0 : raw;
+  if (app.hitStop > 0 && !frozen) {
+    app.hitStop -= raw;
+    dt = raw * 0.05;
+  }
   app.time += dt;
   const s = app.session;
 
@@ -733,7 +745,7 @@ function tick(raw) {
   const focus = app.cams.focus;
   app.weather.update(dt, app.camera, focus, window.innerHeight * gfx.pixelRatio);
   const flash = app.weather.flash;
-  app.harbor.update(dt, app.time, flash);
+  app.harbor.update(dt, app.time, flash, app.weather);
   const gantryMove = s ? Math.abs(s.rig.vz) / 4.8 : 0;
   app.crane.update(dt, app.time, gantryMove);
   if (s) {
