@@ -278,7 +278,7 @@ export const UPGRADES = [
     icon: 'sway',
     desc: 'The load stops swinging sooner.',
     costs: [260, 560, 980, 1600],
-    stat: (l) => `+${l * 40}% damping`,
+    stat: (l) => `+${l * 27}% damping`,
   },
   {
     id: 'guide',
@@ -312,7 +312,7 @@ export function upgradeMods(levels = {}) {
     trolley: 1 + 0.09 * l('trolley'),
     gantry: 1 + 0.09 * l('trolley'),
     hoist: 1 + 0.11 * l('hoist'),
-    swayMul: 1 + 0.4 * l('sway'),
+    swayMul: 1 + 0.27 * l('sway'),
     tolMul: 1 + 0.12 * l('guide'),
     assist: 1 + 0.35 * l('guide'),
     timeMul: 1 + 0.08 * l('clock'),

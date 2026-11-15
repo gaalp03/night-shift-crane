@@ -90,7 +90,7 @@ export const TUNE = {
   gantryAccel: 4.2,
   hoistSpeed: 6.4,
   hoistAccel: 26,
-  swayDamp: 0.45, // base horizontal damping on the hanging load
+  swayDamp: 1.3, // base horizontal damping on the hanging load (relative to the trolley)
   lockTol: 0.52, // max horizontal error (m) for a twist-lock placement
   grabTolX: 0.78,
   grabTolZ: 1.1,

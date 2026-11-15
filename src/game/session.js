@@ -215,14 +215,14 @@ export class Session extends Emitter {
   update(dt) {
     const run = this.phase === 'play' || this.phase === 'swap' || this.phase === 'pre' || this.phase === 'over';
     if (!run) return;
-    this.acc += Math.min(dt, 0.1);
-    let n = 0;
-    while (this.acc >= STEP && n < 4) {
-      this._fixedStep(STEP);
-      this.acc -= STEP;
-      n++;
+    // Semi-variable timestep: one physics step per rendered frame (so motion is perfectly smooth at
+    // any refresh rate), split into several when a frame runs long so no step exceeds 1/50 s.
+    const frame = Math.min(dt, 0.1);
+    if (frame > 1e-5) {
+      const n = Math.max(1, Math.ceil(frame / 0.02));
+      const h = frame / n;
+      for (let i = 0; i < n; i++) this._fixedStep(h);
     }
-    if (this.acc > STEP * 2) this.acc = 0;
 
     if (this.phase === 'play') {
       this.elapsed += dt;
@@ -275,6 +275,7 @@ export class Session extends Emitter {
 
   _fixedStep(h, warm = false) {
     this.simT += h;
+    this.phys.world.timestep = h;
     const rig = this.rig;
     const w = this.ctx.weather.wind;
     this.env.wind.x = w.x * this.windScale;
@@ -956,16 +957,18 @@ export class Session extends Emitter {
       // relative to the ship if it is riding the deck (so swell does not count as motion)
       if (speed < 0.7 && spin < 0.6) {
         c.restT += h;
-        if (upY < 0.6) c.sideT += h;
+        // leaning badly, or come to rest where the crane cannot reach it: either way it is a write-off
+        const reach = t.x > DIM.TROLLEY_MIN_X - 0.8 && t.x < DIM.TROLLEY_MAX_X + 0.8 && Math.abs(t.z) < DIM.GANTRY_RANGE + 0.8;
+        if (upY < 0.93 || !reach) c.sideT += h * (upY < 0.6 ? 1.4 : 1);
         else c.sideT = 0;
         if (!c.settled && c.restT > 0.55) this._settleLoose(c);
-        if (c.sideT > 2.6) {
+        if (c.sideT > 3.6) {
           // lying on its side: a write-off
           const pos = new THREE.Vector3(t.x, t.y, t.z);
           this.ctx.fx.dust(t.x, t.y, t.z, 16, 0x7a8086, 4);
           this.ctx.fx.debris(t.x, t.y, t.z, 14, [zoneColor(c.zone), 0x59646d, 0x23292e], t.x < 0 ? DIM.QUAY_Y : undefined, 5);
           audio.play('impact_heavy', { pos });
-          this.emit('burst', { text: 'WRECKED!', pos: pos.clone(), kind: 'bad' });
+          this.emit('burst', { text: reach ? 'WRECKED!' : 'OUT OF REACH!', pos: pos.clone(), kind: 'bad' });
           this._removeCargo(c);
           this._lose(c, 'wreck', pos);
         }
