@@ -9,7 +9,7 @@ onto a rolling ship before it sails.
 - **12 shifts** with escalating mechanics (destination bays, swell, gusts, heavy / fragile / reefer /
   hazmat cargo, fog, discharge orders, a full storm), 1–3 stars each
 - **Overtime**: an endless high-score mode, ship after ship
-- **Workshop** upgrades and crane paint jobs between shifts
+- **Workshop** upgrades and crane paint jobs between shifts, plus a **Logbook** of career stats and commendations
 - Real rigid-body physics: cable-suspended spreader, momentum, wind, a ship that heaves, rolls and
   lists with its load, stacks that can be knocked into the sea
 - Third-person view and a top-down crane-cab view, desktop keyboard / gamepad and mobile touch controls
