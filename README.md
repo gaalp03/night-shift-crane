@@ -1,5 +1,7 @@
 # Night Shift Crane
 
+![Night Shift Crane — carrying a heavy box over a rolling deck](docs/screenshot-play.jpg)
+
 A 3D harbour-crane stacking game for the browser. Run ship-to-shore crane 07 through the graveyard
 shift: lift containers off the trucks, fight the swing, the wind and the swell, and twist-lock them
 onto a rolling ship before it sails.
@@ -11,6 +13,8 @@ onto a rolling ship before it sails.
 - Real rigid-body physics: cable-suspended spreader, momentum, wind, a ship that heaves, rolls and
   lists with its load, stacks that can be knocked into the sea
 - Third-person view and a top-down crane-cab view, desktop keyboard / gamepad and mobile touch controls
+
+![Title screen](docs/screenshot-title.jpg)
 
 ## Play
 
