@@ -20,6 +20,7 @@ import { CameraRig } from './game/cameras.js';
 import { Session } from './game/session.js';
 import { Tutorial } from './game/tutorial.js';
 import { SHIFTS, endlessShip, upgradeMods } from './game/levels.js';
+import { checkAwards } from './game/awards.js';
 import { Juice } from './ui/juice.js';
 import { Hud } from './ui/hud.js';
 import { TouchControls } from './ui/touch.js';
@@ -94,6 +95,9 @@ const app = {
   },
   openEndlessBriefing() {
     app.screens.endlessBriefing();
+  },
+  openLogbook() {
+    app.screens.logbook();
   },
   reopenResults() {
     if (app.lastResult) app.screens.results(app.lastResult.res, app.lastResult.meta);
@@ -455,6 +459,8 @@ async function onFinish(s, res) {
   d.stats.lost += res.stats.lost;
   d.stats.perfects += res.stats.perfect;
   d.stats.earned += payout;
+  d.stats.bestCombo = Math.max(d.stats.bestCombo || 0, res.bestCombo);
+  const fresh = checkAwards(d, res, level);
   save.commit(true);
   const idx = SHIFTS.indexOf(level);
   const meta = { level, payout, newStars, newBest, endless, nextLevel: !endless && res.success && idx >= 0 && idx < SHIFTS.length - 1 ? SHIFTS[idx + 1] : null };
@@ -475,6 +481,14 @@ async function onFinish(s, res) {
   audio.play('ui_open');
   app.screens.results(res, meta);
   if (endless && newBest) sdk.happytime();
+  // commendations arrive after the report has had its moment
+  fresh.forEach((a, i) =>
+    setTimeout(() => {
+      if (app.mode !== 'results') return;
+      app.juice.toast({ text: `Commendation earned — ${a.name}`, kind: 'good', dur: 4200, silent: true });
+      audio.play('sting_levelup', { vol: 0.8 });
+    }, 4200 + i * 1500)
+  );
 }
 
 // ====================================================================== boot

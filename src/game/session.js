@@ -1090,7 +1090,15 @@ export class Session extends Emitter {
 
   _updateTrucks(dt) {
     const t = this.simT;
-    for (const tr of this.trucks) tr.update(dt, t);
+    for (const tr of this.trucks) {
+      tr.update(dt, t);
+      // an impatient driver leans on the horn now and then
+      if (this.phase === 'play' && tr.state === 'wait' && tr.cargo && tr.purpose === 'deliver' && tr.waitT > (tr.nextHonk || 45)) {
+        tr.nextHonk = tr.waitT + rand(26, 40);
+        audio.play('horn_truck', { pos: tr.group.position, vol: 0.8 });
+        audio.play('horn_truck', { pos: tr.group.position, vol: 0.8, delay: 0.32 });
+      }
+    }
     this.trucks = this.trucks.filter((tr) => tr.state !== 'gone');
     if (this.phase !== 'play' && this.phase !== 'pre') return;
     // lane 1: deliveries

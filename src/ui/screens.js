@@ -3,6 +3,7 @@ import { h, fmtNum, fmtTime, clamp } from '../core/util.js';
 import { ZONES, GAME_VERSION } from '../config.js';
 import { SHIFTS, UPGRADES, starThresholds } from '../game/levels.js';
 import { PAINTS } from '../world/crane.js';
+import { AWARDS } from '../game/awards.js';
 import { icon } from './icons.js';
 import { cargoChip } from './hud.js';
 import { audio } from '../core/audio.js';
@@ -109,6 +110,7 @@ export class Screens {
         h(
           'div.menu-row',
           h('button.btn', { onclick: () => app.openWorkshop('title'), html: icon('wrench') + '<span>Workshop</span>' }),
+          h('button.btn.icon', { title: 'Logbook', onclick: () => app.openLogbook(), html: icon('trophy') }),
           h('button.btn.icon', { title: 'Settings', onclick: () => this.settings('title'), html: icon('gear') }),
           h('button.btn.icon', { title: 'Credits', onclick: () => this.credits(), html: icon('info') })
         )
@@ -413,6 +415,38 @@ export class Screens {
     });
     const card = h('div.card.mid', h('div.card-head', h('h2', 'Credits')), body, h('div.card-foot', h('button.btn.primary', { 'data-sound': 'ui_back', onclick: () => app.gotoTitle(), html: icon('back') + 'Back' })));
     return this._mount('credits', h('div.screen.dim', card));
+  }
+
+  // ====================================================================== logbook
+
+  logbook() {
+    const app = this.app;
+    const d = save.data;
+    const st = d.stats;
+    const got = d.awards || {};
+    const earned = AWARDS.filter((a) => got[a.id]).length;
+    const stat = (k, v) => h('div.stat', h('b', v), h('span', k));
+    const stats = h(
+      'div.stats',
+      stat('Boxes locked', fmtNum(st.placed)),
+      stat('Perfect drops', fmtNum(st.perfects)),
+      stat('Lost at sea', fmtNum(st.lost)),
+      stat('Best combo', 'x' + (st.bestCombo || 0)),
+      stat('Total pay', '$' + fmtNum(st.earned)),
+      stat('Overtime best', fmtNum(d.endless.best || 0))
+    );
+    const list = h('div.awards');
+    for (const a of AWARDS) {
+      const on = !!got[a.id];
+      list.appendChild(h(`div.award${on ? '.on' : ''}`, h('div.seal', { html: icon(on ? a.icon : 'lock') }), h('div.info', h('b', a.name), h('span', a.desc))));
+    }
+    const card = h(
+      'div.card.wide',
+      h('div.card-head', h('h2', 'Logbook'), h('span.pill.star', { html: icon('trophy') + ` ${earned} / ${AWARDS.length}` })),
+      h('div.card-body', stats, h('div.section-label', 'Commendations'), list),
+      h('div.card-foot', h('button.btn.ghost', { 'data-sound': 'ui_back', onclick: () => app.gotoTitle(), html: icon('back') + 'Back' }))
+    );
+    return this._mount('logbook', h('div.screen.dim', card));
   }
 
   // ====================================================================== pause

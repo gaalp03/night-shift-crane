@@ -10,6 +10,7 @@ const defaults = () => ({
   settings: { music: 0.7, sfx: 0.9, quality: 'auto', shake: true, cabDefault: false, hints: true },
   flags: { introSeen: false, tutorialDone: false, endlessSeen: false },
   paint: 'yellow',
+  awards: {},
   stats: { placed: 0, lost: 0, perfects: 0, earned: 0, playSeconds: 0 },
 });
 

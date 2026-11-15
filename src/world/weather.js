@@ -26,6 +26,64 @@ export class Weather {
     this.t = 0;
     this._buildRain(count);
     this._buildSplashes(mobile ? 140 : 260);
+    this._buildBolt();
+  }
+
+  /** A forked bolt far out over the water, re-shaped for every strike. */
+  _buildBolt() {
+    const max = 40;
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(max * 6 * 3), 3));
+    const mat = new THREE.MeshBasicMaterial({ color: 0xdfe8ff, fog: false, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false });
+    mat.color.multiplyScalar(3);
+    this.bolt = new THREE.Mesh(geo, mat);
+    this.bolt.frustumCulled = false;
+    this.bolt.visible = false;
+    this.boltMax = max;
+    this.scene.add(this.bolt);
+  }
+
+  _strike() {
+    // random bearing on the seaward half of the sky
+    const a = -Math.PI * 0.75 + Math.random() * Math.PI * 1.1;
+    const r = 330 + Math.random() * 120;
+    const bx = Math.cos(a) * r + 30;
+    const bz = Math.sin(a) * r - 40;
+    // billboard direction (perpendicular to the view from the pier)
+    const px = -Math.sin(a);
+    const pz = Math.cos(a);
+    const pos = this.bolt.geometry.attributes.position;
+    let n = 0;
+    const seg = (x0, y0, o0, x1, y1, o1, w) => {
+      if (n >= this.boltMax) return;
+      const ax = bx + px * o0;
+      const az = bz + pz * o0;
+      const cx = bx + px * o1;
+      const cz = bz + pz * o1;
+      const i = n * 6;
+      pos.setXYZ(i, ax - px * w, y0, az - pz * w);
+      pos.setXYZ(i + 1, ax + px * w, y0, az + pz * w);
+      pos.setXYZ(i + 2, cx + px * w, y1, cz + pz * w);
+      pos.setXYZ(i + 3, ax - px * w, y0, az - pz * w);
+      pos.setXYZ(i + 4, cx + px * w, y1, cz + pz * w);
+      pos.setXYZ(i + 5, cx - px * w, y1, cz - pz * w);
+      n++;
+    };
+    const branch = (y, o, w, depth) => {
+      while (y > 6 && n < this.boltMax) {
+        const ny = y - rand(14, 30);
+        const no = o + rand(-22, 22);
+        seg(0, y, o, 0, ny, no, w);
+        if (depth < 2 && Math.random() < 0.3) branch(ny, no, w * 0.5, depth + 1);
+        y = ny;
+        o = no;
+        if (depth > 0 && Math.random() < 0.35) break;
+      }
+    };
+    branch(240, rand(-30, 30), 1.7, 0);
+    for (let i = n * 6; i < this.boltMax * 6; i++) pos.setXYZ(i, 0, -999, 0);
+    pos.needsUpdate = true;
+    this.bolt.visible = true;
   }
 
   _buildRain(count) {
@@ -234,6 +292,7 @@ export class Weather {
           [0.5, 0],
         ];
         this.flashT = 0;
+        this._strike();
         if (this.onThunder) this.onThunder(rand(0.5, 1.8));
       }
     }
@@ -246,9 +305,11 @@ export class Weather {
         if (this.flashT >= a[0] && this.flashT < b[0]) v = a[1] + ((b[1] - a[1]) * (this.flashT - a[0])) / (b[0] - a[0]);
       }
       this.flash = v;
+      this.bolt.material.opacity = Math.min(1, v * 1.4);
       if (this.flashT > 0.5) {
         this.flashSeq = [];
         this.flash = 0;
+        this.bolt.visible = false;
       }
     }
   }
