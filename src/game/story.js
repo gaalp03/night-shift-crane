@@ -26,6 +26,12 @@ export const SHIFT_OPEN = {
   s12: [D('Last ship before dawn, Seven. Whatever you have been doing with those boxes — finish it.')],
 };
 
+/** Small beats mid-shift, keyed by how many boxes are down (first play of the shift only). */
+export const SHIFT_BEATS = {
+  s01: { at: 3, lines: [D('Not bad for a first night. The harbour is quiet — enjoy it while it lasts.')] },
+  s02: { at: 4, lines: [U('Crane Seven. You have steady hands. We will be in touch.', 3400), D('Seven, did somebody just key this channel? …Never mind. Carry on.')] },
+};
+
 /** Explains the spot check the first time an amber-sealed box parks. */
 export const CHECK_INTRO = [
   D('That one has a customs seal. Lift it clear and hold it still — your load cell does the rest.'),

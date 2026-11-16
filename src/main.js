@@ -27,7 +27,7 @@ import { TouchControls } from './ui/touch.js';
 import { Screens } from './ui/screens.js';
 import { Radio } from './ui/radio.js';
 import { DeepLight } from './world/deep.js';
-import { SHIFT_OPEN, CHECK_INTRO, BLACK_BOXES, BLACKOUT, SMUGGLE_FOUND, epilogue } from './game/story.js';
+import { SHIFT_OPEN, SHIFT_BEATS, CHECK_INTRO, BLACK_BOXES, BLACKOUT, SMUGGLE_FOUND, epilogue } from './game/story.js';
 
 const $ = (id) => document.getElementById(id);
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -520,6 +520,11 @@ function bindSession(s) {
     if (Math.random() < 0.4) audio.play('vox_laugh', { delay: 0.6, vol: 0.5 });
   });
   s.on('placed', (e) => {
+    const beat = SHIFT_BEATS[s.level.id];
+    if (beat && !s._beatDone && s.delivered >= beat.at && !(save.data.shifts[s.level.id] || {}).stars) {
+      s._beatDone = true;
+      app.after(1.6, () => app.radio.say(beat.lines), s);
+    }
     if (e.grade === 'perfect' || e.grade === 'great') app.crew.react('cheer', e.grade === 'perfect' ? 1.9 : 1.1);
     if (e.grade === 'perfect') {
       app.hitStop = 0.07;

@@ -164,7 +164,7 @@ export const SHIFTS = [
     blurb: 'Everything at once. Last ship before dawn — bring it home.',
     ship: { rows: 4, bays: 3, tiers: 3, style: 4, name: 'MV LOW TIDE', zones: ['OSL', 'ROT', 'SIN'] },
     preload: [{ r: 0, b: 0, n: 2, zone: 'OSL' }, { r: 3, b: 2, n: 2, zone: 'SIN' }, { r: 1, b: 1, n: 1, zone: 'ROT' }, { r: 2, b: 1, n: 1, zone: 'ROT' }],
-    manifest: [C('ROT'), C('OSL', 'heavy'), C('SIN', 'reefer'), C('ROT', 'fragile'), K('OSL', true), C('SIN', 'hazmat'), C('ROT', 'heavy'), B(), C('OSL', 'reefer'), C('SIN'), C('ROT'), C('OSL', 'fragile')],
+    manifest: [C('ROT'), C('OSL', 'heavy'), C('SIN', 'reefer'), C('ROT', 'heavy'), K('OSL', true), C('SIN', 'hazmat'), C('ROT', 'fragile'), B(), C('OSL', 'reefer'), C('SIN'), C('ROT'), C('OSL', 'fragile')],
     time: 530,
     events: [{ type: 'blackout', at: 150, dur: 26, deep: true }],
     weather: { rain: 1, wind: 1.7, windDir: 0.35, gusts: 0.9, fog: 0.016, sea: 0.95, storm: 1, clouds: 1 },
