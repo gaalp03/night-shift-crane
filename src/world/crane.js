@@ -425,19 +425,37 @@ export class CraneView {
     const halo = glowSprite(PAL.sodiumHot, 5, 0.9);
     halo.position.set(0, -0.7, 0);
     this.trolley.add(halo);
+    this.workHalo = halo;
 
     // decorative floods along the boom (halo + cone only)
+    this.floodGlows = [];
+    this.floodCones = [];
     for (let i = 0; i < this.floodPositions.length; i++) {
       const p = this.floodPositions[i];
       const h = glowSprite(PAL.sodiumHot, 3.6, 0.75);
       h.position.copy(p);
       this.gantry.add(h);
+      this.floodGlows.push(h);
       if (i % 2 === 0 && !this.mobile) {
         const c = lightCone(PAL.sodium, 7.5, 21, 0.05);
         c.position.copy(p);
         this.gantry.add(c);
+        this.floodCones.push(c);
       }
     }
+    this.power = 1;
+  }
+
+  /** Mains power 0..1: the boom floods go out with the quay, the trolley lamp falls back to its battery. */
+  setPower(k) {
+    if (Math.abs(k - this.power) < 0.004) return;
+    this.power = k;
+    for (const h of this.floodGlows) h.material.opacity = 0.75 * k;
+    for (const c of this.floodCones) c.material.uniforms.uOpacity.value = 0.05 * k;
+    const batt = 0.62 + 0.38 * k;
+    this.workLight.intensity = 27 * batt;
+    this.workCone.material.uniforms.uOpacity.value = 0.07 * batt;
+    this.workHalo.material.opacity = 0.9 * batt;
   }
 
   /** The portal number plates would hang right under the cab camera: hide them in that view. */

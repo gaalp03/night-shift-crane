@@ -27,6 +27,7 @@ const REG = {
 
 const matCache = new Map();
 let geoCache = null;
+let seamGeo = null;
 
 function shade(hex, f) {
   const c = new THREE.Color(hex);
@@ -241,7 +242,114 @@ function snowflake(g, cx, cy, s, col) {
   }
 }
 
-function buildAtlas(zoneId, type, brandIdx, seed) {
+/** Amber customs tape wrapped round a spot-check box, readable from the side, the door and the roof. */
+function sealBand(g, x, y, w, h, vertical) {
+  g.save();
+  g.beginPath();
+  g.rect(x, y, w, h);
+  g.clip();
+  g.fillStyle = '#f2a81d';
+  g.fillRect(x, y, w, h);
+  g.fillStyle = '#16181a';
+  const step = vertical ? w * 1.5 : h * 1.5;
+  if (vertical) for (let py = y - w; py < y + h + w; py += step) g.fillRect(x, py, w, w * 0.34);
+  else for (let px = x - h; px < x + w + h; px += step) g.fillRect(px, y, h * 0.34, h);
+  g.restore();
+}
+
+function sealPlate(g, cx, cy, s) {
+  g.fillStyle = '#16181a';
+  g.fillRect(cx - s * 0.62, cy - s * 0.62, s * 1.24, s * 1.24);
+  g.fillStyle = '#f2a81d';
+  g.fillRect(cx - s * 0.54, cy - s * 0.54, s * 1.08, s * 1.08);
+  g.fillStyle = '#16181a';
+  g.font = `${s}px "Saira Stencil One", "Arial Black", sans-serif`;
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.fillText('?', cx, cy + s * 0.06);
+}
+
+/** The unlisted boxes: bare black steel, a ground-off serial, salt creeping out of the seams. */
+function buildBlackAtlas(seed) {
+  const rng = makeRng(seed * 131 + 9);
+  const c = makeCanvas(AT, AT);
+  const g = c.getContext('2d');
+  const salt = (x, y, w, h, n) => {
+    for (let i = 0; i < n; i++) {
+      const sx = x + rng() * w;
+      const len = 14 + rng() * h * 0.45;
+      const grd = g.createLinearGradient(0, y + h - len, 0, y + h);
+      grd.addColorStop(0, 'rgba(190,225,215,0)');
+      grd.addColorStop(1, `rgba(190,225,215,${0.1 + rng() * 0.16})`);
+      g.fillStyle = grd;
+      g.fillRect(sx, y + h - len, 2 + rng() * 6, len);
+    }
+  };
+  const panel = (reg, pitch) => {
+    const [x, y, w, h] = reg;
+    corrugate(g, x, y, w, h, '#17191c', pitch);
+    for (let i = 0; i < 16; i++) {
+      g.fillStyle = `rgba(255,255,255,${0.02 + rng() * 0.035})`;
+      g.fillRect(x + rng() * w, y + rng() * h, 8 + rng() * 50, 1 + rng() * 2);
+    }
+    salt(x, y, w, h, 12);
+    frame(g, x, y, w, h, '#0c0d0f', 9);
+    return [x, y, w, h];
+  };
+  {
+    const [x, y, w, h] = panel(REG.side, 13);
+    // where the owner's name used to be: ground back to bright steel, then one word scratched in by hand
+    g.fillStyle = 'rgba(120,128,134,0.22)';
+    g.fillRect(x + 70, y + h * 0.3, 250, 46);
+    g.strokeStyle = 'rgba(200,214,220,0.34)';
+    g.lineWidth = 2;
+    g.font = 'italic 700 25px "Barlow Condensed", Arial, sans-serif';
+    g.textAlign = 'left';
+    g.textBaseline = 'middle';
+    g.strokeText('NOCTILUCA', x + 84, y + h * 0.3 + 24);
+    small(g, 'NO. ——— ——— —', x + w - 26, y + 34, 22, 'rgba(210,220,224,0.3)', 'right');
+  }
+  {
+    const [x, y, w, h] = REG.top;
+    g.fillStyle = '#141619';
+    g.fillRect(x, y, w, h);
+    for (let px = x; px < x + w; px += 22) {
+      g.fillStyle = 'rgba(0,0,0,0.3)';
+      g.fillRect(px + 14, y, 6, h);
+      g.fillStyle = 'rgba(255,255,255,0.04)';
+      g.fillRect(px + 2, y, 5, h);
+    }
+    for (let i = 0; i < 9; i++) {
+      g.fillStyle = `rgba(150,220,205,${0.05 + rng() * 0.08})`;
+      g.beginPath();
+      g.ellipse(x + rng() * w, y + rng() * h, 14 + rng() * 44, 6 + rng() * 16, 0, 0, Math.PI * 2);
+      g.fill();
+    }
+    frame(g, x, y, w, h, '#0c0d0f', 8);
+  }
+  {
+    const [x, y, w, h] = panel(REG.door, 16);
+    g.fillStyle = 'rgba(0,0,0,0.5)';
+    g.fillRect(x + w / 2 - 2, y, 4, h);
+    for (const rx of [0.2, 0.38, 0.62, 0.8]) {
+      g.fillStyle = '#3a3f44';
+      g.fillRect(x + w * rx - 2, y + 8, 4, h - 16);
+    }
+    // welded shut
+    g.fillStyle = '#5a6066';
+    for (let i = 0; i < 5; i++) g.fillRect(x + w / 2 - 7, y + 14 + i * 22, 14, 9);
+  }
+  panel(REG.front, 12);
+  {
+    const [x, y, w, h] = REG.bottom;
+    g.fillStyle = '#0a0b0c';
+    g.fillRect(x, y, w, h);
+  }
+  return canvasTexture(c, { aniso: 8 });
+}
+
+function buildAtlas(zoneId, type, brandIdx, seed, sealed) {
+  if (type === 'black') return buildBlackAtlas(seed);
   const zone = ZONES[zoneId] || ZONES.ANY;
   const brand = BRANDS[brandIdx % BRANDS.length];
   const rng = makeRng(seed * 977 + brandIdx * 31 + 5);
@@ -292,6 +400,10 @@ function buildAtlas(zoneId, type, brandIdx, seed) {
       small(g, 'KEEP COLD', x + 350, y + h * 0.36 + 40, 18, zoneCss, 'center');
     }
     weather(g, x, y, w, h, rng, type === 'heavy' ? 1.6 : 1);
+    if (sealed) {
+      sealBand(g, x + 236, y, 26, h, true);
+      sealPlate(g, x + 249, y + h * 0.5, 40);
+    }
     frame(g, x, y, w, h, bodyDark, 9);
   }
 
@@ -324,6 +436,10 @@ function buildAtlas(zoneId, type, brandIdx, seed) {
     if (type === 'hazmat') diamond(g, x + 120, y + h / 2, 50, '#e8731e', 'flame');
     if (type === 'fragile') glassIcon(g, x + 110, y + h / 2, 70, '#f1ecdd');
     if (isReefer) snowflake(g, x + 110, y + h / 2, 56, zoneCss);
+    if (sealed) {
+      sealBand(g, x + 236, y, 26, h, true);
+      sealPlate(g, x + 249, y + h * 0.5, 44);
+    }
     // puddles / grime
     for (let i = 0; i < 10; i++) {
       g.fillStyle = `rgba(8,12,16,${0.08 + rng() * 0.12})`;
@@ -350,6 +466,10 @@ function buildAtlas(zoneId, type, brandIdx, seed) {
     small(g, zone.id === 'ANY' ? 'GEN' : zone.id, x + w * 0.72, y + 26, 18, ink, 'center');
     small(g, 'MAX 30480', x + w * 0.29, y + 26, 11, ink, 'center');
     if (type === 'hazmat') diamond(g, x + w * 0.29, y + h * 0.36, 26, '#e8731e', 'flame');
+    if (sealed) {
+      sealBand(g, x, y + h * 0.7, w, 14, false);
+      sealPlate(g, x + w / 2, y + h * 0.5, 26);
+    }
     weather(g, x, y, w, h, rng, 0.5);
     frame(g, x, y, w, h, bodyDark, 7);
   }
@@ -424,13 +544,14 @@ function containerGeometry() {
   return g;
 }
 
-function materialFor(zoneId, type, brandIdx, mobile) {
-  const key = `${zoneId}:${type}:${brandIdx}`;
+function materialFor(zoneId, type, brandIdx, mobile, sealed) {
+  const black = type === 'black';
+  const key = black ? 'black' : `${zoneId}:${type}:${brandIdx}${sealed ? ':seal' : ''}`;
   if (!matCache.has(key)) {
-    const map = buildAtlas(zoneId, type, brandIdx, matCache.size + 3);
+    const map = buildAtlas(zoneId, type, brandIdx, matCache.size + 3, sealed);
     const mat = mobile
-      ? new THREE.MeshPhongMaterial({ map, shininess: 26, specular: 0x24282c })
-      : new THREE.MeshStandardMaterial({ map, roughness: 0.58, metalness: 0.12 });
+      ? new THREE.MeshPhongMaterial({ map, shininess: black ? 60 : 26, specular: black ? 0x35454a : 0x24282c })
+      : new THREE.MeshStandardMaterial({ map, roughness: black ? 0.34 : 0.58, metalness: black ? 0.5 : 0.12 });
     matCache.set(key, mat);
   }
   return matCache.get(key);
@@ -439,7 +560,7 @@ function materialFor(zoneId, type, brandIdx, mobile) {
 let nextId = 1;
 
 export class Cargo {
-  constructor({ zone = 'ANY', type = 'std', brand = 0, mobile = false }) {
+  constructor({ zone = 'ANY', type = 'std', brand = 0, mobile = false, check = false }) {
     this.id = nextId++;
     this.zone = zone;
     this.type = type;
@@ -467,14 +588,50 @@ export class Cargo {
     this.discharge = false; // marked for unloading
     this.broken = false;
     this.temp = 1; // reefer freshness 1..0
+    this.check = check; // customs spot check: weigh before loading
+    this.contra = false; // the weight does not match the papers
+    this.weighed = null; // null | 'match' | 'mismatch'
+    this.declT = 0; // declared tonnes
+    this.realT = 0; // what the load cell will read
+    this.black = type === 'black';
 
     this.mesh = new THREE.Group();
-    const box = new THREE.Mesh(containerGeometry(), materialFor(zone, type, brand, mobile));
+    const box = new THREE.Mesh(containerGeometry(), materialFor(zone, type, brand, mobile, check));
     box.castShadow = true;
     box.receiveShadow = true;
     this.mesh.add(box);
     this.box = box;
     this.mesh.userData.cargo = this;
+    if (this.black) this._seam();
+  }
+
+  /** A cold light leaking from the door seam and under the floor of a black box. */
+  _seam() {
+    const mat = new THREE.MeshBasicMaterial({ color: 0x6dffd9, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false, fog: true });
+    const bars = new THREE.Group();
+    const bar = (w, h, d, x, y, z) => {
+      const m = new THREE.Mesh(seamGeo || (seamGeo = new THREE.BoxGeometry(1, 1, 1)), mat);
+      m.scale.set(w, h, d);
+      m.position.set(x, y, z);
+      bars.add(m);
+    };
+    bar(0.05, DIM.CONT_H - 0.5, 0.03, 0, 0, this.hz + 0.012); // door split
+    bar(DIM.CONT_W - 0.4, 0.035, 0.03, 0, -this.hy + 0.16, this.hz + 0.012); // door sill
+    bar(0.03, 0.035, DIM.CONT_L - 0.5, this.hx + 0.012, -this.hy + 0.14, 0);
+    bar(0.03, 0.035, DIM.CONT_L - 0.5, -this.hx - 0.012, -this.hy + 0.14, 0);
+    this.box.add(bars);
+    this.seamMat = mat;
+    this.seamT = Math.random() * 10;
+    this.pulse = 0; // kicked to 1 when it thumps
+  }
+
+  /** Slow breathing glow; flares when the thing inside moves. */
+  updateGlow(dt) {
+    if (!this.seamMat) return;
+    this.seamT += dt;
+    this.pulse = Math.max(0, this.pulse - dt * 1.8);
+    const breathe = 0.5 + 0.5 * Math.sin(this.seamT * 1.15);
+    this.seamMat.opacity = 0.22 + 0.36 * breathe * breathe + this.pulse * 0.9;
   }
 
   /** Top-centre in world space. */
@@ -484,6 +641,10 @@ export class Cargo {
 
   dispose(scene) {
     if (this.mesh.parent) this.mesh.parent.remove(this.mesh);
+    if (this.seamMat) {
+      this.seamMat.dispose();
+      this.seamMat = null;
+    }
   }
 }
 

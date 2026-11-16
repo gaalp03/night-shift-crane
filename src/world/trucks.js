@@ -5,11 +5,13 @@ import { DIM } from '../config.js';
 import { clamp, damp } from '../core/util.js';
 
 const CAB_COLORS = [0xe2ddd0, 0xe8a61c, 0x34609f, 0xc23d2b, 0x2c8f85];
+const CUSTOMS_CAB = 0x1f4f9c; // harbour customs: blue cab, white band, blue strobe
+const UNMARKED_CAB = 0x121416; // the trucks with no plates
 const SPAWN_Z = -74;
 const EXIT_Z = 86;
 
 let geoCache = null;
-function truckGeometry(cabColor) {
+function truckGeometry(cabColor, livery) {
   const v = new Vox();
   const g = new Vox();
   g.shade = false;
@@ -29,11 +31,22 @@ function truckGeometry(cabColor) {
   v.box(0.75, 1.5, cz + 0.2, 0.6, 0.9, 1.4, 0x3a4248); // engine cover
   v.cyl(0.95, 2.6, cz - 0.55, 0.09, 1.9, 0x8a949b, 6); // exhaust
   for (const z of [cz - 1.1, cz + 0.9]) for (const sx of [-1, 1]) v.cyl(sx * 1.05, 0.5, z, 0.5, 0.42, 0x0e1012, 10, 1, [0, 0, Math.PI / 2]);
-  v.box(0, 0.62, cz + 1.4, 2.3, 0.3, 0.2, 0x8a949b); // bumper
+  v.box(0, 0.62, cz + 1.4, 2.3, 0.3, 0.2, livery === 'unmarked' ? 0x1c1f22 : 0x8a949b); // bumper
+  if (livery === 'customs') {
+    v.box(-0.35, 1.72, cz + 0.3, 1.54, 0.3, 1.74, 0xe9edf0); // white band round the cab
+    v.box(-0.35, 3.08, cz + 0.3, 0.9, 0.16, 0.3, 0x2a3035); // light bar
+    for (const sx of [-1, 1]) v.box(sx * 1.16, bed - 0.12, -0.1, 0.04, 0.2, 6.6, 0x1f4f9c); // blue chassis rail
+  }
   // glass + lights
   g.box(-0.35, 2.25, cz + 1.16, 1.3, 0.8, 0.04, 0x7fb8d8, null, 0.25);
-  g.box(-0.75, 0.95, cz + 1.42, 0.34, 0.2, 0.06, 0xfff2d0);
-  g.box(0.75, 0.95, cz + 1.42, 0.34, 0.2, 0.06, 0xfff2d0);
+  if (livery !== 'unmarked') {
+    g.box(-0.75, 0.95, cz + 1.42, 0.34, 0.2, 0.06, 0xfff2d0);
+    g.box(0.75, 0.95, cz + 1.42, 0.34, 0.2, 0.06, 0xfff2d0);
+  } else {
+    // running on sidelights only
+    g.box(-0.75, 0.95, cz + 1.42, 0.2, 0.1, 0.06, 0x8c7a5a, null, 0.5);
+    g.box(0.75, 0.95, cz + 1.42, 0.2, 0.1, 0.06, 0x8c7a5a, null, 0.5);
+  }
   g.box(-0.9, 0.78, -3.83, 0.3, 0.16, 0.04, 0xff2a1e, null, 0.6);
   g.box(0.9, 0.78, -3.83, 0.3, 0.16, 0.04, 0xff2a1e, null, 0.6);
   return { body: v.build(), glow: g.build() };
@@ -61,10 +74,12 @@ export class Truck {
     this.bounceV = 0;
     this.id = Truck._n = (Truck._n || 0) + 1;
 
-    const col = CAB_COLORS[(opts.color || 0) % CAB_COLORS.length];
+    this.livery = opts.livery || (this.purpose === 'customs' ? 'customs' : null);
+    const col = this.livery === 'customs' ? CUSTOMS_CAB : this.livery === 'unmarked' ? UNMARKED_CAB : CAB_COLORS[(opts.color || 0) % CAB_COLORS.length];
     geoCache = geoCache || new Map();
-    if (!geoCache.has(col)) geoCache.set(col, truckGeometry(col));
-    const geo = geoCache.get(col);
+    const gkey = col + ':' + (this.livery || '');
+    if (!geoCache.has(gkey)) geoCache.set(gkey, truckGeometry(col, this.livery));
+    const geo = geoCache.get(gkey);
     this.group = new THREE.Group();
     const m = new THREE.Mesh(geo.body, MAT.vox);
     m.castShadow = true;
@@ -73,14 +88,18 @@ export class Truck {
     const gm = new THREE.Mesh(geo.glow, MAT.glow);
     this.group.add(gm);
     // headlight throw + amber roof beacon
-    const cone = lightCone(0xfff2d0, 3.4, 15, 0.1);
-    cone.rotation.x = -Math.PI / 2 + 0.12;
-    cone.position.set(0, 0.95, 6.2);
-    this.group.add(cone);
-    const h1 = glowSprite(0xfff2d0, 2.4, 0.9);
-    h1.position.set(0, 0.95, 6.3);
-    this.group.add(h1);
-    this.beacon = glowSprite(0xffa020, 1.6, 1);
+    const dark = this.livery === 'unmarked';
+    if (!dark) {
+      const cone = lightCone(0xfff2d0, 3.4, 15, 0.1);
+      cone.rotation.x = -Math.PI / 2 + 0.12;
+      cone.position.set(0, 0.95, 6.2);
+      this.group.add(cone);
+      const h1 = glowSprite(0xfff2d0, 2.4, 0.9);
+      h1.position.set(0, 0.95, 6.3);
+      this.group.add(h1);
+    }
+    this.beacon = glowSprite(this.livery === 'customs' ? 0x3d8bff : 0xffa020, this.livery === 'customs' ? 2.3 : 1.6, 1);
+    this.beacon.visible = !dark;
     this.beacon.position.set(-0.35, 3.1, 5.05);
     this.group.add(this.beacon);
     this.group.position.set(this.laneX, DIM.QUAY_Y, this.z);
@@ -198,7 +217,11 @@ export class Truck {
     this.bounce += this.bounceV * dt;
     const idle = this.state === 'wait' ? Math.sin(t * 31 + this.id) * 0.006 : 0;
     this.group.position.set(this.laneX, DIM.QUAY_Y + this.bounce * 0.05 + idle, this.z);
-    this.beacon.material.opacity = (t * 1.7 + this.id * 0.37) % 1 < 0.28 ? 1 : 0.1;
+    if (this.livery === 'customs') {
+      // double-flash strobe
+      const ph = (t * 1.25 + this.id * 0.37) % 1;
+      this.beacon.material.opacity = ph < 0.07 || (ph > 0.14 && ph < 0.21) ? 1 : 0.06;
+    } else this.beacon.material.opacity = (t * 1.7 + this.id * 0.37) % 1 < 0.28 ? 1 : 0.1;
   }
 
   dispose() {

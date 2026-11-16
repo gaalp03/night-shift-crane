@@ -158,6 +158,10 @@ export class Harbor {
     this.flickers = [];
     this.blinkers = [];
     this.lampHeads = []; // world positions, used for water glints
+    this.power = 1; // quay mains: set to 0 for a power cut
+    this.powerNow = 1;
+    this.surge = 0; // seconds of nervous flicker (something is upsetting the grid)
+    this.hemiPower = 1;
     this.aniso = aniso;
     this._sky();
     this._quay();
@@ -968,14 +972,30 @@ export class Harbor {
       const ph = (t * b.rate + b.phase) % 1;
       b.s.material.opacity = ph < b.duty ? 1 : 0.05;
     }
-    for (const f of this.flickers) {
-      const n = noise1(t * 9.0) * 0.5 + 0.5;
-      const dip = n > 0.72 ? 0.25 + 0.5 * (noise1(t * 43.0) * 0.5 + 0.5) : 1;
-      f.halo.material.opacity = 0.95 * dip;
-      f.cone.material.uniforms.uOpacity.value = 0.075 * dip;
-      f.pool.material.opacity = 0.1 * dip;
-      if (f.light) f.light.intensity = f.baseIntensity * dip;
-      f.flick = dip;
+    // mains power: 1 = lit, 0 = substation tripped. Lamps die and come back unevenly, like the real thing.
+    this.powerNow += (this.power - this.powerNow) * Math.min(1, dt * (this.power > this.powerNow ? 1.6 : 5));
+    const pw = this.powerNow;
+    const settling = Math.abs(this.power - pw) > 0.03 || this.surge > 0;
+    if (this.surge > 0) this.surge -= dt;
+    for (let i = 0; i < this.lampHeads.length; i++) {
+      const f = this.lampHeads[i];
+      let dip = 1;
+      if (this.flickers.includes(f)) {
+        const n = noise1(t * 9.0) * 0.5 + 0.5;
+        dip = n > 0.72 ? 0.25 + 0.5 * (noise1(t * 43.0) * 0.5 + 0.5) : 1;
+      }
+      let k = pw;
+      if (settling) k = Math.max(0, Math.min(1, pw + (noise1(t * 31 + i * 7.3) > 0.2 ? 0.35 : -0.5) * (1 - Math.abs(pw * 2 - 1) * 0.4)));
+      if (this.surge > 0) k *= noise1(t * 47 + i * 3.1) > -0.1 ? 1 : 0.25;
+      const v = dip * k;
+      if (f.vis === v) continue;
+      f.vis = v;
+      f.halo.material.opacity = 0.95 * v;
+      f.cone.material.uniforms.uOpacity.value = (this.mobile ? 0.09 : 0.075) * v;
+      f.pool.material.opacity = 0.1 * v;
+      if (f.light) f.light.intensity = f.baseIntensity * v;
+      f.flick = v;
     }
+    this.hemiPower = 0.72 + 0.28 * pw;
   }
 }

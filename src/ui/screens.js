@@ -9,6 +9,7 @@ import { cargoChip } from './hud.js';
 import { audio } from '../core/audio.js';
 import { save } from '../core/save.js';
 import { gfx } from '../core/gfx.js';
+import { BLACK_BOXES, BLACK_ORDER, EPILOGUES, epilogue, tally } from '../game/story.js';
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -187,13 +188,17 @@ export class Screens {
     const rec = save.shift(level.id);
     const th = starThresholds(level);
     const chips = h('div.chips');
-    for (const c of level.manifest) chips.appendChild(cargoChip(c));
+    // (anything unlisted is, of course, not in the briefing)
+    const listed = level.manifest.filter((c) => !c.black);
+    for (const c of listed) chips.appendChild(cargoChip(c));
     const out = (level.preload || []).filter((p) => p.discharge);
+    const checks = listed.filter((c) => c.check).length;
     const body = h(
       'div.card-body',
       h('div.brief-top', h('div.blurb', level.blurb)),
       level.feature ? h('div.feature', h('b', 'NEW · ' + level.feature.title), level.feature.text) : null,
-      h('div.section-label', `Manifest · ${level.manifest.length} to load${out.length ? ` · ${out.length} to discharge` : ''}`),
+      level.also ? h('div.feature.also', h('b', 'CUSTOMS ON THE QUAY'), level.also.replace(/^[A-Z ]+: /, '')) : null,
+      h('div.section-label', `Manifest · ${listed.length} to load${out.length ? ` · ${out.length} to discharge` : ''}${checks ? ` · ${checks} spot check${checks === 1 ? '' : 's'}` : ''}`),
       chips,
       h('div.section-label', 'Conditions'),
       h('div.wxrow', ...weatherPills(level.weather).map(([ic, t]) => h('span.pill', { html: icon(ic) + ' ' + t })), h('span.pill', { html: icon('clock') + ' ' + fmtTime(level.time * app.mods().timeMul) })),
@@ -442,13 +447,64 @@ export class Screens {
       const on = !!got[a.id];
       list.appendChild(h(`div.award${on ? '.on' : ''}`, h('div.seal', { html: icon(on ? a.icon : 'lock') }), h('div.info', h('b', a.name), h('span', a.desc))));
     }
+    // ---- the Pier Seven file: one entry per unlisted box, written by what the player did with it
+    const story = d.story || { boxes: {} };
+    const file = h('div.casefile');
+    const tagText = { ship: 'SAILED', customs: 'SEIZED', sea: 'OVERBOARD', left: 'ABANDONED' };
+    let known = 0;
+    for (const id of BLACK_ORDER) {
+      const box = BLACK_BOXES[id];
+      const out = story.boxes[id];
+      if (out) known++;
+      const shift = SHIFTS.find((x) => x.id === id);
+      file.appendChild(
+        out
+          ? h('div.case', h('div.no', String(box.n)), h('div', h('b', box.title, h(`span.tag.${out}`, tagText[out] || '')), h('span', (box[out] && box[out].note) || '')))
+          : h('div.case.locked', h('div.no', '?'), h('div', h('b', known || box.n === 1 ? 'Not yet seen' : '· · ·'), h('span', box.n === 1 || story.boxes[BLACK_ORDER[box.n - 2]] ? `Something is due on shift ${shift ? shift.n : '?'}.` : 'Keep working nights.')))
+      );
+    }
+    const end = epilogue(story);
+    const t = tally(story);
     const card = h(
       'div.card.wide',
       h('div.card-head', h('h2', 'Logbook'), h('span.pill.star', { html: icon('trophy') + ` ${earned} / ${AWARDS.length}` })),
-      h('div.card-body', stats, h('div.section-label', 'Commendations'), list),
-      h('div.card-foot', h('button.btn.ghost', { 'data-sound': 'ui_back', onclick: () => app.gotoTitle(), html: icon('back') + 'Back' }))
+      h(
+        'div.card-body',
+        stats,
+        h('div.section-label', `The Pier Seven file · ${t.n} / ${BLACK_ORDER.length}`),
+        file,
+        h('div.section-label', 'Commendations'),
+        list
+      ),
+      h(
+        'div.card-foot',
+        h('button.btn.ghost', { 'data-sound': 'ui_back', onclick: () => app.gotoTitle(), html: icon('back') + 'Back' }),
+        h('div.spacer'),
+        end && story.ending ? h('button.btn', { onclick: () => app.openEpilogue('logbook'), html: icon('file') + 'Morning paper' }) : null
+      )
     );
     return this._mount('logbook', h('div.screen.dim', card));
+  }
+
+  // ====================================================================== the morning after
+
+  /** How the night ended: a front page, written by what the player did with the five boxes. */
+  epilogue(from) {
+    const app = this.app;
+    const story = save.data.story || {};
+    const e = EPILOGUES[story.ending] || epilogue(story) || EPILOGUES.mixed;
+    const t = tally(story);
+    const paper = h(
+      'div.paper',
+      h('div.mast', h('span', 'Morning edition'), h('b', 'Harbour Gazette'), h('span', 'Pier 7')),
+      h('h2', e.head),
+      h('p', e.text),
+      h('div.ending', h('span', `Ending · ${e.name}`), h('span', `Sailed ${t.ship} · Seized ${t.customs} · Sea ${t.sea}`))
+    );
+    const back = () => (from === 'results' ? app.reopenResults() : app.openLogbook());
+    const hint = h('div', { style: { color: 'var(--dim)', textAlign: 'center', maxWidth: '26em', lineHeight: '1.3' } }, 'Replay shifts 4, 6, 8, 11 and 12 and choose differently to read another front page.');
+    const wrap = h('div.paper-wrap.col', paper, hint, h('button.btn.primary', { 'data-sound': 'ui_back', onclick: back, html: icon('back') + 'Back' }));
+    return this._mount('epilogue', h('div.screen.dim', wrap));
   }
 
   // ====================================================================== pause
@@ -459,6 +515,7 @@ export class Screens {
     const help = touch
       ? 'Stick: trolley + gantry · arrows: hoist · round button: lock / release · drag the view to look around'
       : 'A/D trolley · W/S gantry · E/Q hoist · SPACE lock / release · C cab view · H horn · drag to look around';
+    const tips = 'Amber-sealed boxes: lift, hold steady and read the scale. A match goes on the ship, a mismatch on the blue customs truck in lane 2.';
     const card = h(
       'div.card',
       h('div.card-head', h('h2', 'Break time'), h('span.tag', app.session && app.session.endless ? 'Overtime' : app.level ? `Shift ${app.level.n}` : '')),
@@ -473,7 +530,8 @@ export class Screens {
           h('button.btn.ghost', { 'data-sound': 'ui_back', onclick: () => app.quitToBoard(), html: icon('home') + '<span class="grow">Clock out</span>' })
         ),
         h('div.section-label', 'Controls'),
-        h('div', { style: { color: 'var(--dim)', lineHeight: '1.35' } }, help)
+        h('div', { style: { color: 'var(--dim)', lineHeight: '1.35' } }, help),
+        app.level && app.level.checks ? h('div', { style: { color: 'var(--dim)', lineHeight: '1.35', marginTop: '0.5em' } }, tips) : null
       )
     );
     return this._mount('pause', h('div.screen.dim', card));
@@ -507,9 +565,14 @@ export class Screens {
       if (ok) R('Time bonus', '+' + fmtNum(st.timeBonus));
       if (st.lost) R('Boxes lost', String(st.lost), '.neg');
       if (st.rough) R('Rough handling', String(st.rough), '.neg');
+      if (st.busted) R('Caught at the scale', String(st.busted));
+      if (st.falseAlarm) R('False alarms', String(st.falseAlarm), '.neg');
+      if (st.smuggled) R('Mis-declared boxes shipped', `${st.smuggled} · customs found ${st.smuggled === 1 ? 'it' : 'them'}`, '.neg');
+      if (res.black) R('Unlisted box', { ship: 'Sailed with the ship', customs: 'Handed to customs', sea: 'Lost overboard', left: 'Left on the quay' }[res.black] || '—', '.hush');
     }
     const totalV = h('span.v', '0');
     rows.push(h('div.rrow.total', h('span.k', 'Score'), h('span.dots'), totalV));
+    if (meta.hush) rows.push(h('div.rrow.hush', h('span.k', 'Envelope in your locker'), h('span.dots'), h('span.v', '+$' + fmtNum(meta.hush))));
     const payV = h('span.v', '$0');
     rows.push(h('div.rrow.pay', h('span.k', 'Pay'), h('span.dots'), payV));
     const stars = [0, 1, 2].map(() => h('div.star', { html: `<svg viewBox="0 0 24 24"><path d="M12 1.8l3 6.6 7.2.8-5.4 4.9 1.5 7.1L12 17.6 5.700 21.200l1.500-7.100L1.800 9.200 9 8.400z"/></svg>` }));
@@ -532,6 +595,7 @@ export class Screens {
       add('', 'Workshop', 'wrench', () => app.openWorkshop('results'));
       add('.ghost', 'Clock out', 'home', () => app.quitToBoard(), 'ui_back');
     } else if (ok) {
+      if (meta.ending) add('.primary', 'Morning paper', 'file', () => app.openEpilogue('results'), 'ui_confirm');
       if (meta.nextLevel) add('.primary', 'Next shift', 'next', () => app.openBriefing(meta.nextLevel, true), 'ui_confirm');
       else if (app.endlessUnlocked()) add('.teal', 'Overtime', 'infinity', () => app.openEndlessBriefing());
       add('', 'Retry', 'retry', () => app.retry());

@@ -4,6 +4,10 @@ import { makeRng } from '../core/util.js';
 import { SHIP_NAMES } from '../world/ship.js';
 
 const C = (zone, type = 'std') => ({ zone, type });
+/** Spot-check box (amber customs seal). `bad` = the weight will not match its papers. */
+const K = (zone, bad = false, type = 'std') => ({ zone, type, check: true, contra: !!bad });
+/** An unlisted black box: not on the manifest, not part of the quota. */
+const B = () => ({ zone: 'ANY', type: 'black', black: true });
 const rep = (n, zone, type) => Array.from({ length: n }, () => C(zone, type));
 
 /**
@@ -41,12 +45,13 @@ export const SHIFTS = [
     id: 's03',
     name: 'Light Rain',
     clock: '23:15',
-    blurb: 'A swell is coming in. Time your set-downs with the roll.',
+    blurb: 'A swell is coming in — and customs are spot-checking boxes on the quay.',
+    also: 'SPOT CHECKS: amber-sealed boxes must be weighed. Lift, hold steady, read the scale.',
     feature: { title: 'SWELL', text: 'The ship heaves and rolls. Wait for the deck to come up to the box, then release.' },
     ship: { rows: 3, bays: 3, tiers: 2, style: 1, name: 'MV NORDLYS', zones: ['ROT', 'NYC', 'SIN'] },
     preload: [{ r: 0, b: 0, n: 1, zone: 'ROT' }, { r: 2, b: 2, n: 1, zone: 'SIN' }],
-    manifest: [C('NYC'), C('ROT'), C('SIN'), C('NYC'), C('ROT'), C('SIN'), C('NYC')],
-    time: 330,
+    manifest: [C('NYC'), C('ROT'), K('SIN', true), C('NYC'), C('ROT'), K('SIN'), C('NYC')],
+    time: 360,
     weather: { rain: 0.6, wind: 0.25, gusts: 0, fog: 0.012, sea: 0.34, clouds: 0.75 },
   },
   {
@@ -57,8 +62,8 @@ export const SHIFTS = [
     feature: { title: 'WIND GUSTS', text: 'Wind drags the hanging load. A warning flashes just before each gust — carry low and let it settle.' },
     ship: { rows: 3, bays: 3, tiers: 3, style: 2, name: 'MV OSPREY', zones: ['SIN', 'SIN', 'ROT'] },
     preload: [{ r: 1, b: 0, n: 2, zone: 'SIN' }, { r: 0, b: 2, n: 1, zone: 'ROT' }, { r: 2, b: 1, n: 1, zone: 'SIN' }],
-    manifest: [C('ROT'), C('SIN'), C('SIN'), C('ROT'), C('SIN'), C('ROT'), C('SIN'), C('ROT')],
-    time: 345,
+    manifest: [C('ROT'), C('SIN'), K('SIN'), C('ROT'), B(), C('SIN'), K('ROT', true), C('SIN'), C('ROT')],
+    time: 400,
     weather: { rain: 0.3, wind: 1.25, windDir: 0.25, gusts: 0.6, fog: 0.011, sea: 0.22, clouds: 0.6 },
   },
   {
@@ -68,8 +73,8 @@ export const SHIFTS = [
     blurb: 'Thirty-tonners on the manifest. Heavy boxes go at the bottom.',
     feature: { title: 'HEAVY CARGO', text: 'Striped HEAVY boxes must sit on the deck or on another heavy box — twist-locks will not hold them on a light one. Uneven loading makes the ship list.' },
     ship: { rows: 4, bays: 2, tiers: 3, style: 1, name: 'MV IRON LILY', zones: ['NYC', 'OSL'] },
-    manifest: [C('NYC', 'heavy'), C('OSL'), C('OSL', 'heavy'), C('NYC'), C('NYC', 'heavy'), C('OSL'), C('NYC'), C('OSL', 'heavy')],
-    time: 345,
+    manifest: [C('NYC', 'heavy'), K('OSL', true), C('OSL', 'heavy'), C('NYC'), C('NYC', 'heavy'), C('OSL'), K('NYC'), C('OSL', 'heavy')],
+    time: 380,
     weather: { rain: 0.35, wind: 0.7, windDir: 2.6, gusts: 0.3, fog: 0.0115, sea: 0.25 },
   },
   {
@@ -80,8 +85,8 @@ export const SHIFTS = [
     feature: { title: 'FRAGILE', text: 'White FRAGILE panels mean glass inside. Any real knock shatters it — creep in and land soft.' },
     ship: { rows: 3, bays: 3, tiers: 2, style: 3, name: 'MV HALCYON', zones: ['ROT', 'ROT', 'NYC'] },
     preload: [{ r: 1, b: 1, n: 1, zone: 'ROT' }],
-    manifest: [C('ROT'), C('NYC', 'fragile'), C('ROT', 'fragile'), C('NYC'), C('ROT'), C('NYC', 'fragile'), C('ROT'), C('NYC')],
-    time: 360,
+    manifest: [C('ROT'), C('NYC', 'fragile'), C('ROT', 'fragile'), K('NYC', true), B(), C('ROT'), C('NYC', 'fragile'), C('ROT'), C('NYC')],
+    time: 410,
     weather: { rain: 0.7, wind: 0.55, windDir: 0.6, gusts: 0.25, fog: 0.0125, sea: 0.3, clouds: 0.8 },
   },
   {
@@ -91,8 +96,10 @@ export const SHIFTS = [
     blurb: 'Long swell from a passing storm. Stacks get lively above the second tier.',
     ship: { rows: 3, bays: 3, tiers: 3, style: 4, name: 'MV TIDEWATER', zones: ['OSL', 'SIN', 'ROT'] },
     preload: [{ r: 0, b: 0, n: 2, zone: 'OSL' }, { r: 2, b: 2, n: 2, zone: 'ROT' }, { r: 1, b: 1, n: 1, zone: 'SIN' }],
-    manifest: [C('SIN'), C('OSL'), C('ROT', 'heavy'), C('SIN'), C('OSL'), C('ROT'), C('SIN', 'fragile'), C('OSL'), C('ROT')],
-    time: 380,
+    manifest: [K('SIN', true), C('OSL'), C('ROT', 'heavy'), C('SIN'), C('OSL'), K('ROT'), C('SIN', 'fragile'), C('OSL'), C('ROT')],
+    time: 410,
+    events: [{ type: 'blackout', at: 75, dur: 20 }],
+    feature: { title: 'POWER CUTS', text: 'The substation is failing. When the quay goes dark you still have the battery lamp on the trolley — slow down and trust the reticle.' },
     weather: { rain: 0.5, wind: 0.8, windDir: 1.9, gusts: 0.4, fog: 0.012, sea: 0.62, clouds: 0.8 },
   },
   {
@@ -103,8 +110,8 @@ export const SHIFTS = [
     feature: { title: 'REEFERS', text: 'Refrigerated boxes lose freshness from the moment the truck parks. The faster they are locked on board, the bigger the bonus.' },
     ship: { rows: 4, bays: 2, tiers: 3, style: 0, name: 'MV BOREALIS', zones: ['SIN', 'NYC'] },
     preload: [{ r: 0, b: 0, n: 1, zone: 'SIN' }, { r: 3, b: 1, n: 1, zone: 'NYC' }],
-    manifest: [C('SIN', 'reefer'), C('NYC'), C('NYC', 'reefer'), C('SIN'), C('SIN', 'heavy'), C('NYC', 'reefer'), C('SIN'), C('NYC'), C('SIN', 'reefer')],
-    time: 380,
+    manifest: [C('SIN', 'reefer'), C('NYC'), C('NYC', 'reefer'), K('SIN'), B(), C('SIN', 'heavy'), C('NYC', 'reefer'), K('SIN', true), C('NYC'), C('SIN', 'reefer')],
+    time: 440,
     weather: { rain: 0.4, wind: 1.0, windDir: 3.5, gusts: 0.45, fog: 0.012, sea: 0.35 },
   },
   {
@@ -115,8 +122,9 @@ export const SHIFTS = [
     feature: { title: 'FOG', text: 'Visibility is down to a few boxes. The drop reticle and the cab view (C) are your eyes.' },
     ship: { rows: 3, bays: 3, tiers: 3, style: 2, name: 'MV LANTERN', zones: ['NYC', 'OSL', 'SIN'] },
     preload: [{ r: 0, b: 1, n: 2, zone: 'OSL' }, { r: 2, b: 0, n: 1, zone: 'NYC' }, { r: 1, b: 2, n: 2, zone: 'SIN' }],
-    manifest: [C('NYC'), C('SIN'), C('OSL'), C('NYC', 'fragile'), C('SIN'), C('OSL', 'heavy'), C('NYC'), C('SIN'), C('OSL')],
-    time: 400,
+    manifest: [C('NYC'), K('SIN', true), C('OSL'), C('NYC', 'fragile'), C('SIN'), C('OSL', 'heavy'), K('NYC'), C('SIN'), C('OSL')],
+    time: 430,
+    events: [{ type: 'blackout', at: 95, dur: 24, deep: true }],
     weather: { rain: 0.15, wind: 0.3, gusts: 0, fog: 0.034, sea: 0.2, clouds: 1 },
   },
   {
@@ -145,8 +153,8 @@ export const SHIFTS = [
     feature: { title: 'HAZMAT', text: 'Placarded boxes may not touch each other — not side by side, not stacked. Hit one hard and it goes up, taking its neighbours with it.' },
     ship: { rows: 4, bays: 3, tiers: 3, style: 1, name: 'MV SALT WIND', zones: ['SIN', 'ROT', 'NYC'] },
     preload: [{ r: 1, b: 0, n: 1, zone: 'SIN' }, { r: 2, b: 2, n: 2, zone: 'NYC' }, { r: 0, b: 1, n: 1, zone: 'ROT' }],
-    manifest: [C('ROT', 'hazmat'), C('SIN'), C('NYC'), C('ROT'), C('SIN', 'hazmat'), C('NYC', 'heavy'), C('ROT', 'hazmat'), C('SIN', 'reefer'), C('NYC'), C('ROT')],
-    time: 430,
+    manifest: [C('ROT', 'hazmat'), C('SIN'), C('NYC'), K('ROT', true), C('SIN', 'hazmat'), B(), C('NYC', 'heavy'), C('ROT', 'hazmat'), C('SIN', 'reefer'), K('NYC'), C('ROT')],
+    time: 490,
     weather: { rain: 0.65, wind: 1.1, windDir: 5.2, gusts: 0.5, fog: 0.013, sea: 0.45, clouds: 0.85 },
   },
   {
@@ -156,8 +164,9 @@ export const SHIFTS = [
     blurb: 'Everything at once. Last ship before dawn — bring it home.',
     ship: { rows: 4, bays: 3, tiers: 3, style: 4, name: 'MV LOW TIDE', zones: ['OSL', 'ROT', 'SIN'] },
     preload: [{ r: 0, b: 0, n: 2, zone: 'OSL' }, { r: 3, b: 2, n: 2, zone: 'SIN' }, { r: 1, b: 1, n: 1, zone: 'ROT' }, { r: 2, b: 1, n: 1, zone: 'ROT' }],
-    manifest: [C('ROT'), C('OSL', 'heavy'), C('SIN', 'reefer'), C('ROT', 'fragile'), C('OSL'), C('SIN', 'hazmat'), C('ROT', 'heavy'), C('OSL', 'reefer'), C('SIN'), C('ROT'), C('OSL', 'fragile')],
-    time: 470,
+    manifest: [C('ROT'), C('OSL', 'heavy'), C('SIN', 'reefer'), C('ROT', 'fragile'), K('OSL', true), C('SIN', 'hazmat'), C('ROT', 'heavy'), B(), C('OSL', 'reefer'), C('SIN'), C('ROT'), C('OSL', 'fragile')],
+    time: 530,
+    events: [{ type: 'blackout', at: 150, dur: 26, deep: true }],
     weather: { rain: 1, wind: 1.7, windDir: 0.35, gusts: 0.9, fog: 0.016, sea: 0.95, storm: 1, clouds: 1 },
     music: 'storm',
   },
@@ -166,14 +175,21 @@ export const SHIFTS = [
 SHIFTS.forEach((s, i) => {
   s.n = i + 1;
   s.strikes = 3;
-  s.quota = s.quota || s.manifest.length + (s.preload || []).filter((p) => p.discharge).length;
+  s.quota = s.quota || s.manifest.filter((c) => !c.black).length + (s.preload || []).filter((p) => p.discharge).length;
+  s.checks = s.manifest.filter((c) => c.check).length;
+  s.hasBlack = s.manifest.some((c) => c.black);
 });
 
 /** Theoretical clean-run score used for the star thresholds. */
 export function parScore(level) {
   let base = 0;
   const zoned = level.ship.zones.some((z) => z !== 'ANY');
-  for (const c of level.manifest) base += SCORE.great + SCORE.soft * 0.5 + (zoned ? SCORE.zone : 0) + SCORE.speedMax * 0.55 + (CARGO_TYPES[c.type] || CARGO_TYPES.std).value * 0.8;
+  for (const c of level.manifest) {
+    if (c.black) continue;
+    base += SCORE.great + SCORE.soft * 0.5 + (zoned ? SCORE.zone : 0) + SCORE.speedMax * (c.check ? 0.3 : 0.55) + (CARGO_TYPES[c.type] || CARGO_TYPES.std).value * 0.8;
+    // a mis-declared box caught at the scale is worth more at customs than a zone bonus on board
+    if (c.check && c.contra) base += SCORE.busted * 0.9 - (zoned ? SCORE.zone : 0);
+  }
   for (const p of level.preload || []) if (p.discharge) base += SCORE.great + SCORE.speedMax * 0.5;
   // a tidy run finishes with a little under half the clock left (2 points per second)
   return Math.round(base * 1.12 + (level.time || 0) * 0.45 * 2);
@@ -227,7 +243,12 @@ export function endlessShip(n, seed) {
   for (let i = 0; i < count; i++) {
     let type = rng.pick(pool);
     if (type === 'hazmat' && ++haz > 2) type = 'std';
-    manifest.push(C(rng.pick(zones), type));
+    const spec = C(rng.pick(zones), type);
+    if (n >= 1 && type === 'std' && rng.chance(0.24)) {
+      spec.check = true;
+      spec.contra = rng.chance(0.55);
+    }
+    manifest.push(spec);
   }
   const preload = [];
   const pre = Math.min(4, Math.floor(n / 2) + (n > 0 ? 1 : 0));

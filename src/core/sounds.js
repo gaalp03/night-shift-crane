@@ -81,6 +81,14 @@ export const SOUNDS = {
     vox_laugh: { files: ['vox_laugh.mp3'], vol: 0.4, rateVar: 0.08 },
     vox_yell: { files: ['vox_yell.mp3'], vol: 0.4, rateVar: 0.08 },
     car_door: { files: ['car_door.mp3'], vol: 0.4, rateVar: 0.06 },
+    // the Pier Seven file
+    radio_in: { files: ['radio_in.mp3'], vol: 0.5, bus: 'ui', rateVar: 0.03 },
+    radio_out: { files: ['radio_out.mp3'], vol: 0.4, bus: 'ui', rateVar: 0.03 },
+    thump: { files: ['thump.mp3'], vol: 0.9, rateVar: 0.05 },
+    power_down: { files: ['power_down.mp3'], vol: 0.8, bus: 'ui', rateVar: 0 },
+    power_up: { files: ['power_up.mp3'], vol: 0.6, bus: 'ui', rateVar: 0 },
+    deep_call: { files: ['deep_call.mp3'], vol: 0.75, bus: 'amb', rateVar: 0.03 },
+    box_hum: { files: ['box_hum.wav'], vol: 0.5, bus: 'sfx' },
   },
   music: {
     menu: { file: 'music_menu.mp3', title: '3 am West End', artist: 'Statusq', vol: 1 },

@@ -8,6 +8,12 @@ onto a rolling ship before it sails.
 
 - **12 shifts** with escalating mechanics (destination bays, swell, gusts, heavy / fragile / reefer /
   hazmat cargo, fog, discharge orders, a full storm), 1–3 stars each
+- **Customs spot checks**: amber-sealed boxes have to be weighed on the hook — hold the load steady,
+  read the scale, and send anything mis-declared to the customs truck instead of the ship
+- **The Pier Seven file**: five unlisted black boxes turn up over the night, a caller nobody can trace
+  wants them shipped, customs wants them seized — and something under the pier wants them back.
+  What you do with each one fills in the logbook and decides which front page you wake up to
+- Power cuts that leave you working by the trolley's battery lamp
 - **Overtime**: an endless high-score mode, ship after ship
 - **Workshop** upgrades and crane paint jobs between shifts, plus a **Logbook** of career stats and commendations
 - Real rigid-body physics: cable-suspended spreader, momentum, wind, a ship that heaves, rolls and

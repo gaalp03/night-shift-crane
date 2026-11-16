@@ -391,8 +391,40 @@ def build():
     music("music_storm", "fpd__Bass Meant Jazz.mp3", 0, 196)
 
 
+def build_mystery():
+    """Radio, power cut and the things that should not be on the manifest."""
+    noise = load("scifi", "computer_noise_000.ogg")
+    click = peak_norm(load("iface", "glitch_002.wav"))
+    # handset squelch: a click, a short breath of static, a click
+    hiss = highpass(lowpass(seg(noise, 0.6, 0.2), 4200), 700)
+    shot("radio_in", mix(click, delay(fade(peak_norm(hiss, -9), 0.01, 0.06), 0.02), delay(0.7 * click, 0.21)), peak=-6, keep_head=True)
+    shot("radio_out", mix(0.8 * click, delay(fade(peak_norm(seg(hiss, 0, 0.08), -12), 0.005, 0.04), 0.015)), peak=-9, keep_head=True)
+    # something knocking from inside a steel box
+    lf = load("scifi", "low_frequency_explosion_001.ogg")
+    knock = lowpass(repitch(trim_head(load("impact", "impact_metal_heavy_002.ogg")), 0.55), 520)
+    shot("thump", mix(peak_norm(knock), 0.8 * peak_norm(repitch(lf, 0.8))), fout=0.35, peak=-2)
+    # the substation tripping, and coming back
+    ff = load("scifi", "force_field_000.ogg")
+    shot("power_down", mix(peak_norm(repitch(ff, 0.42)), 0.7 * peak_norm(repitch(lf, 0.6)), 0.5 * click), fout=0.9, peak=-3)
+    shot("power_up", mix(peak_norm(fade(repitch(load("scifi", "force_field_002.ogg"), 0.8)[::-1].copy(), 0.4, 0.05)), delay(0.6 * click, 0.9)), fout=0.2, peak=-6, keep_head=True)
+    # the light under the water
+    hum = load("fs", "ambi_haunted_hum.flac")
+    drone = load("fs", "ambi_drone.flac")
+    call = mix(peak_norm(lowpass(repitch(hum, 0.5), 900)), 0.6 * peak_norm(lowpass(repitch(drone, 0.5), 600)), 0.5 * peak_norm(repitch(load("wyz", "bass-rumble-medium.wav"), 0.7)))
+    shot("deep_call", fade(call, 1.2, 0.0), fout=3.0, peak=-3, keep_head=True, q=6)
+    # a box that hums to itself (short mono loop, pitch-bent at runtime)
+    x = lowpass(repitch(seg(hum, 0.3, 3.4), 0.62), 1400)
+    x = make_loop(x, 0.6)
+    write_wav("box_hum.wav", resample(rms_norm(x, -20, -3.0), SR, 22050), 22050)
+    done.append(("box_hum.wav", len(x) / SR))
+
+
 if __name__ == "__main__":
-    build()
+    if len(sys.argv) > 3 and sys.argv[3] == "mystery":
+        build_mystery()
+    else:
+        build()
+        build_mystery()
     total = 0
     for name, dur in done:
         size = os.path.getsize(os.path.join(OUT, name))

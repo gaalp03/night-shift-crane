@@ -25,6 +25,9 @@ import { Juice } from './ui/juice.js';
 import { Hud } from './ui/hud.js';
 import { TouchControls } from './ui/touch.js';
 import { Screens } from './ui/screens.js';
+import { Radio } from './ui/radio.js';
+import { DeepLight } from './world/deep.js';
+import { SHIFT_OPEN, CHECK_INTRO, BLACK_BOXES, BLACKOUT, SMUGGLE_FOUND, epilogue } from './game/story.js';
 
 const $ = (id) => document.getElementById(id);
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -42,7 +45,18 @@ const app = {
   touchMode: isMobile(),
   cabGhost: null,
   hitStop: 0,
-  ambT: { crow: rand(12, 30), bell: rand(8, 20), horn: rand(40, 90), smoke: 0 },
+  ambT: { crow: rand(12, 30), bell: rand(8, 20), horn: rand(40, 90), smoke: 0, deep: rand(25, 45) },
+  blackout: false,
+  timers: [], // game-time callbacks tied to a session (they freeze with the pause menu)
+  /** Run `fn` after `sec` seconds of game time, unless the shift has ended by then. */
+  after(sec, fn, session = app.session) {
+    app.timers.push({ t: sec, fn, session });
+  },
+  /** How muffled the mix should be right now (cab glass, a power cut). */
+  muffle: () => Math.max(app.cams && app.cams.mode === 'cab' ? 0.32 : 0, app.blackout ? 0.45 : 0),
+  openEpilogue(from) {
+    app.screens.epilogue(from);
+  },
 
   // ---------------------------------------------------------------- queries used by the UI
   mods: () => upgradeMods(save.data.upgrades),
@@ -132,7 +146,7 @@ const app = {
     app.screens.hide();
     input.clear(); // the key that closed the menu must not double as "release"
     app.mode = 'play';
-    audio.setMuffle(app.cams.mode === 'cab' ? 0.32 : 0);
+    audio.setMuffle(app.muffle());
     showHud(true);
     sdk.gameplayStart();
   },
@@ -198,6 +212,10 @@ function teardownRun() {
     app.tutorial = null;
   }
   setCab(false, true);
+  app.timers.length = 0;
+  app.radio.clear();
+  setPower(true, true);
+  app.deep.target = 0;
   if (app.session) {
     app.session.dispose();
     app.session = null;
@@ -227,8 +245,43 @@ function setCab(on, silent) {
   $('cab-overlay').classList.toggle('hidden', !on);
   app.crane.setCabView(on);
   app.hud.setCameraMode(want);
-  if (!silent) audio.setMuffle(on ? 0.32 : 0);
+  if (!silent) audio.setMuffle(Math.max(on ? 0.32 : 0, app.blackout ? 0.45 : 0));
   if (!on) applyCabGhost(null);
+}
+
+/** Quay mains on / off. The trolley lamp keeps burning on its battery. */
+function setPower(on, silent) {
+  if (app.blackout === !on) return;
+  app.blackout = !on;
+  app.harbor.power = on ? 1 : 0;
+  document.body.classList.toggle('blackout', !on);
+  if (silent) {
+    app.harbor.powerNow = app.harbor.power;
+    return;
+  }
+  audio.play(on ? 'power_up' : 'power_down');
+  audio.setMuffle(app.muffle());
+}
+
+/** Scripted power cut; on some nights something uses the dark to come and look at the ship. */
+function runBlackout(s, e) {
+  setPower(false);
+  app.juice.banner('POWER CUT', 'Battery lamp only', 2400);
+  app.radio.say(BLACKOUT.start, { urgent: true });
+  buzz([40, 60, 40]);
+  if (e.deep) {
+    app.after(e.dur * 0.3, () => {
+      app.deep.pass(13.5, 6.5);
+      audio.play('deep_call', { vol: 0.9 });
+      app.radio.say(BLACKOUT.deep, { urgent: true });
+      // the hull feels it go underneath
+      for (const t of [2.5, 5, 7.5]) app.after(t, () => s.ship.bump(rand(-0.02, 0.02), 0.35), s);
+    }, s);
+  }
+  app.after(e.dur, () => {
+    setPower(true);
+    app.radio.say(e.deep ? BLACKOUT.end : [{ who: 'dispatch', text: 'Power is back. Carry on, Seven.' }]);
+  }, s);
 }
 
 function toggleCamera() {
@@ -368,6 +421,8 @@ async function runIntro(level, s) {
   } else if (level.feature && !(save.data.shifts[level.id] || {}).stars) {
     j.toast({ text: `${level.feature.title}: ${level.feature.text}`, kind: 'info', dur: 7000 });
   }
+  // the tower checks in at the start of a shift you have not cleared yet
+  if (!level.endless && SHIFT_OPEN[level.id] && !(save.data.shifts[level.id] || {}).stars) app.after(level.feature ? 7.5 : 2.5, () => app.radio.say(SHIFT_OPEN[level.id]), s);
   sdk.gameplayStart();
 }
 
@@ -415,6 +470,51 @@ function bindSession(s) {
     j.banner(e.def.ship.name, `Ship ${e.n} · +${e.bonusTime}s on the clock`, 2600);
   });
   s.on('finish', (res) => onFinish(s, res));
+  // ---- the Pier Seven file
+  s.on('truck', ({ cargo }) => {
+    const box = BLACK_BOXES[s.level.id];
+    if (cargo.black) {
+      app.harbor.surge = 1.6;
+      app.crew.react('wince', 2.2);
+      if (box) app.radio.say(box.arrive, { urgent: true, key: 'black-arrive' });
+    } else if (cargo.check && !save.data.flags.checkSeen) {
+      save.data.flags.checkSeen = true;
+      save.commit();
+      app.radio.say(CHECK_INTRO, { urgent: true, key: 'check-intro' });
+    }
+  });
+  s.on('weighed', (e) => buzz(e.ok ? 14 : [30, 40, 30]));
+  s.on('thump', (e) => {
+    if (e.carried) {
+      app.harbor.surge = Math.max(app.harbor.surge, 0.45);
+      buzz(35);
+    }
+  });
+  s.on('black', (e) => {
+    const box = BLACK_BOXES[s.level.id];
+    const out = box && box[e.outcome];
+    if (out && out.say) app.radio.say(out.say, { key: 'black-' + e.outcome });
+    if (e.outcome === 'sea') {
+      // the harbour answers
+      const p = e.pos || s.rig.sprPos;
+      app.harbor.surge = 3.5;
+      app.after(1.4, () => {
+        app.deep.bloom(p.x, p.z, 1);
+        audio.play('deep_call', { vol: 1 });
+        s.ship.bump(rand(-0.03, 0.03), 0.5);
+        app.crew.react('wince', 3);
+      }, s);
+    } else if (e.outcome === 'ship') {
+      app.harbor.surge = 0.8;
+    }
+  });
+  s.on('event', (e) => {
+    if (e.type === 'blackout') runBlackout(s, e);
+  });
+  s.on('smuggled', (e) => {
+    app.radio.say(SMUGGLE_FOUND, { key: 'smug' });
+    j.toast({ text: `Customs found ${e.n} mis-declared box${e.n === 1 ? '' : 'es'} on that ship`, kind: 'warn', silent: true });
+  });
   s.on('horn', () => {
     app.crew.react('wave', 1.6);
     if (Math.random() < 0.4) audio.play('vox_laugh', { delay: 0.6, vol: 0.5 });
@@ -467,6 +567,21 @@ async function onFinish(s, res) {
   } else {
     payout = Math.round(res.score * 0.1);
   }
+  // the unlisted box: remember what became of it, and pay whoever keeps leaving envelopes
+  let hush = 0;
+  let ending = null;
+  d.story = d.story || { boxes: {}, opened: {}, ending: null };
+  if (!endless && res.success && res.black) {
+    d.story.boxes[level.id] = res.black;
+    if (res.black === 'ship') hush = 300 + (BLACK_BOXES[level.id] ? BLACK_BOXES[level.id].n * 40 : 0);
+    payout += hush;
+    if (level.id === 's12') {
+      ending = epilogue(d.story);
+      if (ending) d.story.ending = ending.id;
+    }
+  }
+  d.stats.busted = (d.stats.busted || 0) + (res.stats.busted || 0);
+  d.stats.smuggled = (d.stats.smuggled || 0) + (res.stats.smuggled || 0);
   d.money += payout;
   d.stats.placed += res.stats.placed;
   d.stats.lost += res.stats.lost;
@@ -476,10 +591,12 @@ async function onFinish(s, res) {
   const fresh = checkAwards(d, res, level);
   save.commit(true);
   const idx = SHIFTS.indexOf(level);
-  const meta = { level, payout, newStars, newBest, endless, nextLevel: !endless && res.success && idx >= 0 && idx < SHIFTS.length - 1 ? SHIFTS[idx + 1] : null };
+  const meta = { level, payout, newStars, newBest, endless, hush, ending, nextLevel: !endless && res.success && idx >= 0 && idx < SHIFTS.length - 1 ? SHIFTS[idx + 1] : null };
   app.lastResult = { res, meta };
   showHud(false);
   setCab(false, true);
+  app.timers.length = 0;
+  setPower(true);
   if (res.success) {
     app.juice.banner(res.stars >= 3 ? 'FLAWLESS SHIFT' : 'SHIFT COMPLETE', s.ship.name + ' is ready to sail', 2200);
     audio.play('horn_ship', { vol: 0.7 });
@@ -492,6 +609,7 @@ async function onFinish(s, res) {
   await wait(res.success ? 2100 : 1900);
   if (app.session !== s || app.mode !== 'results') return;
   audio.play('ui_open');
+  app.radio.clear();
   app.screens.results(res, meta);
   if (endless && newBest) sdk.happytime();
   // commendations arrive after the report has had its moment
@@ -587,6 +705,8 @@ async function boot() {
   app.tweens = new Tweens();
   app.juice = new Juice(camera);
   app.touch = new TouchControls();
+  app.radio = new Radio();
+  app.deep = new DeepLight(scene);
   app.hud = new Hud({ onPause: () => app.pause(), onCamera: toggleCamera, touch: app.touchMode });
   app.screens = new Screens(app);
   app.ctx = { scene, harbor: app.harbor, water: app.water, weather: app.weather, fx: app.fx, crane: app.crane, cams: app.cams, save, mobile };
@@ -751,12 +871,15 @@ function waterLights() {
   };
   const s = app.session;
   const crane = app.crane;
+  // whatever is under the pier lights the swell from below
+  const dg = app.deep.glow;
+  if (dg > 0.02) add(app.deep.pos.x, 5, app.deep.pos.z, 0x45ffc8, 1.7 * dg);
   // trolley work light: the brightest thing over the water
-  add(crane.trolley.position.x, DIM.RAIL_Y - 0.6, crane.gantry.position.z, PAL.sodiumHot, 1.3);
+  add(crane.trolley.position.x, DIM.RAIL_Y - 0.6, crane.gantry.position.z, PAL.sodiumHot, 1.3 * (0.5 + 0.5 * crane.power));
   for (let i = 0; i < crane.floodPositions.length; i += 2) {
     const p = crane.floodPositions[i];
-    if (p.x < 0) continue;
-    add(p.x, p.y, p.z + crane.gantry.position.z, PAL.sodiumHot, 0.7);
+    if (p.x < 0 || crane.power < 0.05) continue;
+    add(p.x, p.y, p.z + crane.gantry.position.z, PAL.sodiumHot, 0.7 * crane.power);
   }
   if (s && s.ship) {
     const sh = s.ship;
@@ -767,7 +890,9 @@ function waterLights() {
   }
   for (const l of app.harbor.lampHeads) {
     if (l.pos.x < -30) continue;
-    const e = add(l.pos.x, l.pos.y, l.pos.z, 0, (l.hgt > 12 ? 0.8 : 0.6) * (l.flick == null ? 1 : l.flick));
+    const lit = l.flick == null ? 1 : l.flick;
+    if (lit < 0.05) continue;
+    const e = add(l.pos.x, l.pos.y, l.pos.z, 0, (l.hgt > 12 ? 0.8 : 0.6) * lit);
     if (e) e.color.copy(l.color);
   }
   const lh = app.harbor.lighthouse.position;
@@ -824,6 +949,25 @@ function tick(raw) {
   }
   app.fx.update(dt);
   app.tweens.update(dt);
+  app.radio.update(frozen ? 0 : raw);
+  app.deep.update(dt, app.time);
+  app.crane.setPower(app.harbor.powerNow);
+  if (app.timers.length && dt > 0) {
+    for (const tm of [...app.timers]) {
+      tm.t -= dt;
+      if (tm.t > 0) continue;
+      app.timers.splice(app.timers.indexOf(tm), 1);
+      if (tm.session === app.session && app.mode === 'play') tm.fn();
+    }
+  }
+  // now and then, behind the menus, something swims past the berth
+  if (app.mode === 'menu') {
+    app.ambT.deep -= dt;
+    if (app.ambT.deep < 0) {
+      app.ambT.deep = rand(70, 130);
+      app.deep.pass(15, 7);
+    }
+  }
 
   // --- lighting reacts to weather
   const w = app.weather.cur;
@@ -833,7 +977,7 @@ function tick(raw) {
   app.scene.fog.color.copy(_fogA).lerp(_fogB, thick);
   app.harbor.skyUniforms.uFogCol.value.copy(app.scene.fog.color);
   app.harbor.skyUniforms.uFogMix.value = clamp(thick * 1.15, 0, 0.96);
-  app.harbor.hemi.intensity = app.harbor.hemiBase + flash * 3.5;
+  app.harbor.hemi.intensity = app.harbor.hemiBase * app.harbor.hemiPower + flash * 3.5;
   app.harbor.moon.intensity = 0.42 * (1 - w.clouds * 0.45) + flash * 2.2;
   app.harbor.skyUniforms.uClouds.value = w.clouds;
   app.harbor.setVisibility(clamp(1.25 - w.fog * 38, 0.06, 1));

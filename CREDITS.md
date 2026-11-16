@@ -47,6 +47,10 @@ boom layers (`boom_1`, `boom_2`).
   `misc_cineboom` by Northern_Monkey (#177242), `perc_swash` by qubodup (#60009),
   `ambi_swoosh` by Halgrimm (#169867), `ambi_dark_woosh` by EcoDTR (#27281),
   `misc_crow` by davidworksonline (#54973) — splash/explosion layers, wind gusts, crow.
+  Also from that set: `ambi_haunted_hum` and `ambi_drone` — pitched down and layered for the
+  light under the pier (`deep_call`) and the humming black boxes (`box_hum`).
+- Radio squelch, power cut and "thump" (`radio_in`, `radio_out`, `power_down`, `power_up`, `thump`)
+  are cut from the Kenney Sci-Fi, Interface and Impact packs listed above.
 
 ## Music — all CC0 1.0 (public domain)
 

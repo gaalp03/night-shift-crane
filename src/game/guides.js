@@ -15,7 +15,7 @@ function tagTexture(kind) {
   const c = makeCanvas(128, 128);
   const g = c.getContext('2d');
   g.clearRect(0, 0, 128, 128);
-  const col = kind === 'warn' ? '#ffb020' : kind === 'bad' ? '#ff4d3d' : kind === 'out' ? '#49d1c4' : '#5dff9a';
+  const col = kind === 'warn' || kind === 'check' ? '#ffb020' : kind === 'bad' ? '#ff4d3d' : kind === 'out' ? '#49d1c4' : kind === 'customs' ? '#4d9bff' : kind === 'black' ? '#8dffe2' : '#5dff9a';
   g.fillStyle = 'rgba(8,12,16,0.82)';
   g.beginPath();
   g.arc(64, 60, 46, 0, Math.PI * 2);
@@ -34,7 +34,7 @@ function tagTexture(kind) {
   g.font = '700 70px "Barlow Condensed", Arial, sans-serif';
   g.textAlign = 'center';
   g.textBaseline = 'middle';
-  g.fillText(kind === 'warn' ? '!' : kind === 'bad' ? '×' : kind === 'out' ? '↧' : '↓', 64, kind === 'out' ? 60 : 64);
+  g.fillText(kind === 'warn' ? '!' : kind === 'bad' ? '×' : kind === 'out' || kind === 'customs' ? '↧' : kind === 'check' || kind === 'black' ? '?' : '↓', 64, kind === 'out' || kind === 'customs' ? 60 : 64);
   return canvasTexture(c, { aniso: 4 });
 }
 
@@ -103,7 +103,8 @@ export class Guides {
     this.ghostParent = null;
 
     // --- floating tags
-    this.tagTex = { pick: tagTexture('pick'), warn: tagTexture('warn'), bad: tagTexture('bad'), out: tagTexture('out') };
+    this.tagTex = {};
+    for (const k of ['pick', 'warn', 'bad', 'out', 'check', 'black', 'customs']) this.tagTex[k] = tagTexture(k);
     this.tags = [];
   }
 
@@ -169,7 +170,7 @@ export class Guides {
       const t = list[i];
       s.visible = true;
       s.material.map = this.tagTex[t.kind] || this.tagTex.pick;
-      const bob = t.kind === 'pick' || t.kind === 'out' ? Math.abs(Math.sin(this.t * 3.2 + i)) * 0.5 : 0;
+      const bob = t.kind !== 'warn' && t.kind !== 'bad' ? Math.abs(Math.sin(this.t * 3.2 + i)) * 0.5 : 0;
       s.position.copy(t.pos);
       s.position.y += 1.5 + bob;
       const sz = t.size || 1.9;

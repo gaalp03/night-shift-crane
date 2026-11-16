@@ -54,7 +54,11 @@ export class Session extends Emitter {
     this.maxStrikes = (level.strikes || 3) + this.mods.extraStrike;
     this.delivered = 0;
     this.quota = level.quota;
-    this.stats = { perfect: 0, great: 0, good: 0, sloppy: 0, lost: 0, soft: 0, rough: 0, placed: 0, discharged: 0, ships: 0, timeBonus: 0 };
+    this.stats = { perfect: 0, great: 0, good: 0, sloppy: 0, lost: 0, soft: 0, rough: 0, placed: 0, discharged: 0, ships: 0, timeBonus: 0, busted: 0, falseAlarm: 0, smuggled: 0 };
+    this.scale = { read: 0, t: 0 }; // load cell: live reading + how long it has hung steady
+    this.blackSeen = false; // an unlisted box turned up this shift
+    this.blackOutcome = null; // 'ship' | 'customs' | 'sea' | 'left'
+    this.events = (level.events || []).map((e) => ({ ...e, fired: false }));
     this.cargos = [];
     this.trucks = [];
     this.manifest = level.manifest.slice();
@@ -123,7 +127,7 @@ export class Session extends Emitter {
   }
 
   _needsLane2() {
-    return (this.level.preload || []).some((p) => p.discharge) || this.level.lanes === 2;
+    return (this.level.preload || []).some((p) => p.discharge) || this.level.lanes === 2 || this.level.manifest.some((c) => c.check || c.black);
   }
 
   _makeShip(level) {
@@ -149,8 +153,18 @@ export class Session extends Emitter {
   }
 
   _newCargo(spec, brand) {
-    const c = new Cargo({ zone: spec.zone, type: spec.type, brand: (brand == null ? this.cargos.length : brand) % BRAND_COUNT, mobile: this.ctx.mobile });
+    const c = new Cargo({ zone: spec.zone, type: spec.type, brand: (brand == null ? this.cargos.length : brand) % BRAND_COUNT, mobile: this.ctx.mobile, check: !!spec.check });
     c.mass = c.typeDef.mass;
+    // what the papers say it weighs, and what the load cell will say
+    const range = { std: [9, 21], heavy: [28, 30.4], fragile: [6, 11], reefer: [14, 22], hazmat: [12, 20], black: [17, 19] }[c.type] || [9, 21];
+    c.declT = Math.round(rand(range[0], range[1]) * 10) / 10;
+    c.realT = c.declT + rand(-0.25, 0.25);
+    if (spec.check && spec.contra) {
+      c.contra = true;
+      c.realT = Math.max(3.5, c.declT + (Math.random() < 0.6 ? rand(5, 9) : -rand(4, 6.5)));
+      c.mass *= clamp(c.realT / c.declT, 0.7, 1.5);
+    }
+    if (c.black) c.thumpT = rand(5, 9);
     this.cargos.push(c);
     return c;
   }
@@ -185,6 +199,7 @@ export class Session extends Emitter {
     if (this.phase === 'over') return;
     this.phase = 'over';
     this.failReason = success ? null : reason;
+    const smuggled = this.endless ? 0 : this._sweep();
     let timeBonus = 0;
     if (success && !this.endless) {
       timeBonus = Math.round(Math.max(0, this.time) * 2);
@@ -204,6 +219,8 @@ export class Session extends Emitter {
       bestCombo: this.bestCombo,
       stats: { ...this.stats },
       canContinue: !success && !this.usedContinue,
+      smuggled,
+      black: this.blackSeen ? this.blackOutcome || 'left' : null,
       ships: this.stats.ships,
       time: this.elapsed,
     };
@@ -244,6 +261,15 @@ export class Session extends Emitter {
     for (const k in this.cool) this.cool[k] -= dt;
     if (this.rig.carry) this.carryT += dt;
     this._updateReefers(dt);
+    this._updateScale(dt);
+    this._updateBlack(dt);
+    if (this.phase === 'play' && !this.timeFrozen) {
+      for (const e of this.events) {
+        if (e.fired || this.elapsed < e.at) continue;
+        e.fired = true;
+        this.emit('event', e);
+      }
+    }
     this._syncVisuals(dt);
     this._updateGuides(dt);
     this._updateAudio(dt);
@@ -423,7 +449,7 @@ export class Session extends Emitter {
     }
     // --- collector trucks
     for (const tr of this.trucks) {
-      if (tr.purpose !== 'collect' || !tr.parked || tr.cargo) continue;
+      if ((tr.purpose !== 'collect' && tr.purpose !== 'customs') || !tr.parked || tr.cargo) continue;
       const c = tr.bedCenter(cargo.hy, _v3);
       const dx = bottom.x - c.x;
       const dz = bottom.z - c.z;
@@ -439,7 +465,7 @@ export class Session extends Emitter {
         gap,
         err,
         zoneOk: true,
-        problem: cargo.discharge ? null : 'notout',
+        problem: tr.purpose === 'customs' ? (cargo.check || cargo.black ? null : 'notcustoms') : cargo.discharge ? null : 'notout',
         seated: gap < 0.2,
         valid: err <= 1 && gap > -0.8,
         grade: err <= 0.3 ? 'perfect' : err <= 0.62 ? 'great' : err <= 1 ? 'good' : 'off',
@@ -540,6 +566,11 @@ export class Session extends Emitter {
     c.settled = false;
     c.misplaced = false;
     c.unsecured = false;
+    this.scale.t = 0;
+    if (c.black) {
+      this.blackOutcome = null;
+      c.thumpT = rand(2.4, 4.2);
+    }
     rig.attach(c);
     rig.sync();
     this.carryT = 0;
@@ -573,6 +604,8 @@ export class Session extends Emitter {
         else if (seat.err > 1) this.emit('toast', { text: 'Not on the lock points — it is sitting loose', kind: 'warn', key: 'loose' });
       } else if (seat && seat.kind === 'truck' && seat.problem === 'notout') {
         this.emit('toast', { text: 'That box is not on the discharge list', kind: 'hint' });
+      } else if (seat && seat.kind === 'truck' && seat.problem === 'notcustoms') {
+        this.emit('toast', { text: 'Customs only take sealed or unlisted boxes', kind: 'hint' });
       } else if (seat && seat.gap > 0.6) {
         this.emit('drop', c);
       }
@@ -646,6 +679,12 @@ export class Session extends Emitter {
     this.ctx.cams.shake(clamp(0.12 + touchDv * 0.05, 0, 0.5));
     this.ctx.fx.dust(wp.x, wp.y - c.hy, wp.z, 8, 0x6f777c, 2.2);
 
+    if (c.black) {
+      // not on any manifest: no points, no questions
+      this.emit('burst', { text: 'STOWED', pos: wp.clone(), kind: 'info', sub: 'NO QUESTIONS' });
+      this._blackDone(c, 'ship', wp.clone());
+      return;
+    }
     if (c.preload && !c.discharge) {
       // re-stowed existing cargo: no points either way
       this.emit('burst', { text: 'RE-STOWED', pos: wp.clone(), kind: 'info' });
@@ -678,13 +717,70 @@ export class Session extends Emitter {
     audio.play('lock', { pos: wp, rate: 0.95 });
     audio.play('impact_deck', { pos: wp, vol: 0.5 });
     this.ctx.fx.dust(wp.x, wp.y - c.hy, wp.z, 8);
-    this.stats.discharged++;
-    this._award(c, seat.grade === 'off' ? 'good' : seat.grade, { soft: this.touch.dv < TUNE.softLanding, pos: wp, discharge: true });
+    const grade = seat.grade === 'off' ? 'good' : seat.grade;
+    const soft = this.touch.dv < TUNE.softLanding;
+    if (tr.purpose !== 'customs') {
+      this.stats.discharged++;
+      this._award(c, grade, { soft, pos: wp, discharge: true });
+      return;
+    }
+    // ---- handed to customs
+    c.customs = true;
+    if (c.black) {
+      this.score += SCORE.handover;
+      this.emit('burst', { text: 'HANDED OVER', pos: wp.clone(), kind: 'great', sub: 'EVIDENCE' });
+      this.emit('points', { pts: SCORE.handover, pos: wp.clone(), mult: 1 });
+      audio.play('great');
+      this._blackDone(c, 'customs', wp.clone());
+    } else if (c.contra) {
+      this.stats.busted++;
+      c.weighed = 'mismatch';
+      this._award(c, grade, { soft, pos: wp, discharge: true, bonus: SCORE.busted, label: 'BUSTED!', sub: 'MIS-DECLARED' });
+    } else {
+      // an honest box: customs wave it through, but the detour costs
+      this.stats.falseAlarm++;
+      c.weighed = 'match';
+      this.combo = 0;
+      this.score += SCORE.falseAlarm;
+      c.scored = true;
+      c.grade = 'good';
+      if (!c.counted) {
+        c.counted = true;
+        this.delivered++;
+      }
+      audio.play('ui_error', { vol: 0.7 });
+      this.emit('burst', { text: 'FALSE ALARM', pos: wp.clone(), kind: 'bad', sub: 'PAPERS WERE FINE' });
+      this.emit('points', { pts: SCORE.falseAlarm, pos: wp.clone(), rough: true });
+      this.emit('placed', { cargo: c, grade: 'good', pts: SCORE.falseAlarm });
+    }
   }
 
-  _award(c, grade, { soft, pos, dropped, discharge }) {
-    let pts = SCORE[grade] || SCORE.good;
-    const parts = [];
+  /** The player has decided what happens to an unlisted box. */
+  _blackDone(c, outcome, pos) {
+    if (c.resolved === outcome) return;
+    c.resolved = outcome;
+    this.blackOutcome = outcome;
+    this.emit('black', { outcome, pos, cargo: c });
+  }
+
+  /** Customs go through what was loaded: mis-declared boxes on board come out of the score. */
+  _sweep() {
+    let n = 0;
+    for (const c of this.cargos) {
+      if (!c.contra || c.customs || !c.counted || c.swept) continue;
+      c.swept = true;
+      n++;
+    }
+    if (n) {
+      this.stats.smuggled += n;
+      this.score += SCORE.smuggled * n;
+    }
+    return n;
+  }
+
+  _award(c, grade, { soft, pos, dropped, discharge, bonus, label: labelOverride, sub }) {
+    let pts = (SCORE[grade] || SCORE.good) + (bonus || 0);
+    const parts = sub ? [sub] : [];
     if (soft && grade !== 'sloppy') {
       pts += SCORE.soft;
       this.stats.soft++;
@@ -719,7 +815,7 @@ export class Session extends Emitter {
       this.delivered++;
     }
     c.thawing = false;
-    const label = grade === 'perfect' ? 'PERFECT!' : grade === 'great' ? 'GREAT!' : grade === 'good' ? (dropped ? 'DROPPED IN' : 'LOCKED') : 'SLOPPY';
+    const label = labelOverride || (grade === 'perfect' ? 'PERFECT!' : grade === 'great' ? 'GREAT!' : grade === 'good' ? (dropped ? 'DROPPED IN' : 'LOCKED') : 'SLOPPY');
     this.emit('burst', { text: label, pos, kind: grade, sub: parts.join(' · ') });
     if (pts) this.emit('points', { pts, pos, mult, combo: this.combo });
     audio.play(grade === 'perfect' ? 'perfect' : grade === 'great' ? 'great' : 'good', { vol: grade === 'sloppy' ? 0.4 : 1 });
@@ -936,7 +1032,8 @@ export class Session extends Emitter {
         audio.play('bubbles', { pos: t, delay: 0.7 });
         this.ctx.cams.shake(0.35);
         this.emit('burst', { text: 'SPLASH!', pos: new THREE.Vector3(t.x, 1.5, t.z), kind: 'water', big: true });
-        this.emit('overboard', c);
+        if (c.black) this._blackDone(c, 'sea', new THREE.Vector3(t.x, 0, t.z));
+        else this.emit('overboard', c);
       }
       if (c.inWater) {
         c.waterT += h;
@@ -944,13 +1041,14 @@ export class Session extends Emitter {
         if (c.waterT > 3.4) {
           const pos = new THREE.Vector3(t.x, 0.5, t.z);
           this._removeCargo(c);
-          this._lose(c, 'sea', pos);
+          if (!c.black) this._lose(c, 'sea', pos);
         }
         continue;
       }
       if (t.y < -15) {
         this._removeCargo(c);
-        this._lose(c, 'sea', null);
+        if (c.black) this._blackDone(c, 'sea', null);
+        else this._lose(c, 'sea', null);
         continue;
       }
       // rest / settle
@@ -973,6 +1071,13 @@ export class Session extends Emitter {
           this.ctx.fx.dust(t.x, t.y, t.z, 16, 0x7a8086, 4);
           this.ctx.fx.debris(t.x, t.y, t.z, 14, [zoneColor(c.zone), 0x59646d, 0x23292e], t.x < 0 ? DIM.QUAY_Y : undefined, 5);
           audio.play('impact_heavy', { pos });
+          if (c.black) {
+            // it bursts open — and there is nothing in it
+            this.emit('burst', { text: 'EMPTY?!', pos: pos.clone(), kind: 'water' });
+            this._removeCargo(c);
+            this._blackDone(c, 'left', pos);
+            continue;
+          }
           this.emit('burst', { text: reach ? 'WRECKED!' : 'OUT OF REACH!', pos: pos.clone(), kind: 'bad' });
           this._removeCargo(c);
           this._lose(c, 'wreck', pos);
@@ -1027,6 +1132,10 @@ export class Session extends Emitter {
     // aboard but not on the lock points
     c.unsecured = true;
     if (c.preload || c.discharge) return;
+    if (c.black) {
+      this._blackDone(c, 'ship', new THREE.Vector3(t.x, t.y, t.z));
+      return;
+    }
     if (!this._zoneOk(c, col.r, col.b)) {
       c.misplaced = true;
       return;
@@ -1118,8 +1227,9 @@ export class Session extends Emitter {
       if (l1.cool <= 0 && this.manifestIdx < this.manifest.length) {
         const spec = this.manifest[this.manifestIdx++];
         const c = this._newCargo(spec);
-        const tr = new Truck(this.ctx.scene, this.phys, { laneX: l1.x, stopZ: l1.z, purpose: 'deliver', color: this.manifestIdx + this.shipIndex });
+        const tr = new Truck(this.ctx.scene, this.phys, { laneX: l1.x, stopZ: l1.z, purpose: 'deliver', color: this.manifestIdx + this.shipIndex, livery: c.black ? 'unmarked' : null });
         tr.load(c);
+        if (c.black) this.blackSeen = true;
         tr.onPark = (trk) => {
           audio.play('air_brake', { pos: trk.group.position });
           if (c.type === 'reefer') c.thawing = true;
@@ -1133,10 +1243,19 @@ export class Session extends Emitter {
     // lane 2: collectors, while there is something to take off the ship
     const l2 = this.lanes[1];
     const pendingOut = this.cargos.some((c) => c.discharge && !c.counted && c.state !== 'gone' && !c.lost);
-    if (pendingOut && (!l2.truck || l2.truck.state === 'gone' || (l2.truck.state === 'out' && l2.truck.z > l2.z + 13))) {
+    // customs wait in lane 2 while a sealed or unlisted box is still to be dealt with
+    const pendingCus =
+      !pendingOut &&
+      this.cargos.some((c) => {
+        if (c.state === 'gone' || c.lost || c.inWater) return false;
+        if (c.check) return !c.counted;
+        return c.black && (c.state === 'carried' || c.state === 'loose' || (c.state === 'truck' && c.truck && c.truck.purpose === 'deliver'));
+      });
+    if (l2.truck && l2.truck.purpose === 'customs' && l2.truck.state === 'wait' && !l2.truck.cargo && !pendingCus && !(l2.truck.leaveDelay > 0)) l2.truck.leaveDelay = 1.2;
+    if ((pendingOut || pendingCus) && (!l2.truck || l2.truck.state === 'gone' || (l2.truck.state === 'out' && l2.truck.z > l2.z + 13))) {
       l2.cool -= dt;
       if (l2.cool <= 0) {
-        const tr = new Truck(this.ctx.scene, this.phys, { laneX: l2.x, stopZ: l2.z, purpose: 'collect', color: 2 + this.trucks.length });
+        const tr = new Truck(this.ctx.scene, this.phys, { laneX: l2.x, stopZ: l2.z, purpose: pendingOut ? 'collect' : 'customs', color: 2 + this.trucks.length });
         tr.onPark = (trk) => audio.play('air_brake', { pos: trk.group.position });
         this.trucks.push(tr);
         l2.truck = tr;
@@ -1157,10 +1276,74 @@ export class Session extends Emitter {
     }
   }
 
+  /** Load cell. Spot-check boxes get a verdict once the load has hung still for a moment. */
+  _updateScale(dt) {
+    const rig = this.rig;
+    const c = rig.carry;
+    const sc = this.scale;
+    if (!c) {
+      sc.t = 0;
+      sc.read = 0;
+      return;
+    }
+    const rel = Math.hypot(rig.sprVel.x - rig.vx, rig.sprVel.z - rig.vz);
+    const vy = Math.abs(rig.sprVel.y);
+    const hanging = this.altitude > 0.45 && rig.slack < 0.06;
+    const t = this.simT;
+    const jitter = Math.sin(t * 23.1) * 0.6 + Math.sin(t * 37.7 + 1.3) * 0.4;
+    let read = c.realT + jitter * (rel * 1.1 + vy * 2.2);
+    // whatever is in a black box, it will not hold still on the scale
+    if (c.black) read = c.realT + Math.sin(t * 0.9) * 5.5 + Math.sin(t * 2.7) * 2.4 + jitter * 1.5;
+    if (!hanging) read *= 0.15;
+    sc.read = damp(sc.read, Math.max(0, read), 9, dt);
+    if (this.phase !== 'play' || !c.check || c.weighed) return;
+    const steady = hanging && rel < 0.85 && vy < 0.5 && Math.abs(rig.vr) < 0.5;
+    sc.t = steady ? sc.t + dt : Math.max(0, sc.t - dt * 2.5);
+    if (sc.t >= TUNE.weighTime) {
+      const ok = Math.abs(c.realT - c.declT) <= TUNE.weighTol;
+      c.weighed = ok ? 'match' : 'mismatch';
+      audio.play(ok ? 'ui_confirm' : 'ui_warn', { vol: 0.9 });
+      this._cargoWorld(c, _v, _q);
+      this.emit('burst', { text: ok ? 'PAPERS MATCH' : 'MIS-DECLARED!', pos: _v.clone(), kind: ok ? 'good' : 'bad', sub: `${c.realT.toFixed(1)} t · declared ${c.declT.toFixed(1)} t` });
+      this.emit('weighed', { cargo: c, ok });
+    }
+  }
+
+  /** Unlisted boxes: the glow in the seams, and whatever keeps knocking from the inside. */
+  _updateBlack(dt) {
+    if (!this.blackSeen) return;
+    for (const c of this.cargos) {
+      if (!c.black || c.state === 'gone') continue;
+      c.updateGlow(dt);
+      if (this.phase !== 'play' || c.inWater) continue;
+      if (c.state === 'truck' && !(c.truck && c.truck.parked)) continue;
+      c.thumpT -= dt;
+      if (c.thumpT > 0) continue;
+      const carried = c.state === 'carried';
+      c.thumpT = carried ? rand(3.4, 6.4) : rand(8, 15);
+      c.pulse = 1;
+      this._cargoWorld(c, _v, _q);
+      audio.play('thump', { pos: _v, vol: carried ? 1 : 0.55, rate: rand(0.85, 1.1) });
+      if (carried) {
+        // it throws its weight about: a shove on the hanging load
+        const a = Math.random() * Math.PI * 2;
+        const k = rand(1.5, 2.6);
+        const v = this.rig.sprBody.linvel();
+        this.rig.sprBody.setLinvel({ x: v.x + Math.cos(a) * k, y: v.y, z: v.z + Math.sin(a) * k * 0.8 }, true);
+        this.ctx.cams.shake(0.16);
+        if (this.cool.clang < 0) {
+          this.cool.clang = 0.5;
+          this.emit('burst', { text: 'THUMP', pos: _v.clone(), kind: 'hit' });
+        }
+      }
+      this.emit('thump', { cargo: c, carried, pos: _v.clone() });
+    }
+  }
+
   _pendingCargo() {
     let n = 0;
     for (const c of this.cargos) {
-      if (c.state === 'gone' || c.lost) continue;
+      if (c.state === 'gone' || c.lost || c.black) continue;
       if (c.preload && !c.discharge) continue;
       if (!c.counted) n++;
     }
@@ -1210,6 +1393,8 @@ export class Session extends Emitter {
     audio.play('horn_ship', { pos: this.ship.group.position });
     audio.play('sting_win', { delay: 0.3 });
     this.emit('shipDone', { n: this.shipIndex + 1, bonus });
+    const smug = this._sweep();
+    if (smug) this.emit('smuggled', { n: smug });
     // anything loose rides away lashed down
     for (const c of this.cargos) {
       if (c.state === 'loose' && c.body && !c.inWater) {
@@ -1369,7 +1554,7 @@ export class Session extends Emitter {
 
     // --- target ghosts
     const cells = [];
-    if (playing && rig.carry && !rig.carry.discharge) {
+    if (playing && rig.carry && !rig.carry.discharge && rig.carry.weighed !== 'mismatch') {
       const c = rig.carry;
       const lb = ship.worldToLocal(bottom, _v3);
       let best = null;
@@ -1382,6 +1567,7 @@ export class Session extends Emitter {
           const t = ship.height(r, b);
           const cell = { pos: ship.cellLocal(r, b, t), color: zoneColor(c.zone === 'ANY' ? ship.zoneOf(r, b) : c.zone), ok: !prob, best: false };
           if (c.zone === 'ANY' && ship.zoneOf(r, b) === 'ANY') cell.color = 0x9fd8ff;
+          if (c.black) cell.color = 0x6dffd9;
           cells.push(cell);
           const d = Math.hypot(cell.pos.x - lb.x, cell.pos.z - lb.z);
           if (!prob && d < bestD) {
@@ -1401,7 +1587,7 @@ export class Session extends Emitter {
         if (c.state === 'gone') continue;
         if (c.state === 'carried') continue;
         let kind = null;
-        if (!rig.carry && c.state === 'truck' && c.truck && c.truck.parked && !c.truck.departing) kind = 'pick';
+        if (!rig.carry && c.state === 'truck' && c.truck && c.truck.parked && !c.truck.departing) kind = c.black ? 'black' : c.check ? 'check' : 'pick';
         else if (c.discharge && !c.counted && c.state !== 'truck') kind = 'out';
         else if (c.misplaced) kind = 'bad';
         else if (c.state === 'loose' && c.settled && !c.inWater && !c.preload) kind = 'warn';
@@ -1411,6 +1597,9 @@ export class Session extends Emitter {
       }
       if (rig.carry && rig.carry.discharge) {
         for (const tr of this.trucks) if (tr.purpose === 'collect' && tr.parked && !tr.cargo) tags.push({ pos: tr.bedCenter(0, new THREE.Vector3()), kind: 'out' });
+      }
+      if (rig.carry && (rig.carry.black || (rig.carry.check && rig.carry.weighed !== 'match'))) {
+        for (const tr of this.trucks) if (tr.purpose === 'customs' && tr.parked && !tr.cargo) tags.push({ pos: tr.bedCenter(0, new THREE.Vector3()), kind: 'customs' });
       }
     }
     g.setTags(tags);
@@ -1451,6 +1640,19 @@ export class Session extends Emitter {
       near = Math.max(near, clamp(1 - d / 45, 0, 1) * (tr.state === 'wait' ? 0.6 : 1));
     }
     L.truck.set(near * 0.8, 0.8 + near * 0.25);
+    // an unlisted box hums to itself; louder on the hook
+    if (this.blackSeen) {
+      let hum = 0;
+      for (const c of this.cargos) {
+        if (!c.black || c.state === 'gone' || c.inWater) continue;
+        c.mesh.getWorldPosition(_v);
+        const d = _v.distanceTo(this.ctx.cams.focus);
+        hum = Math.max(hum, c.state === 'carried' ? 0.9 : 0.55 * clamp(1 - d / 40, 0, 1));
+        this._humRate = 0.9 + (c.pulse || 0) * 0.25;
+      }
+      if (hum > 0 && !L.hum) L.hum = audio.loop('box_hum');
+      if (L.hum) L.hum.set(hum, this._humRate || 1);
+    }
     // hull groans with the swell
     const sea = this.ctx.weather.cur.sea;
     if (this.cool.creak < 0) {
@@ -1486,6 +1688,10 @@ export class Session extends Emitter {
       else if (s && s.problem === 'full') hint = 'STACK FULL';
       else if (s && s.seated) hint = 'OFF THE LOCK POINTS';
       else if (s && rig.slack > 0.12 && s.gap > 0.45) hint = 'SNAGGED — LIFT AND RE-CENTRE';
+      else if (c.black) hint = 'NO PAPERS — SHIP IT, OR HAND IT IN?';
+      else if (c.check && !c.weighed) hint = this.scale.t > 0.05 ? 'WEIGHING — HOLD STILL' : 'SPOT CHECK — HOLD IT STEADY';
+      else if (c.weighed === 'mismatch') hint = 'MIS-DECLARED — CUSTOMS, LANE 2';
+      else if (c.weighed === 'match') hint = 'PAPERS MATCH — LOAD IT';
       else hint = 'CARRYING';
     } else if (g && g.ready) {
       action = 'lock';
@@ -1527,6 +1733,7 @@ export class Session extends Emitter {
       slack: rig.slack,
       rope: rig.rope,
       reefers: this.cargos.filter((k) => k.type === 'reefer' && k.thawing && !k.counted && k.state !== 'gone'),
+      scale: c && (c.check || c.black) ? { read: this.scale.read, decl: c.declT, k: clamp(this.scale.t / TUNE.weighTime, 0, 1), verdict: c.weighed, black: c.black } : null,
     };
   }
 

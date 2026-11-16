@@ -1,5 +1,6 @@
 // Commendations: small long-term goals, checked whenever a run ends.
 import { SHIFTS } from './levels.js';
+import { tally, BLACK_ORDER } from './story.js';
 
 export const AWARDS = [
   { id: 'first', name: 'First Lock', desc: 'Lock your first container on board.', icon: 'lock', test: (d) => d.stats.placed >= 1 },
@@ -13,6 +14,10 @@ export const AWARDS = [
   { id: 'night', name: 'Employee of the Night', desc: 'Three stars on every shift.', icon: 'trophy', test: (d) => SHIFTS.every((s) => (d.shifts[s.id] || {}).stars >= 3) },
   { id: 'overtime', name: 'Overtime Hero', desc: 'Send out three ships in one Overtime run.', icon: 'infinity', test: (d, r, l) => r && l && l.endless && r.ships >= 3 },
   { id: 'payday', name: 'Payday', desc: 'Earn $10,000 in total.', icon: 'coin', test: (d) => d.stats.earned >= 10000 },
+  { id: 'scales', name: 'Thumb on the Scale', desc: 'Catch five mis-declared boxes at the load cell.', icon: 'scale', test: (d) => (d.stats.busted || 0) >= 5 },
+  { id: 'clean', name: 'Clean Manifest', desc: 'Finish a shift with spot checks: every one weighed right, none shipped wrong.', icon: 'badge', test: (d, r, l) => r && r.success && l && l.checks > 0 && !r.stats.smuggled && !r.stats.falseAlarm && r.stats.lost === 0 },
+  { id: 'file', name: 'The Pier Seven File', desc: 'Decide the fate of all five unlisted boxes.', icon: 'file', test: (d) => tally(d.story).n >= BLACK_ORDER.length },
+  { id: 'tide', name: 'High Tide', desc: 'Give the harbour back what was taken from it.', icon: 'eye', test: (d) => tally(d.story).sea >= 3 && tally(d.story).n >= BLACK_ORDER.length },
   { id: 'butter', name: 'Butterfingers', desc: 'Lose ten containers. The harbour master is keeping count.', icon: 'box', test: (d) => d.stats.lost >= 10 },
 ];
 

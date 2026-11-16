@@ -8,10 +8,11 @@ const defaults = () => ({
   shifts: {}, // id -> { stars, best }
   endless: { best: 0, bestShips: 0, runs: 0 },
   settings: { music: 0.7, sfx: 0.9, quality: 'auto', shake: true, cabDefault: false, hints: true },
-  flags: { introSeen: false, tutorialDone: false, endlessSeen: false },
+  flags: { introSeen: false, tutorialDone: false, endlessSeen: false, checkSeen: false },
+  story: { boxes: {}, opened: {}, ending: null }, // what became of each unlisted box (shift id -> outcome)
   paint: 'yellow',
   awards: {},
-  stats: { placed: 0, lost: 0, perfects: 0, earned: 0, playSeconds: 0 },
+  stats: { placed: 0, lost: 0, perfects: 0, earned: 0, playSeconds: 0, busted: 0, smuggled: 0 },
 });
 
 function merge(base, extra) {

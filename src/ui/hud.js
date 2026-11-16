@@ -7,10 +7,12 @@ export function cargoChip(spec, cls = '') {
   const zone = ZONES[spec.zone] || ZONES.ANY;
   const type = spec.type || 'std';
   const isReefer = type === 'reefer';
+  if (type === 'black') return h(`span.chip.black${cls}`, h('span.sw', { style: { '--c': '#0c0e10' }, html: icon('eye') }), 'NOT LISTED');
   const sw = h('span.sw', { style: { '--c': isReefer ? '#d9d6cb' : zone.css }, html: TYPE_ICON[type] ? icon(TYPE_ICON[type]) : '' });
   if (isReefer) sw.style.color = zone.css;
   const label = (spec.zone === 'ANY' ? 'GEN' : zone.id) + (type !== 'std' ? ' · ' + CARGO_TYPES[type].label.toUpperCase() : '');
-  return h(`span.chip${cls}`, sw, label);
+  // amber seal = customs want it weighed
+  return h(`span.chip${spec.check ? '.sealed' : ''}${cls}`, sw, label, spec.check ? h('span.seal', '?') : null);
 }
 
 export class Hud {
@@ -73,6 +75,12 @@ export class Hud {
     e.alt = h('span.alt', '');
     e.carry = h('span.carrychip');
     e.status = h('div.status.plate', h('i.lamp'), e.carry, e.statusTxt, e.statusKey, e.alt);
+    // load cell: only on screen for boxes whose weight matters (spot checks, unlisted boxes)
+    e.scaleVal = h('b', '0.0');
+    e.scaleDecl = h('span.decl', '');
+    e.scaleBar = h('i');
+    e.scaleVerdict = h('span.verdict', '');
+    e.scale = h('div.scale.plate.hidden', h('span.ic', { html: icon('scale') }), h('div.read', e.scaleVal, h('small', 't')), h('div.papers', e.scaleDecl, h('div.bar', e.scaleBar)), e.scaleVerdict);
     e.hints = h(
       'div.controls-hint.plate',
       h('span', { html: '<span class="kbd">A</span><span class="kbd">D</span> trolley' }),
@@ -80,7 +88,7 @@ export class Hud {
       h('span', { html: '<span class="kbd">E</span><span class="kbd">Q</span> hoist' }),
       h('span', { html: '<span class="kbd">C</span> view' })
     );
-    r.appendChild(h('div.hud-bc', e.status, e.hints));
+    r.appendChild(h('div.hud-bc', e.scale, e.status, e.hints));
 
     this.thresholds = null;
     this.update(session.hud(), true);
@@ -144,10 +152,11 @@ export class Hud {
     });
     // queue: parked truck first, then what is still to arrive
     const qk = s.waiting.map((c) => c.id).join(',') + '|' + s.next.length + '|' + (s.next[0] ? s.next[0].zone + s.next[0].type : '') + '|' + s.shipIndex;
+    // (unlisted boxes are, naturally, not on the list of trucks inbound)
     this._set('queue', qk, () => {
       e.queueChips.innerHTML = '';
       for (const c of s.waiting) e.queueChips.appendChild(cargoChip(c, '.now'));
-      for (const n of s.next.slice(0, 3)) e.queueChips.appendChild(cargoChip(n));
+      for (const n of s.next.filter((x) => !x.black).slice(0, 3)) e.queueChips.appendChild(cargoChip(n));
       e.queue.classList.toggle('hidden', !s.waiting.length && !s.next.length);
     });
     // wind
@@ -185,6 +194,26 @@ export class Hud {
     this._set('alt', Math.round(s.altitude * 10), (v) => {
       e.alt.innerHTML = `${icon('down')} ${(v / 10).toFixed(1)} m`;
     });
+    // load cell
+    const sc = s.scale;
+    this._set('scaleOn', !!sc, (v) => e.scale.classList.toggle('hidden', !v));
+    if (sc) {
+      // an unlisted box never gives the same number twice
+      const shown = sc.black && Math.random() < 0.08 ? '--.-' : sc.read.toFixed(1);
+      this._set('scaleRead', shown, (v) => {
+        e.scaleVal.textContent = v;
+      });
+      this._set('scaleDecl', sc.black ? 'x' : sc.decl, () => {
+        e.scaleDecl.textContent = sc.black ? 'NO PAPERS' : `PAPERS ${sc.decl.toFixed(1)} t`;
+      });
+      this._set('scaleK', sc.verdict ? 100 : Math.round(sc.k * 50), () => {
+        e.scaleBar.style.width = (sc.verdict ? 100 : sc.k * 100) + '%';
+      });
+      this._set('scaleV', (sc.verdict || '') + (sc.black ? 'b' : ''), () => {
+        e.scale.className = 'scale plate ' + (sc.black ? 'black' : sc.verdict || 'pending');
+        e.scaleVerdict.textContent = sc.black ? '???' : sc.verdict === 'match' ? 'MATCH' : sc.verdict === 'mismatch' ? 'NO MATCH' : 'WEIGHING';
+      });
+    }
     this._set('ship', s.ship.name, (v) => {
       e.shipName.textContent = v;
     });

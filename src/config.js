@@ -71,6 +71,7 @@ export const CARGO_TYPES = {
   fragile: { id: 'fragile', label: 'Fragile', mass: 0.8, value: 140 },
   reefer: { id: 'reefer', label: 'Reefer', mass: 1.1, value: 120 },
   hazmat: { id: 'hazmat', label: 'Hazmat', mass: 1.2, value: 150 },
+  black: { id: 'black', label: 'No papers', mass: 1.45, value: 0 }, // the boxes nobody ordered
 };
 
 export const UI = {
@@ -100,6 +101,8 @@ export const TUNE = {
   softLanding: 1.6, // landing speed (m/s) under which a touchdown is "soft"
   hardLanding: 7.0,
   lockBreakImpulse: 5.2, // delta-v that knocks a locked container loose
+  weighTime: 1.25, // seconds the load must hang steady before the load cell gives a verdict
+  weighTol: 2.0, // tonnes of difference customs will tolerate
 };
 
 export const SCORE = {
@@ -113,6 +116,10 @@ export const SCORE = {
   special: 140,
   lost: -150,
   rough: -30,
+  busted: 220, // mis-declared box handed to customs
+  falseAlarm: -60, // honest box sent to customs
+  smuggled: -250, // mis-declared box found on the ship afterwards
+  handover: 260, // unlisted box handed to customs
 };
 
-export const GAME_VERSION = '1.0.0';
+export const GAME_VERSION = '1.1.0';
