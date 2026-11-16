@@ -15,8 +15,23 @@ export class Tutorial {
     this.done = false;
     this.placed = 0;
     this.unsub = [session.on('placed', () => this.placed++)];
-    const T = touch;
-    this.steps = [
+    this.steps = this._steps(touch);
+    session.timeFrozen = true;
+    this._show(0);
+  }
+
+  /** Swap the wording when the player changes between touch and keyboard mid-lesson. */
+  setTouch(v) {
+    if (v === this.touch || this.done) return;
+    this.touch = v;
+    this.steps = this._steps(v);
+    const t = this.t;
+    this._show(this.i, true);
+    this.t = t;
+  }
+
+  _steps(T) {
+    return [
       {
         text: T ? 'Drag the stick to park the spreader over the truck' : `Park the spreader over the container on the truck`,
         sub: T ? 'Left / right runs the trolley · up / down drives the whole crane' : `${K('A', 'D')} trolley &nbsp; ${K('W', 'S')} drive the crane along the quay`,
@@ -63,11 +78,9 @@ export class Tutorial {
         ok: () => this.t > 6.5,
       },
     ];
-    session.timeFrozen = true;
-    this._show(0);
   }
 
-  _show(i) {
+  _show(i, quiet) {
     this.i = i;
     this.t = 0;
     const st = this.steps[i];
@@ -79,7 +92,7 @@ export class Tutorial {
     this.root.classList.remove('hidden');
     const body = h('div.body', { html: st.text + (st.sub ? `<small>${st.sub}</small>` : '') });
     this.root.appendChild(h(`div.tut${st.done ? '.done' : ''}`, h('div.step', st.done ? '✓' : String(i + 1)), body));
-    if (i > 0) audio.play(st.done ? 'ui_confirm' : 'ui_toast', { vol: 0.8 });
+    if (i > 0 && !quiet) audio.play(st.done ? 'ui_confirm' : 'ui_toast', { vol: 0.8 });
   }
 
   update(dt) {

@@ -5,6 +5,7 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
 import { isMobile, clamp } from './util.js';
 
 const GradeShader = {
@@ -53,6 +54,25 @@ const GradeShader = {
   `,
 };
 
+// Menu backdrop: while a card covers the scene it is drawn at a third of the resolution and
+// blurred here, which costs far less than a full frame plus a CSS backdrop blur on top of it.
+const SOFT_VERT = /* glsl */ `
+  varying vec2 vUv;
+  void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }
+`;
+const SOFT_TAPS = /* glsl */ `
+  uniform sampler2D tDiffuse;
+  uniform vec2 uDir;
+  varying vec2 vUv;
+  vec3 taps() {
+    vec3 c = texture2D(tDiffuse, vUv).rgb * 0.227027;
+    c += (texture2D(tDiffuse, vUv + uDir * 1.384615).rgb + texture2D(tDiffuse, vUv - uDir * 1.384615).rgb) * 0.316216;
+    c += (texture2D(tDiffuse, vUv + uDir * 3.230769).rgb + texture2D(tDiffuse, vUv - uDir * 3.230769).rgb) * 0.070270;
+    return c;
+  }
+`;
+const SOFT_SCALE = 3.5;
+
 class Gfx {
   constructor() {
     this.renderer = null;
@@ -70,6 +90,78 @@ class Gfx {
     this.auto = true;
     this.onResize = new Set();
     this.failed = false;
+    this.soft = 0; // 0 = sharp scene, 1 = blurred menu backdrop
+    this.softTarget = 0;
+  }
+
+  /** Blur the scene behind a full-screen card (true) or show it sharp again (false). */
+  setBackdrop(on) {
+    this.softTarget = on ? 1 : 0;
+  }
+
+  _renderSoft() {
+    const r = this.renderer;
+    const w = Math.max(64, Math.round((this.size.x * Math.min(this.pixelRatio, 1.5)) / SOFT_SCALE));
+    const h = Math.max(36, Math.round((this.size.y * Math.min(this.pixelRatio, 1.5)) / SOFT_SCALE));
+    if (!this._softA || this._softA.width !== w || this._softA.height !== h) {
+      if (this._softA) {
+        this._softA.dispose();
+        this._softB.dispose();
+      }
+      const opt = { type: THREE.HalfFloatType, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter };
+      this._softA = new THREE.WebGLRenderTarget(w, h, { ...opt, depthBuffer: true });
+      this._softB = new THREE.WebGLRenderTarget(w, h, { ...opt, depthBuffer: false });
+    }
+    if (!this._softQuad) {
+      const uniforms = () => ({ tDiffuse: { value: null }, uDir: { value: new THREE.Vector2() } });
+      this._softH = new THREE.ShaderMaterial({
+        uniforms: uniforms(),
+        vertexShader: SOFT_VERT,
+        fragmentShader: SOFT_TAPS + 'void main() { gl_FragColor = vec4(taps(), 1.0); }',
+        depthTest: false,
+        depthWrite: false,
+        toneMapped: false,
+      });
+      this._softV = new THREE.ShaderMaterial({
+        uniforms: uniforms(),
+        vertexShader: SOFT_VERT,
+        fragmentShader:
+          SOFT_TAPS +
+          /* glsl */ `
+          void main() {
+            vec3 col = taps();
+            float l = dot(col, vec3(0.2126, 0.7152, 0.0722));
+            col = mix(vec3(l), col, 0.86);
+            vec2 c = vUv - 0.5;
+            col *= mix(0.6, 1.0, smoothstep(0.95, 0.25, length(c * vec2(1.0, 1.15))));
+            gl_FragColor = vec4(col, 1.0);
+            #include <tonemapping_fragment>
+            #include <colorspace_fragment>
+          }`,
+        depthTest: false,
+        depthWrite: false,
+      });
+      this._softQuad = new FullScreenQuad(this._softH);
+    }
+    // two blur rounds (tight, then wide): smooth even though the source is only a third of the size
+    const k = this.soft;
+    const A = this._softA;
+    const B = this._softB;
+    const H = this._softH;
+    const V = this._softV;
+    const pass = (mat, src, dst, dx, dy) => {
+      mat.uniforms.tDiffuse.value = src.texture;
+      mat.uniforms.uDir.value.set(dx, dy);
+      this._softQuad.material = mat;
+      r.setRenderTarget(dst);
+      this._softQuad.render(r);
+    };
+    r.setRenderTarget(A);
+    r.render(this.scene, this.camera);
+    pass(H, A, B, k / w, 0);
+    pass(H, B, A, 0, k / h);
+    pass(H, A, B, (2.2 * k) / w, 0);
+    pass(V, B, null, 0, (2.2 * k) / h);
   }
 
   init(canvas) {
@@ -124,7 +216,7 @@ class Gfx {
     this._configure();
   }
 
-  _configure() {
+  _calcPR() {
     const q = this.quality;
     const dpr = window.devicePixelRatio || 1;
     const lvl = this._adaptLevel;
@@ -132,7 +224,20 @@ class Gfx {
     let cap = q === 'high' ? 2 : q === 'medium' ? (this.mobile ? 2 : 1.5) : this.mobile ? 1.5 : 1;
     cap -= Math.min(lvl, 3) * 0.2;
     const minPR = this.mobile ? Math.min(dpr, 1.35) : 1;
-    this.pixelRatio = clamp(Math.min(dpr, cap), minPR, 2);
+    let pr = clamp(Math.min(dpr, cap), minPR, 2);
+    if (!this.mobile) {
+      // desktop pixel budget: a 4K / hi-dpi window must not quadruple the shading work
+      const budget = (q === 'high' ? 3.4e6 : q === 'medium' ? 2.4e6 : 1.6e6) * (1 - Math.min(lvl, 4) * 0.1);
+      const px = Math.max(1, window.innerWidth * window.innerHeight);
+      pr = Math.max(0.6, Math.min(pr, Math.sqrt(budget / px)));
+    }
+    return pr;
+  }
+
+  _configure() {
+    const q = this.quality;
+    const lvl = this._adaptLevel;
+    this.pixelRatio = this._calcPR();
     this.usePost = q === 'high' && lvl < 4 && !this.mobile;
     this.shadows = q !== 'low' && lvl < 5;
     this.renderer.shadowMap.enabled = this.shadows;
@@ -171,7 +276,7 @@ class Gfx {
     const h = Math.max(2, Math.floor(window.innerHeight * this.pixelRatio));
     const rt = new THREE.WebGLRenderTarget(w, h, {
       type: THREE.HalfFloatType,
-      samples: 4,
+      samples: this._adaptLevel >= 2 || w * h > 2.6e6 ? 2 : 4,
       depthBuffer: true,
     });
     const composer = new EffectComposer(r, rt);
@@ -188,6 +293,7 @@ class Gfx {
 
   resize() {
     if (!this.renderer) return;
+    this.pixelRatio = this._calcPR();
     const w = Math.max(2, window.innerWidth);
     const h = Math.max(2, window.innerHeight);
     this.size.set(w, h);
@@ -207,6 +313,12 @@ class Gfx {
   render(dt, time) {
     if (!this.renderer || this.contextLost) return;
     if (this.flash > 0) this.flash = Math.max(0, this.flash - dt * 3.2);
+    this.soft += (this.softTarget - this.soft) * Math.min(1, dt * (this.softTarget ? 9 : 16));
+    if (this.softTarget || this.soft > 0.04) {
+      this._renderSoft();
+      // (menus are not a fair sample for the adaptive quality: they render far fewer pixels)
+      return;
+    }
     if (this.composer && this.usePost) {
       this.grade.uniforms.uTime.value = time;
       this.grade.uniforms.uFlash.value = this.flash * 0.35;
@@ -221,15 +333,19 @@ class Gfx {
   /** Steps quality down if the device cannot hold a playable frame rate. */
   _adapt(dt) {
     if (!this.auto || dt <= 0 || document.hidden) return;
-    this._ft.push(dt);
     this._adaptT += dt;
-    if (this._adaptT < 4) return;
-    const avg = this._ft.reduce((a, b) => a + b, 0) / this._ft.length;
-    this._ft.length = 0;
+    if (this._adaptT < 0) return;
+    this._ft.push(dt);
+    if (this._adaptT < 2.5) return;
+    // judged on the slower frames, not the mean: an uneven frame rate is what reads as lag
+    const ft = this._ft.sort((a, b) => a - b);
+    const avg = ft[Math.floor(ft.length * 0.7)];
+    this._ft = [];
     this._adaptT = 0;
-    if (avg > 1 / 38 && this._adaptLevel < 6) {
+    if (avg > 1 / 45 && this._adaptLevel < 6) {
       this._adaptLevel++;
       this._configure();
+      this._adaptT = -1.5; // let the change settle before judging again
     }
   }
 }

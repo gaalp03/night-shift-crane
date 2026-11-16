@@ -1,7 +1,7 @@
 // Night Shift Crane — application shell: boot, world, game flow, main loop.
 import * as THREE from 'three';
 import { DIM, PAL } from './config.js';
-import { clamp, damp, rand, isMobile, isTouchDevice, isIOS, Tweens } from './core/util.js';
+import { clamp, damp, rand, isMobile, isIOS, Tweens } from './core/util.js';
 import { save } from './core/save.js';
 import { sdk } from './core/sdk.js';
 import { input } from './core/input.js';
@@ -39,7 +39,7 @@ const app = {
   shiftsStarted: 0,
   lastResult: null,
   nowPlaying: null,
-  touchMode: isTouchDevice() && isMobile(),
+  touchMode: isMobile(),
   cabGhost: null,
   hitStop: 0,
   ambT: { crow: rand(12, 30), bell: rand(8, 20), horn: rand(40, 90), smoke: 0 },
@@ -54,6 +54,17 @@ const app = {
   },
   endlessUnlocked() {
     return (save.data.shifts.s04 || {}).stars > 0;
+  },
+
+  /** Touch controls follow the device actually in use: a finger shows them, a key press hides them. */
+  setTouchMode(v) {
+    v = !!v;
+    if (app.touchMode === v) return;
+    app.touchMode = v;
+    document.body.classList.toggle('touch', v);
+    if (app.touch) app.touch.show(v && app.mode === 'play');
+    if (app.tutorial) app.tutorial.setTouch(v);
+    if (!v) input.touch.x = input.touch.z = input.touch.hoist = 0;
   },
 
   // ---------------------------------------------------------------- settings
@@ -656,7 +667,10 @@ function bindGlobalInput() {
     },
     { passive: false }
   );
+  // whichever device the player actually touches decides which controls are on screen
+  window.addEventListener('pointerdown', (e) => e.pointerType === 'touch' && app.setTouchMode(true), true);
   input.anyKeyHandlers.add((e) => {
+    if (!e.ctrlKey && !e.metaKey && !e.altKey && /^(Key[A-Z]|Arrow|Space|Shift|Enter|Page)/.test(e.code)) app.setTouchMode(false);
     if (app.mode === 'intro' && app._skipTour && (e.code === 'Space' || e.code === 'Enter' || e.code === 'Escape')) app._skipTour();
     // Enter = the highlighted action, Esc = back, on any open menu
     const scr = app.screens && app.screens.current;

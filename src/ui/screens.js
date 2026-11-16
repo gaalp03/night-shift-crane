@@ -8,6 +8,7 @@ import { icon } from './icons.js';
 import { cargoChip } from './hud.js';
 import { audio } from '../core/audio.js';
 import { save } from '../core/save.js';
+import { gfx } from '../core/gfx.js';
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -66,6 +67,7 @@ export class Screens {
     }
     this.current = el;
     this.name = name;
+    gfx.setBackdrop(!!el && el.classList.contains('dim'));
     if (el) {
       this.root.appendChild(el);
       void el.offsetWidth;

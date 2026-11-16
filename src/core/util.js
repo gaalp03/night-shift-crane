@@ -141,7 +141,9 @@ export const isTouchDevice = () =>
 export const isMobile = () => {
   const ua = navigator.userAgent || '';
   const mobileUA = /Android|iPhone|iPad|iPod|Mobile|Silk/i.test(ua) || (/Macintosh/.test(ua) && (navigator.maxTouchPoints || 0) > 1);
-  return mobileUA || (isTouchDevice() && Math.min(window.innerWidth, window.innerHeight) < 820);
+  // (a touch-screen laptop is not a phone: only a coarse *primary* pointer with no hover counts)
+  const coarse = matchMedia('(pointer: coarse)').matches && matchMedia('(hover: none)').matches;
+  return mobileUA || (coarse && Math.min(window.innerWidth, window.innerHeight) < 820);
 };
 
 export const isIOS = () => {

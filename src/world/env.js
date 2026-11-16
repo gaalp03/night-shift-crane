@@ -176,7 +176,51 @@ export class Harbor {
 
   _sky() {
     const geo = new THREE.SphereGeometry(900, 24, 14);
+    // cloud noise baked once into a small tiling texture (one lookup per pixel instead of a
+    // four-octave procedural noise: the sky fills half the screen behind the menus)
+    const N = 256;
+    const P = 16;
+    const data = new Uint8Array(N * N);
+    const lat = [];
+    for (let o = 0; o < 4; o++) {
+      const n = P << o;
+      const g = new Float32Array(n * n);
+      for (let i = 0; i < g.length; i++) g[i] = Math.random();
+      lat.push({ n, g });
+    }
+    const vn = (L, x, y) => {
+      const xi = Math.floor(x);
+      const yi = Math.floor(y);
+      let fx = x - xi;
+      let fy = y - yi;
+      fx = fx * fx * (3 - 2 * fx);
+      fy = fy * fy * (3 - 2 * fy);
+      const n = L.n;
+      const a = L.g[(yi % n) * n + (xi % n)];
+      const b = L.g[(yi % n) * n + ((xi + 1) % n)];
+      const c = L.g[((yi + 1) % n) * n + (xi % n)];
+      const d = L.g[((yi + 1) % n) * n + ((xi + 1) % n)];
+      return a + (b - a) * fx + (c - a) * fy + (a - b - c + d) * fx * fy;
+    };
+    for (let y = 0; y < N; y++) {
+      for (let x = 0; x < N; x++) {
+        let amp = 0.5;
+        let v = 0;
+        for (let o = 0; o < 4; o++) {
+          v += amp * vn(lat[o], (x / N) * lat[o].n, (y / N) * lat[o].n);
+          amp *= 0.5;
+        }
+        data[y * N + x] = Math.round(v * 255);
+      }
+    }
+    const noiseTex = new THREE.DataTexture(data, N, N, THREE.RedFormat, THREE.UnsignedByteType);
+    noiseTex.wrapS = noiseTex.wrapT = THREE.RepeatWrapping;
+    noiseTex.magFilter = THREE.LinearFilter;
+    noiseTex.minFilter = THREE.LinearMipmapLinearFilter;
+    noiseTex.generateMipmaps = true;
+    noiseTex.needsUpdate = true;
     this.skyUniforms = {
+      uNoise: { value: noiseTex },
       uTop: { value: new THREE.Color(PAL.skyTop) },
       uMid: { value: new THREE.Color(PAL.skyMid) },
       uGlow: { value: new THREE.Color(PAL.skyGlow) },
@@ -203,13 +247,9 @@ export class Harbor {
         uniform vec3 uTop; uniform vec3 uMid; uniform vec3 uGlow;
         uniform float uFlash; uniform float uTime; uniform float uClouds;
         uniform vec3 uFogCol; uniform float uFogMix;
+        uniform sampler2D uNoise;
         varying vec3 vDir;
         float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-        float noise(vec2 p) {
-          vec2 i = floor(p); vec2 f = fract(p); f = f * f * (3.0 - 2.0 * f);
-          return mix(mix(hash(i), hash(i + vec2(1, 0)), f.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), f.x), f.y);
-        }
-        float fbm(vec2 p) { float a = 0.5; float s = 0.0; for (int i = 0; i < 4; i++) { s += a * noise(p); p *= 2.03; a *= 0.5; } return s; }
         void main() {
           vec3 d = normalize(vDir);
           float h = clamp(d.y, -0.1, 1.0);
@@ -220,14 +260,15 @@ export class Harbor {
           col += uGlow * glow * 0.9;
           // slow overcast with moonlit breaks
           vec2 cp = d.xz / (0.25 + max(h, 0.0)) * 1.3 + vec2(uTime * 0.006, uTime * 0.003);
-          float c = fbm(cp);
+          float c = texture2D(uNoise, cp * 0.0625).r;
           float cover = smoothstep(1.0 - uClouds, 1.2 - uClouds * 0.6, c + 0.25);
           vec3 cloudCol = mix(uMid * 1.6, uGlow * 0.55, exp(-max(h, 0.0) * 5.0));
           col = mix(col, cloudCol, cover * smoothstep(0.02, 0.3, h) * 0.75);
           // stars in the gaps
           vec2 sp = d.xz / (0.4 + d.y) * 90.0;
-          float st = step(0.9975, hash(floor(sp))) * smoothstep(0.15, 0.5, h) * (1.0 - cover);
-          col += vec3(0.75, 0.82, 1.0) * st * (0.5 + 0.5 * sin(uTime * 2.0 + hash(floor(sp)) * 40.0));
+          float sh = hash(floor(sp));
+          float st = step(0.9975, sh) * smoothstep(0.15, 0.5, h) * (1.0 - cover);
+          col += vec3(0.75, 0.82, 1.0) * st * (0.5 + 0.5 * sin(uTime * 2.0 + sh * 40.0));
           // moon
           vec3 md = normalize(vec3(0.42, 0.5, -0.76));
           float m = dot(d, md);
@@ -241,7 +282,8 @@ export class Harbor {
     });
     const sky = new THREE.Mesh(geo, mat);
     sky.frustumCulled = false;
-    sky.renderOrder = -10;
+    // drawn after the solid world (at the far plane), so only the pixels of sky actually visible are shaded
+    sky.renderOrder = 10;
     this.sky = sky;
     this.scene.add(sky);
   }

@@ -80,7 +80,7 @@ export class Hud {
       h('span', { html: '<span class="kbd">E</span><span class="kbd">Q</span> hoist' }),
       h('span', { html: '<span class="kbd">C</span> view' })
     );
-    r.appendChild(h('div.hud-bc', e.status, this.touch ? null : e.hints));
+    r.appendChild(h('div.hud-bc', e.status, e.hints));
 
     this.thresholds = null;
     this.update(session.hud(), true);
