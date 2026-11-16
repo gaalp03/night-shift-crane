@@ -220,6 +220,7 @@ export class Session extends Emitter {
       stats: { ...this.stats },
       canContinue: !success && !this.usedContinue,
       smuggled,
+      timeLeft: Math.max(0, this.time),
       black: this.blackSeen ? this.blackOutcome || 'left' : null,
       ships: this.stats.ships,
       time: this.elapsed,

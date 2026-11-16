@@ -75,7 +75,7 @@ class Save {
     const cur = this.data.shifts[id] || { stars: 0, best: 0 };
     const gainedStars = Math.max(0, stars - cur.stars);
     const newBest = score > cur.best;
-    this.data.shifts[id] = { stars: Math.max(cur.stars, stars), best: Math.max(cur.best, score) };
+    this.data.shifts[id] = { ...cur, stars: Math.max(cur.stars, stars), best: Math.max(cur.best, score) };
     this.commit(true);
     return { gainedStars, newBest };
   }

@@ -580,6 +580,21 @@ async function onFinish(s, res) {
       if (ending) d.story.ending = ending.id;
     }
   }
+  // the foreman's side job: paid the first time it is pulled off
+  let order = null;
+  if (!endless && res.success && level.order) {
+    let done = false;
+    try {
+      done = !!level.order.test(res);
+    } catch (e) {}
+    const rec = d.shifts[level.id];
+    const first = done && rec && !rec.order;
+    if (first) {
+      rec.order = true;
+      payout += level.order.cash;
+    }
+    order = { text: level.order.text, done, cash: first ? level.order.cash : 0 };
+  }
   d.stats.busted = (d.stats.busted || 0) + (res.stats.busted || 0);
   d.stats.smuggled = (d.stats.smuggled || 0) + (res.stats.smuggled || 0);
   d.money += payout;
@@ -591,7 +606,7 @@ async function onFinish(s, res) {
   const fresh = checkAwards(d, res, level);
   save.commit(true);
   const idx = SHIFTS.indexOf(level);
-  const meta = { level, payout, newStars, newBest, endless, hush, ending, nextLevel: !endless && res.success && idx >= 0 && idx < SHIFTS.length - 1 ? SHIFTS[idx + 1] : null };
+  const meta = { level, payout, newStars, newBest, endless, hush, ending, order, nextLevel: !endless && res.success && idx >= 0 && idx < SHIFTS.length - 1 ? SHIFTS[idx + 1] : null };
   app.lastResult = { res, meta };
   showHud(false);
   setCab(false, true);

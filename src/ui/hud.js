@@ -39,7 +39,9 @@ export class Hud {
     const plate = h('div.shiftplate.plate', e.shiftNo, h('div.txt', e.shiftName, e.shipName));
     e.queueChips = h('div.chips');
     e.queue = h('div.queue.plate', h('div.lbl', 'Trucks inbound'), e.queueChips);
-    r.appendChild(h('div.hud-tl', plate, e.queue));
+    // the foreman's side job for this shift, kept in the corner of the eye
+    const order = !endless && level.order ? h('div.orderline.plate', h('span.lbl', 'Order'), level.order.text) : null;
+    r.appendChild(h('div.hud-tl', plate, e.queue, order));
 
     // --- top centre: clock + progress
     e.timeTxt = h('span', '0:00');

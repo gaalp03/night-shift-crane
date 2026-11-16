@@ -172,8 +172,27 @@ export const SHIFTS = [
   },
 ];
 
+/**
+ * Foreman's orders: one side job per shift, paid once in cash. `test` gets the shift result
+ * (only asked when the shift was completed).
+ */
+const ORDERS = {
+  s02: { text: 'Three PERFECT set-downs', cash: 120, test: (r) => r.stats.perfect >= 3 },
+  s03: { text: 'Catch the mis-declared box at the scale', cash: 150, test: (r) => r.stats.busted >= 1 && !r.stats.smuggled },
+  s04: { text: 'No rough handling, no lost boxes', cash: 170, test: (r) => r.stats.rough === 0 && r.stats.lost === 0 },
+  s05: { text: 'Lose nothing and ship nothing mis-declared', cash: 190, test: (r) => r.stats.lost === 0 && !r.stats.smuggled },
+  s06: { text: 'Five soft landings', cash: 210, test: (r) => r.stats.soft >= 5 },
+  s07: { text: 'Build a x5 combo', cash: 230, test: (r) => r.bestCombo >= 5 },
+  s08: { text: 'Clock out with 90 seconds to spare', cash: 250, test: (r) => r.timeLeft >= 90 },
+  s09: { text: 'No false alarms, nothing smuggled', cash: 270, test: (r) => !r.stats.falseAlarm && !r.stats.smuggled },
+  s10: { text: 'Six PERFECT set-downs', cash: 290, test: (r) => r.stats.perfect >= 6 },
+  s11: { text: 'Not a single strike', cash: 330, test: (r) => r.strikes === 0 },
+  s12: { text: 'Home with 60 seconds left and no strikes', cash: 420, test: (r) => r.timeLeft >= 60 && r.strikes === 0 },
+};
+
 SHIFTS.forEach((s, i) => {
   s.n = i + 1;
+  s.order = ORDERS[s.id] || null;
   s.strikes = 3;
   s.quota = s.quota || s.manifest.filter((c) => !c.black).length + (s.preload || []).filter((p) => p.discharge).length;
   s.checks = s.manifest.filter((c) => c.check).length;

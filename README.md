@@ -14,6 +14,7 @@ onto a rolling ship before it sails.
   wants them shipped, customs wants them seized — and something under the pier wants them back.
   What you do with each one fills in the logbook and decides which front page you wake up to
 - Power cuts that leave you working by the trolley's battery lamp
+- A **foreman's order** on every shift: a side job (no rough handling, a x5 combo, time to spare…) paid once in cash
 - **Overtime**: an endless high-score mode, ship after ship
 - **Workshop** upgrades and crane paint jobs between shifts, plus a **Logbook** of career stats and commendations
 - Real rigid-body physics: cable-suspended spreader, momentum, wind, a ship that heaves, rolls and

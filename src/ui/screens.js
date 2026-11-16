@@ -136,6 +136,7 @@ export class Screens {
     const app = this.app;
     const d = save.data;
     const grid = h('div.board');
+    const story = d.story || {};
     let nextFound = false;
     SHIFTS.forEach((s, i) => {
       const rec = d.shifts[s.id] || { stars: 0, best: 0 };
@@ -151,6 +152,12 @@ export class Screens {
         h('div.meta', s.clock, h('span.wx', { html: weatherIcons(s.weather).map((n) => icon(n)).join('') })),
         h('div.stars', { html: [0, 1, 2].map((k) => `<span class="${k < rec.stars ? 'on' : ''}">${icon('star')}</span>`).join('') }),
         rec.best ? h('div.best', fmtNum(rec.best)) : null,
+        // corner marks: the foreman's order ticked off, and what became of that night's black box
+        h(
+          'div.marks',
+          rec.order ? h('span.mk.order', { title: 'Foreman’s order done', html: icon('check') }) : null,
+          story.boxes && story.boxes[s.id] ? h(`span.mk.box.${story.boxes[s.id]}`, { title: 'Unlisted box', html: icon('eye') }) : null
+        ),
         unlocked ? null : h('div.lockico', { html: icon('lock') })
       );
       grid.appendChild(card);
@@ -202,6 +209,12 @@ export class Screens {
       chips,
       h('div.section-label', 'Conditions'),
       h('div.wxrow', ...weatherPills(level.weather).map(([ic, t]) => h('span.pill', { html: icon(ic) + ' ' + t })), h('span.pill', { html: icon('clock') + ' ' + fmtTime(level.time * app.mods().timeMul) })),
+      level.order
+        ? h('div.section-label', 'Foreman’s order')
+        : null,
+      level.order
+        ? h('div.goalrow', h(`span.pill.order${rec.order ? '.done' : ''}`, { html: icon(rec.order ? 'check' : 'wrench') + ' ' + level.order.text }), rec.order ? h('span.pill', 'Paid') : h('span.pill.cash', { html: icon('coin') + ' +' + fmtNum(level.order.cash) }))
+        : null,
       h('div.section-label', 'Star targets'),
       h('div.goalrow', ...th.map((t, i) => h('span.goal.pill', { html: icon('star').repeat(i + 1) + ' ' + fmtNum(t) })), rec.best ? h('span.pill', `Best ${fmtNum(rec.best)}`) : null)
     );
@@ -531,7 +544,9 @@ export class Screens {
         ),
         h('div.section-label', 'Controls'),
         h('div', { style: { color: 'var(--dim)', lineHeight: '1.35' } }, help),
-        app.level && app.level.checks ? h('div', { style: { color: 'var(--dim)', lineHeight: '1.35', marginTop: '0.5em' } }, tips) : null
+        app.level && app.level.checks ? h('div', { style: { color: 'var(--dim)', lineHeight: '1.35', marginTop: '0.5em' } }, tips) : null,
+        app.level && app.level.order ? h('div.section-label', 'Foreman’s order') : null,
+        app.level && app.level.order ? h('div', { style: { fontWeight: 700 } }, app.level.order.text) : null
       )
     );
     return this._mount('pause', h('div.screen.dim', card));
@@ -549,27 +564,35 @@ export class Screens {
     const endless = meta.endless;
     const rows = [];
     const st = res.stats;
-    const R = (k, v, cls = '') => rows.push(h(`div.rrow${cls}`, h('span.k', k), h('span.dots'), h('span.v', v)));
+    // (rows marked optional are the first to go when a busy shift would overflow the clipboard)
+    const R = (k, v, cls = '', optional = false) => {
+      const el = h(`div.rrow${cls}`, h('span.k', k), h('span.dots'), h('span.v', v));
+      el._optional = optional;
+      rows.push(el);
+    };
     if (endless) {
       R('Ships sent out', String(res.ships));
       R('Boxes placed', String(st.placed));
       R('Perfect drops', String(st.perfect));
       R('Best combo', 'x' + res.bestCombo);
       if (st.lost) R('Boxes lost', String(st.lost), '.neg');
+      if (st.busted || st.smuggled) R('Customs · caught / slipped through', `${st.busted} / ${st.smuggled}`, st.smuggled ? '.neg' : '');
     } else {
       R('Boxes delivered', `${res.delivered} / ${res.quota}`);
       R('Perfect · Great · Good', `${st.perfect} · ${st.great} · ${st.good}`);
       if (st.sloppy) R('Left unsecured', String(st.sloppy), '.neg');
-      R('Soft landings', String(st.soft));
-      R('Best combo', 'x' + res.bestCombo);
+      R('Soft landings', String(st.soft), '', true);
+      R('Best combo', 'x' + res.bestCombo, '', true);
       if (ok) R('Time bonus', '+' + fmtNum(st.timeBonus));
       if (st.lost) R('Boxes lost', String(st.lost), '.neg');
-      if (st.rough) R('Rough handling', String(st.rough), '.neg');
-      if (st.busted) R('Caught at the scale', String(st.busted));
-      if (st.falseAlarm) R('False alarms', String(st.falseAlarm), '.neg');
+      if (st.rough) R('Rough handling', String(st.rough), '.neg', true);
+      if (st.busted) R('Caught at the scale', String(st.busted), '', !!st.smuggled);
+      if (st.falseAlarm) R('False alarms', String(st.falseAlarm), '.neg', true);
       if (st.smuggled) R('Mis-declared boxes shipped', `${st.smuggled} · customs found ${st.smuggled === 1 ? 'it' : 'them'}`, '.neg');
+      if (meta.order) R('Foreman’s order', meta.order.done ? (meta.order.cash ? 'Done · +$' + fmtNum(meta.order.cash) : 'Done') : 'Missed', meta.order.done ? '.good' : '.neg');
       if (res.black) R('Unlisted box', { ship: 'Sailed with the ship', customs: 'Handed to customs', sea: 'Lost overboard', left: 'Left on the quay' }[res.black] || '—', '.hush');
     }
+    for (let i = rows.length - 1; i >= 0 && rows.length > 9; i--) if (rows[i]._optional) rows.splice(i, 1);
     const totalV = h('span.v', '0');
     rows.push(h('div.rrow.total', h('span.k', 'Score'), h('span.dots'), totalV));
     if (meta.hush) rows.push(h('div.rrow.hush', h('span.k', 'Envelope in your locker'), h('span.dots'), h('span.v', '+$' + fmtNum(meta.hush))));
