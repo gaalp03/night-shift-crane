@@ -13,6 +13,16 @@ import { BLACK_BOXES, BLACK_ORDER, EPILOGUES, epilogue, tally } from '../game/st
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/** 'YYYY-MM-DD' -> '17 Nov' style label (English, to match the rest of the interface). */
+function fmtDay(key, opts) {
+  const [y, m, d] = key.split('-').map(Number);
+  try {
+    return new Date(y, m - 1, d).toLocaleDateString('en-GB', opts);
+  } catch (e) {
+    return key;
+  }
+}
+
 function weatherIcons(w) {
   const out = [];
   if ((w.rain || 0) > 0.45) out.push('rain');
@@ -98,6 +108,8 @@ export class Screens {
     const next = SHIFTS[nextIdx];
     const fresh = stars === 0 && !d.flags.tutorialDone;
     const endlessOpen = app.endlessUnlocked();
+    const dailyOpen = app.dailyUnlocked();
+    const today = app.dailyRecord();
     const col = h(
       'div.title-col',
       h('div', h('div.logo', h('span.logo-top', 'Night Shift'), h('span.logo-main', 'Crane')), h('div.tagline', { style: { marginTop: '1.2em' } }, 'Pier Seven · Graveyard shift')),
@@ -105,11 +117,22 @@ export class Screens {
         'div.menu',
         h('button.btn.primary.big', { 'data-sound': 'ui_confirm', onclick: () => app.openBriefing(next), html: icon('play') + `<span class="grow">${fresh ? 'Clock in' : 'Continue'}</span><span class="badge">Shift ${next.n}</span>` }),
         h('button.btn', { onclick: () => app.openBoard(), html: icon('board') + '<span class="grow">Shift board</span>' + `<span class="badge">${icon('star')} ${stars}/${SHIFTS.length * 3}</span>` }),
-        h('button.btn' + (endlessOpen ? '.teal' : ''), {
-          disabled: !endlessOpen,
-          onclick: () => app.openEndlessBriefing(),
-          html: icon(endlessOpen ? 'infinity' : 'lock') + `<span class="grow">Overtime</span><span class="badge">${endlessOpen ? (d.endless.best ? 'Best ' + fmtNum(d.endless.best) : 'Endless') : 'Clear shift 4'}</span>`,
-        }),
+        // the two open-ended modes share a row: the daily shift and endless Overtime
+        h(
+          'div.menu-row.duo',
+          h('button.btn' + (dailyOpen ? '.night' : ''), {
+            disabled: !dailyOpen,
+            onclick: () => app.openDailyBriefing(),
+            html:
+              icon(dailyOpen ? 'moon' : 'lock') +
+              `<span class="grow"><b>Tonight</b><small>${!dailyOpen ? 'Clear shift 3' : today.stars ? '★'.repeat(today.stars) + (today.streak > 1 ? ` · ${today.streak} nights` : '') : today.streak ? `${today.streak} night${today.streak === 1 ? '' : 's'} · new shift` : 'New every day'}</small></span>`,
+          }),
+          h('button.btn' + (endlessOpen ? '.teal' : ''), {
+            disabled: !endlessOpen,
+            onclick: () => app.openEndlessBriefing(),
+            html: icon(endlessOpen ? 'infinity' : 'lock') + `<span class="grow"><b>Overtime</b><small>${endlessOpen ? (d.endless.best ? 'Best ' + fmtNum(d.endless.best) : 'Endless') : 'Clear shift 4'}</small></span>`,
+          })
+        ),
         h(
           'div.menu-row',
           h('button.btn', { onclick: () => app.openWorkshop('title'), html: icon('wrench') + '<span>Workshop</span>' }),
@@ -162,6 +185,20 @@ export class Screens {
       );
       grid.appendChild(card);
     });
+    const dOpen = app.dailyUnlocked();
+    const today = app.dailyRecord();
+    grid.appendChild(
+      h(
+        `button.tcard.daily${dOpen ? '' : '.locked'}`,
+        { onclick: () => dOpen && app.openDailyBriefing() },
+        h('div.no', { html: icon('moon') }),
+        h('div.nm', 'Tonight'),
+        h('div.meta', dOpen ? (today.streak ? `${today.streak} night${today.streak === 1 ? '' : 's'} in a row` : 'A new shift every day') : 'Clear shift 3 to unlock'),
+        dOpen ? h('div.stars', { html: [0, 1, 2].map((k) => `<span class="${k < today.stars ? 'on' : ''}">${icon('star')}</span>`).join('') }) : null,
+        today.best ? h('div.best', fmtNum(today.best)) : null,
+        dOpen ? null : h('div.lockico', { html: icon('lock') })
+      )
+    );
     const eo = app.endlessUnlocked();
     grid.appendChild(
       h(
@@ -228,6 +265,47 @@ export class Screens {
         h('button.btn', { onclick: () => app.openWorkshop('brief:' + level.id), html: icon('wrench') + 'Workshop' }),
         h('div.spacer'),
         h('button.btn.primary', { 'data-sound': 'ui_confirm', onclick: () => app.startShift(level), html: icon('play') + 'Start shift' })
+      )
+    );
+    return this._mount('briefing', h('div.screen.dim', card));
+  }
+
+  /** Tonight's Shift: the same generated shift for everyone today, two twists, today's record. */
+  dailyBriefing(level) {
+    const app = this.app;
+    const rec = app.dailyRecord();
+    const th = starThresholds(level);
+    const chips = h('div.chips');
+    for (const c of level.manifest) chips.appendChild(cargoChip(c));
+    const when = fmtDay(level.date, { weekday: 'long', day: 'numeric', month: 'long' });
+    const body = h(
+      'div.card-body',
+      h('div.brief-top', h('div.blurb', 'Every crane on the coast works this same shift today. A new one comes in at midnight — keep the run of nights going.')),
+      h('div.twists', ...level.twists.map((t) => h('div.feature.twist', h('b', { html: icon(t.icon) + ' ' + t.name }), t.text))),
+      h('div.section-label', `Manifest · ${level.manifest.length} to load${level.checks ? ` · ${level.checks} spot check${level.checks === 1 ? '' : 's'}` : ''}`),
+      chips,
+      h('div.section-label', 'Conditions'),
+      h('div.wxrow', ...weatherPills(level.weather).map(([ic, t]) => h('span.pill', { html: icon(ic) + ' ' + t })), h('span.pill', { html: icon('clock') + ' ' + fmtTime(level.time * app.mods().timeMul) })),
+      h('div.section-label', 'Foreman’s order'),
+      h('div.goalrow', h(`span.pill.order${rec.order ? '.done' : ''}`, { html: icon(rec.order ? 'check' : 'wrench') + ' ' + level.order.text }), rec.order ? h('span.pill', 'Paid') : h('span.pill.cash', { html: icon('coin') + ' +' + fmtNum(level.order.cash) })),
+      h('div.section-label', 'Star targets · today'),
+      h(
+        'div.goalrow',
+        ...th.map((t, i) => h(`span.goal.pill${i < rec.stars ? '.got' : ''}`, { html: icon('star').repeat(i + 1) + ' ' + fmtNum(t) })),
+        rec.best ? h('span.pill', `Best ${fmtNum(rec.best)}`) : null,
+        h('span.pill.streak', { html: icon('moon') + ` ${rec.streak} night${rec.streak === 1 ? '' : 's'} in a row` })
+      )
+    );
+    const card = h(
+      'div.card.mid',
+      h('div.card-head', h('h2', 'Tonight’s shift'), h('span.tag', when + ' · ' + level.ship.name)),
+      body,
+      h(
+        'div.card-foot',
+        h('button.btn.ghost', { 'data-sound': 'ui_back', onclick: () => app.gotoTitle(), html: icon('back') + 'Back' }),
+        h('button.btn', { onclick: () => app.openWorkshop('daily'), html: icon('wrench') + 'Workshop' }),
+        h('div.spacer'),
+        h('button.btn.primary', { 'data-sound': 'ui_confirm', onclick: () => app.startDaily(level), html: icon('play') + 'Start shift' })
       )
     );
     return this._mount('briefing', h('div.screen.dim', card));
@@ -322,6 +400,7 @@ export class Screens {
     const back = () => {
       if (from === 'board') app.openBoard();
       else if (from === 'endless') app.openEndlessBriefing();
+      else if (from === 'daily') app.openDailyBriefing();
       else if (from && from.startsWith('brief:')) app.openBriefing(SHIFTS.find((s) => s.id === from.slice(6)));
       else if (from === 'results') app.reopenResults();
       else app.gotoTitle();
@@ -531,7 +610,7 @@ export class Screens {
     const tips = 'Amber-sealed boxes: lift, hold steady and read the scale. A match goes on the ship, a mismatch on the blue customs truck in lane 2.';
     const card = h(
       'div.card',
-      h('div.card-head', h('h2', 'Break time'), h('span.tag', app.session && app.session.endless ? 'Overtime' : app.level ? `Shift ${app.level.n}` : '')),
+      h('div.card-head', h('h2', 'Break time'), h('span.tag', app.session && app.session.endless ? 'Overtime' : app.level && app.level.daily ? 'Tonight’s shift' : app.level ? `Shift ${app.level.n}` : '')),
       h(
         'div.card-body',
         h(
@@ -590,6 +669,10 @@ export class Screens {
       if (st.falseAlarm) R('False alarms', String(st.falseAlarm), '.neg', true);
       if (st.smuggled) R('Mis-declared boxes shipped', `${st.smuggled} · customs found ${st.smuggled === 1 ? 'it' : 'them'}`, '.neg');
       if (meta.order) R('Foreman’s order', meta.order.done ? (meta.order.cash ? 'Done · +$' + fmtNum(meta.order.cash) : 'Done') : 'Missed', meta.order.done ? '.good' : '.neg');
+      if (meta.level.daily && ok) {
+        const rec = this.app.dailyRecord();
+        R('Nights in a row', `${rec.streak}${rec.bestStreak > rec.streak ? ` · best ${rec.bestStreak}` : ''}`, '.good');
+      }
       if (res.black) R('Unlisted box', { ship: 'Sailed with the ship', customs: 'Handed to customs', sea: 'Lost overboard', left: 'Left on the quay' }[res.black] || '—', '.hush');
     }
     for (let i = rows.length - 1; i >= 0 && rows.length > 9; i--) if (rows[i]._optional) rows.splice(i, 1);
@@ -605,7 +688,7 @@ export class Screens {
     const report = h(
       'div.report',
       h('h2', title),
-      h('div.sub', h('span', endless ? `${res.ships} ship${res.ships === 1 ? '' : 's'} · ${fmtTime(res.time)}` : `Shift ${String(meta.level.n).padStart(2, '0')} · ${meta.level.name}`), h('span', endless ? 'Pier 7' : meta.level.ship.name)),
+      h('div.sub', h('span', endless ? `${res.ships} ship${res.ships === 1 ? '' : 's'} · ${fmtTime(res.time)}` : meta.level.daily ? `Tonight · ${fmtDay(meta.level.date, { day: 'numeric', month: 'short' })}` : `Shift ${String(meta.level.n).padStart(2, '0')} · ${meta.level.name}`), h('span', endless ? 'Pier 7' : meta.level.ship.name)),
       endless ? null : h('div.stars', ...stars),
       !ok && !endless ? h('div', { style: { fontWeight: 700, margin: '0 0 0.4em', lineHeight: '1.25' } }, failText[res.reason] || '') : null,
       h('div.rows', ...rows),
@@ -620,7 +703,7 @@ export class Screens {
     } else if (ok) {
       if (meta.ending) add('.primary', 'Morning paper', 'file', () => app.openEpilogue('results'), 'ui_confirm');
       if (meta.nextLevel) add('.primary', 'Next shift', 'next', () => app.openBriefing(meta.nextLevel, true), 'ui_confirm');
-      else if (app.endlessUnlocked()) add('.teal', 'Overtime', 'infinity', () => app.openEndlessBriefing());
+      else if (!meta.level.daily && app.endlessUnlocked()) add('.teal', 'Overtime', 'infinity', () => app.openEndlessBriefing());
       add('', 'Retry', 'retry', () => app.retry());
       add('', 'Workshop', 'wrench', () => app.openWorkshop('results'));
       add('.ghost.icon', '', 'home', () => app.quitToBoard(), 'ui_back');

@@ -7,6 +7,8 @@ const defaults = () => ({
   upgrades: {},
   shifts: {}, // id -> { stars, best }
   endless: { best: 0, bestShips: 0, runs: 0 },
+  // Tonight's Shift: today's record, and how many nights in a row it has been worked
+  daily: { date: '', best: 0, stars: 0, order: '', streak: 0, bestStreak: 0, last: '', plays: 0 },
   settings: { music: 0.7, sfx: 0.9, quality: 'auto', shake: true, cabDefault: false, hints: true },
   flags: { introSeen: false, tutorialDone: false, endlessSeen: false, checkSeen: false },
   story: { boxes: {}, opened: {}, ending: null }, // what became of each unlisted box (shift id -> outcome)

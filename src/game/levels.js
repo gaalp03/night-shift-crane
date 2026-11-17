@@ -293,6 +293,145 @@ export function endlessShip(n, seed) {
   };
 }
 
+// -------------------------------------------------------------------------- Tonight's Shift (daily)
+
+/** Local calendar date as YYYY-MM-DD (the daily shift turns over at the player's midnight). */
+export function todayKey(d = new Date()) {
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+export function dayBefore(key) {
+  const [y, m, d] = key.split('-').map(Number);
+  return todayKey(new Date(y, m - 1, d - 1));
+}
+
+function hashKey(str) {
+  let h = 2166136261;
+  for (let i = 0; i < str.length; i++) h = Math.imul(h ^ str.charCodeAt(i), 16777619);
+  return h >>> 0;
+}
+
+/**
+ * Twists: each night gets two. `kind` keeps the pair sensible (one cargo twist, one sky twist at most).
+ */
+export const DAILY_TWISTS = [
+  { id: 'gale', kind: 'sky', icon: 'wind', name: 'Gale warning', text: 'Wind far above the usual, gusting hard.', apply: (d, r) => Object.assign(d.weather, { wind: r.range(1.5, 1.85), gusts: 0.85, windDir: r.range(0, 6.28) }) },
+  { id: 'fog', kind: 'sky', icon: 'fog', name: 'Pea soup', text: 'Fog so thick the ship is more rumour than vessel.', apply: (d) => Object.assign(d.weather, { fog: 0.032, clouds: 1, rain: 0.15 }) },
+  { id: 'storm', kind: 'sky', icon: 'bolt', name: 'Thunderstorm', text: 'Lightning over the basin, rain in sheets.', apply: (d) => { Object.assign(d.weather, { storm: 1, rain: 1, clouds: 1, wind: Math.max(d.weather.wind, 1.1), gusts: 0.6 }); d.music = 'storm'; } },
+  { id: 'swell', kind: 'sea', icon: 'wave', name: 'Big swell', text: 'The ship rides a long, heavy swell. Time your set-downs.', apply: (d) => { d.weather.sea = 0.85; } },
+  { id: 'glass', kind: 'cargo', icon: 'glass', name: 'Gallery night', text: 'Half the manifest is glassware.', cargo: 'fragile' },
+  { id: 'heavy', kind: 'cargo', icon: 'weight', name: 'Steel mill', text: 'Thirty-tonners all night. Heavy goes on the deck or on heavy.', cargo: 'heavy' },
+  { id: 'cold', kind: 'cargo', icon: 'snow', name: 'Cold chain', text: 'Reefers thawing on every other truck.', cargo: 'reefer' },
+  { id: 'haz', kind: 'cargo', icon: 'flame', name: 'Hot cargo', text: 'Hazmat placards. Keep them apart, keep them gentle.', cargo: 'hazmat' },
+  { id: 'customs', kind: 'law', icon: 'scale', name: 'Customs blitz', text: 'Inspectors everywhere: lots of amber seals to weigh.', checks: 4 },
+  { id: 'brownout', kind: 'power', icon: 'bolt', name: 'Brownout', text: 'The substation will trip at least once.', apply: (d, r) => d.events.push({ type: 'blackout', at: r.int(55, 110), dur: r.int(18, 26), deep: r.chance(0.5) }) },
+  { id: 'rush', kind: 'clock', icon: 'clock', name: 'Tight turnaround', text: 'The ship sails early: less time on the clock.', time: 0.8 },
+];
+
+const DAILY_ORDERS = [
+  { text: 'Not a single strike', cash: 220, test: (r) => r.strikes === 0 },
+  { text: 'Build a x5 combo', cash: 220, test: (r) => r.bestCombo >= 5 },
+  { text: 'Four PERFECT set-downs', cash: 200, test: (r) => r.stats.perfect >= 4 },
+  { text: 'Clock out with 60 seconds to spare', cash: 220, test: (r) => r.timeLeft >= 60 },
+  { text: 'Five soft landings', cash: 200, test: (r) => r.stats.soft >= 5 },
+];
+
+/** The same shift for everyone on the same date: one ship, two twists, a fresh manifest. */
+export function dailyShift(key = todayKey()) {
+  const seed = hashKey('pier7:' + key);
+  const r = makeRng(seed);
+  // --- two twists that make sense together
+  const pool = DAILY_TWISTS.slice();
+  r.shuffle(pool);
+  const twists = [];
+  for (const t of pool) {
+    if (twists.length >= 2) break;
+    if (twists.some((o) => o.kind === t.kind)) continue;
+    // fog and a storm would only hide each other
+    if (t.kind === 'sea' && twists.some((o) => o.id === 'storm')) continue;
+    twists.push(t);
+  }
+  // --- ship
+  const zonesAll = ['ROT', 'SIN', 'NYC', 'OSL'];
+  r.shuffle(zonesAll);
+  const bays = r.chance(0.65) ? 3 : 2;
+  const rows = r.chance(0.5) ? 4 : 3;
+  const zones = [];
+  for (let b = 0; b < bays; b++) zones.push(zonesAll[b % (r.chance(0.3) ? 2 : 3)]);
+  const ship = { rows, bays, tiers: 3, style: r.int(0, 4), name: SHIP_NAMES[r.int(0, SHIP_NAMES.length - 1)], zones };
+  // --- weather baseline, then twists
+  const def = {
+    id: 'daily',
+    daily: true,
+    date: key,
+    n: 0,
+    name: "Tonight's Shift",
+    clock: `${String(r.int(0, 4)).padStart(2, '0')}:${String(r.int(0, 5) * 10).padStart(2, '0')}`,
+    ship,
+    weather: { rain: r.range(0.2, 0.6), wind: r.range(0.3, 0.9), windDir: r.range(0, 6.28), gusts: r.range(0.1, 0.4), fog: r.range(0.0105, 0.013), sea: r.range(0.15, 0.4), clouds: r.range(0.5, 0.9) },
+    events: [],
+    sky: r.pick(['evening', 'night', 'night', 'predawn']),
+    twists: twists.map((t) => ({ id: t.id, name: t.name, text: t.text, icon: t.icon })),
+  };
+  for (const t of twists) if (t.apply) t.apply(def, r);
+  // --- manifest
+  const count = r.int(8, 10);
+  const cargoTwist = twists.find((t) => t.cargo);
+  const checks = (twists.find((t) => t.checks) || {}).checks || r.int(1, 2);
+  const types = [];
+  const special = ['heavy', 'fragile', 'reefer'];
+  for (let i = 0; i < count; i++) {
+    if (cargoTwist && i % 2 === 0) types.push(cargoTwist.cargo);
+    else types.push(r.chance(0.3) ? r.pick(special) : 'std');
+  }
+  // feasibility: at most three hazmat, heavy no more than the deck can carry
+  let haz = 0;
+  let heavy = 0;
+  for (let i = 0; i < types.length; i++) {
+    if (types[i] === 'hazmat' && ++haz > 3) types[i] = 'std';
+    if (types[i] === 'heavy' && ++heavy > bays * 2) types[i] = 'std';
+  }
+  r.shuffle(types);
+  // heavy boxes come early, like a real stow plan: they need the deck before it fills up
+  types.sort((a, b) => (a === 'heavy' ? 0 : 1) - (b === 'heavy' ? 0 : 1));
+  if (types[0] === 'heavy' && types.length > 2) [types[0], types[1]] = [types[1], types[0]];
+  const manifest = [];
+  let hb = 0;
+  for (const type of types) {
+    // heavy and hazmat boxes are spread across the bays so every one has somewhere legal to go
+    const zone = type === 'heavy' || type === 'hazmat' ? zones[hb++ % bays] : r.pick(zones);
+    manifest.push(C(zone, type));
+  }
+  // spot checks go on ordinary boxes
+  const plain = manifest.filter((m) => m.type === 'std');
+  r.shuffle(plain);
+  for (let i = 0; i < Math.min(checks, plain.length); i++) {
+    plain[i].check = true;
+    plain[i].contra = r.chance(0.5);
+  }
+  def.manifest = manifest;
+  // --- a little cargo already aboard (at most one per bay, never heavy)
+  const preload = [];
+  const taken = new Set();
+  for (let i = 0; i < r.int(1, 3); i++) {
+    const b = r.int(0, bays - 1);
+    const row = r.int(0, rows - 1);
+    if (taken.has(b)) continue; // one per bay, so heavy boxes always find deck space
+    taken.add(b);
+    preload.push({ r: row, b, n: 1, zone: zones[b] });
+  }
+  def.preload = preload;
+  const timeMul = twists.reduce((m, t) => m * (t.time || 1), 1);
+  def.time = Math.round(((70 + count * 38) * timeMul) / 10) * 10;
+  def.strikes = 3;
+  def.quota = count;
+  def.checks = manifest.filter((m) => m.check).length;
+  def.order = DAILY_ORDERS[r.int(0, DAILY_ORDERS.length - 1)];
+  def.seed = seed;
+  return def;
+}
+
 // -------------------------------------------------------------------------- upgrades
 
 export const UPGRADES = [

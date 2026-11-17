@@ -19,7 +19,7 @@ import { Crew } from './world/crew.js';
 import { CameraRig } from './game/cameras.js';
 import { Session } from './game/session.js';
 import { Tutorial } from './game/tutorial.js';
-import { SHIFTS, endlessShip, upgradeMods } from './game/levels.js';
+import { SHIFTS, endlessShip, upgradeMods, dailyShift, todayKey, dayBefore } from './game/levels.js';
 import { checkAwards } from './game/awards.js';
 import { Juice } from './ui/juice.js';
 import { Hud } from './ui/hud.js';
@@ -69,6 +69,19 @@ const app = {
   },
   endlessUnlocked() {
     return (save.data.shifts.s04 || {}).stars > 0;
+  },
+  /** Tonight's Shift opens once the spot checks have been met (shift 3). */
+  dailyUnlocked() {
+    return (save.data.shifts.s03 || {}).stars > 0;
+  },
+  /** Today's record (empty if the stored one is from another day). */
+  dailyRecord() {
+    const dd = save.data.daily;
+    const today = todayKey();
+    const fresh = dd.date === today;
+    // a streak survives until a whole day is missed
+    const alive = dd.last === today || dd.last === dayBefore(today);
+    return { date: today, best: fresh ? dd.best : 0, stars: fresh ? dd.stars : 0, order: dd.order === today, streak: alive ? dd.streak : 0, bestStreak: dd.bestStreak || 0, plays: dd.plays || 0 };
   },
 
   /** Touch controls follow the device actually in use: a finger shows them, a key press hides them. */
@@ -124,6 +137,9 @@ const app = {
   openEndlessBriefing() {
     app.screens.endlessBriefing();
   },
+  openDailyBriefing() {
+    app.screens.dailyBriefing(dailyShift(todayKey()));
+  },
   openLogbook() {
     app.screens.logbook();
   },
@@ -134,6 +150,9 @@ const app = {
 
   startShift(level) {
     return beginRun(level);
+  },
+  startDaily(level) {
+    return beginRun(level || dailyShift(todayKey()));
   },
   startEndless() {
     const seed = Math.floor(Math.random() * 1e9);
@@ -401,7 +420,9 @@ async function runIntro(level, s) {
     await wait(skipped ? 500 : 1100);
   } else {
     app.cams.setMode(save.data.settings.cabDefault ? 'cab' : 'chase', 2.0);
-    j.banner(level.endless ? 'OVERTIME' : `SHIFT ${String(level.n).padStart(2, '0')}`, level.endless ? s.ship.name : `${level.name} · ${level.clock}`, 2300);
+    const t1 = level.endless ? 'OVERTIME' : level.daily ? 'TONIGHT’S SHIFT' : `SHIFT ${String(level.n).padStart(2, '0')}`;
+    const t2 = level.endless ? s.ship.name : level.daily ? level.twists.map((t) => t.name).join(' · ') : `${level.name} · ${level.clock}`;
+    j.banner(t1, t2, 2300);
     audio.play('sax_start', { vol: 0.8, delay: 0.15 });
     await wait(1700);
   }
@@ -423,6 +444,10 @@ async function runIntro(level, s) {
     };
   } else if (level.feature && !(save.data.shifts[level.id] || {}).stars) {
     j.toast({ text: `${level.feature.title}: ${level.feature.text}`, kind: 'info', dur: 7000 });
+  }
+  if (level.daily) {
+    const tw = level.twists.map((t) => t.name.toLowerCase());
+    app.after(2.5, () => app.radio.say([{ who: 'dispatch', text: `Tonight: ${tw.join(' and ')}. Every crane on the coast works this same shift — make yours the one they talk about.` }]), s);
   }
   // the tower checks in at the start of a shift you have not cleared yet
   if (!level.endless && SHIFT_OPEN[level.id] && !(save.data.shifts[level.id] || {}).stars) app.after(level.feature ? 7.5 : 2.5, () => app.radio.say(SHIFT_OPEN[level.id]), s);
@@ -567,6 +592,23 @@ async function onFinish(s, res) {
       newBest = true;
     }
     d.endless.bestShips = Math.max(d.endless.bestShips || 0, res.ships);
+  } else if (level.daily) {
+    const dd = d.daily;
+    if (dd.date !== level.date) Object.assign(dd, { date: level.date, best: 0, stars: 0 });
+    dd.plays = (dd.plays || 0) + 1;
+    if (res.success) {
+      newBest = res.score > dd.best;
+      if (newBest) dd.best = res.score;
+      newStars = Math.max(0, res.stars - dd.stars);
+      dd.stars = Math.max(dd.stars, res.stars);
+      // a completed shift on a new date extends (or restarts) the run of nights
+      if (dd.last !== level.date) {
+        dd.streak = dd.last === dayBefore(level.date) ? (dd.streak || 0) + 1 : 1;
+        dd.last = level.date;
+        dd.bestStreak = Math.max(dd.bestStreak || 0, dd.streak);
+      }
+      payout = Math.round(res.score * 0.3) + newStars * 60;
+    } else payout = Math.round(res.score * 0.1);
   } else if (res.success) {
     const r = save.recordShift(level.id, res.stars, res.score);
     newStars = r.gainedStars;
@@ -595,10 +637,11 @@ async function onFinish(s, res) {
     try {
       done = !!level.order.test(res);
     } catch (e) {}
-    const rec = d.shifts[level.id];
-    const first = done && rec && !rec.order;
+    const rec = level.daily ? null : d.shifts[level.id];
+    const first = done && (level.daily ? d.daily.order !== level.date : rec && !rec.order);
     if (first) {
-      rec.order = true;
+      if (level.daily) d.daily.order = level.date;
+      else rec.order = true;
       payout += level.order.cash;
     }
     order = { text: level.order.text, done, cash: first ? level.order.cash : 0 };

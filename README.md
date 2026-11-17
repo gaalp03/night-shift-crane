@@ -15,6 +15,8 @@ onto a rolling ship before it sails.
   What you do with each one fills in the logbook and decides which front page you wake up to
 - Power cuts that leave you working by the trolley's battery lamp
 - A **foreman's order** on every shift: a side job (no rough handling, a x5 combo, time to spare…) paid once in cash
+- **Tonight's Shift**: a new generated shift every day (the same one for everyone), two twists from
+  gales and brownouts to customs blitzes and hot cargo, today's best and a run-of-nights streak
 - **Overtime**: an endless high-score mode, ship after ship
 - **Workshop** upgrades and crane paint jobs between shifts, plus a **Logbook** of career stats and commendations
 - Real rigid-body physics: cable-suspended spreader, momentum, wind, a ship that heaves, rolls and

@@ -34,8 +34,8 @@ export class Hud {
 
     // --- top left: shift plate, manifest queue
     e.shipName = h('div.ship', session.ship.name);
-    e.shiftNo = h('div.no', endless ? '∞' : String(level.n).padStart(2, '0'));
-    e.shiftName = h('div.nm', endless ? 'Overtime' : level.name);
+    e.shiftNo = level.daily ? h('div.no', { html: icon('moon') }) : h('div.no', endless ? '∞' : String(level.n).padStart(2, '0'));
+    e.shiftName = h('div.nm', endless ? 'Overtime' : level.daily ? 'Tonight' : level.name);
     const plate = h('div.shiftplate.plate', e.shiftNo, h('div.txt', e.shiftName, e.shipName));
     e.queueChips = h('div.chips');
     e.queue = h('div.queue.plate', h('div.lbl', 'Trucks inbound'), e.queueChips);
