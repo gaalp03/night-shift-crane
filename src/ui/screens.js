@@ -483,6 +483,13 @@ export class Screens {
       ),
       h(
         'div.set-row',
+        h('label', 'Flashing'),
+        h('div.ctl', seg([[true, 'Full'], [false, 'Reduced']], st.flashes !== false, (v) => {
+          st.flashes = v;
+        }))
+      ),
+      h(
+        'div.set-row',
         h('label', 'Start view'),
         h('div.ctl', seg([[false, 'Chase'], [true, 'Cab']], st.cabDefault, (v) => {
           st.cabDefault = v;

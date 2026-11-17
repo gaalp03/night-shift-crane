@@ -810,6 +810,7 @@ export class Session extends Emitter {
       if (c.type === 'reefer') v = Math.round(v * (0.25 + 0.75 * c.temp));
       pts += v;
     }
+    if (c.long && !c.scored) this.stats.long = (this.stats.long || 0) + 1;
     if (grade === 'perfect' || grade === 'great') this.combo++;
     else if (grade === 'sloppy' || dropped) this.combo = 0;
     this.bestCombo = Math.max(this.bestCombo, this.combo);

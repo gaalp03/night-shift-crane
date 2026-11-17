@@ -18,6 +18,7 @@ export const AWARDS = [
   { id: 'clean', name: 'Clean Manifest', desc: 'Finish a shift with spot checks: every one weighed right, none shipped wrong.', icon: 'badge', test: (d, r, l) => r && r.success && l && l.checks > 0 && !r.stats.smuggled && !r.stats.falseAlarm && r.stats.lost === 0 },
   { id: 'file', name: 'The Pier Seven File', desc: 'Decide the fate of all five unlisted boxes.', icon: 'file', test: (d) => tally(d.story).n >= BLACK_ORDER.length },
   { id: 'tide', name: 'High Tide', desc: 'Give the harbour back what was taken from it.', icon: 'eye', test: (d) => tally(d.story).sea >= 3 && tally(d.story).n >= BLACK_ORDER.length },
+  { id: 'longhaul', name: 'Long Haul', desc: 'Lock ten forty-foot containers on board.', icon: 'box', test: (d) => (d.stats.long || 0) >= 10 },
   { id: 'regular', name: 'Regular', desc: 'Work Tonight’s Shift three nights in a row.', icon: 'moon', test: (d) => ((d.daily || {}).bestStreak || 0) >= 3 },
   { id: 'owl', name: 'Night Owl', desc: 'Three stars on Tonight’s Shift.', icon: 'star', test: (d, r, l) => r && l && l.daily && r.stars >= 3 },
   { id: 'butter', name: 'Butterfingers', desc: 'Lose ten containers. The harbour master is keeping count.', icon: 'box', test: (d) => d.stats.lost >= 10 },

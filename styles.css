@@ -3147,3 +3147,20 @@ body.touch .orderline {
   outline: 0.16em solid var(--amber) !important;
   outline-offset: 0.18em;
 }
+
+/* short landscape phones: tighter settings rows so the whole list fits without scrolling */
+@media (max-height: 460px) {
+  .set-row {
+    min-height: 2.15em;
+    padding: 0.12em 0;
+  }
+  .set-row .seg button {
+    padding-top: 0.2em;
+    padding-bottom: 0.2em;
+    min-height: 2.05em;
+  }
+  .card:has(.set-row) .card-foot {
+    padding-top: 0.5em;
+    padding-bottom: 0.6em;
+  }
+}

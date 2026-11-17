@@ -492,8 +492,9 @@ function bindSession(s) {
   s.on('points', (p) => j.points(p));
   s.on('toast', (t) => j.toast(t));
   s.on('flash', () => {
-    gfx.flash = 1;
-    j.flash();
+    const calm = save.data.settings.flashes === false;
+    gfx.flash = calm ? 0.25 : 1;
+    if (!calm) j.flash();
     app.hitStop = 0.12;
   });
   s.on('strike', (e) => {
@@ -505,7 +506,7 @@ function bindSession(s) {
       silent: true,
     });
     if (e.reason === 'sea') audio.play('vox_yell', { vol: 0.5, delay: 0.5 });
-    j.flash('red');
+    if (save.data.settings.flashes !== false) j.flash('red');
     buzz([60, 50, 90]);
   });
   s.on('shipDone', (e) => {
@@ -674,6 +675,7 @@ async function onFinish(s, res) {
   }
   d.stats.busted = (d.stats.busted || 0) + (res.stats.busted || 0);
   d.stats.smuggled = (d.stats.smuggled || 0) + (res.stats.smuggled || 0);
+  d.stats.long = (d.stats.long || 0) + (res.stats.long || 0);
   d.money += payout;
   d.stats.placed += res.stats.placed;
   d.stats.lost += res.stats.lost;
@@ -1181,7 +1183,8 @@ function tick(raw) {
   }
   const focus = app.cams.focus;
   app.weather.update(dt, app.camera, focus, window.innerHeight * gfx.pixelRatio);
-  const flash = app.weather.flash;
+  // (photosensitivity option: lightning still shows, but only as a soft brightening)
+  const flash = app.weather.flash * (save.data.settings.flashes === false ? 0.22 : 1);
   app.harbor.update(dt, app.time, flash, app.weather);
   const gantryMove = s ? Math.abs(s.rig.vz) / 4.8 : 0;
   app.crane.update(dt, app.time, gantryMove);
