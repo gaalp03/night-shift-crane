@@ -81,6 +81,7 @@ export class CraneView {
     this._buildGantry(p);
     this._buildTrolley(p);
     this._buildSpreader(p);
+    this._extDirty = true;
     this.ledState = '';
     this.setLed('idle');
   }
@@ -332,12 +333,36 @@ export class CraneView {
     this.spreaderMesh = v.mesh(MAT.vox);
     this.spreader.add(this.spreaderMesh);
 
+    // telescopic ends: they slide out to forty-foot length when a long box is near
+    const EXT = (DIM.L40 - DIM.CONT_L) / 2;
+    this.teleEnds = [];
+    for (const sz of [-1, 1]) {
+      const tv = new Vox();
+      tv.box(0, 0, sz * (hl - 0.22), hw * 2, DIM.SPR_H * 0.92, 0.44, dark);
+      for (let i = -2; i <= 2; i++) tv.box(i * 0.42, hy + 0.01, sz * (hl - 0.22), 0.2, 0.03, 0.44, i % 2 ? dark : 0xe8b21e);
+      for (const sx of [-1, 1]) {
+        tv.box(sx * (hw - 0.6), -0.03, sz * (hl - 0.22 - EXT / 2), 0.26, DIM.SPR_H * 0.55, EXT, 0x59646d);
+        tv.box(sx * (hw - 0.14), -hy - 0.06, sz * (hl - 0.16), 0.3, 0.14, 0.34, 0x101315);
+        tv.box(sx * (hw - 0.5), -hy - 0.2, sz * (hl + 0.1), 0.5, 0.6, 0.1, P.trim, [-sz * 0.3, 0, 0]);
+      }
+      const m = tv.mesh(MAT.vox);
+      m.visible = false;
+      this.spreader.add(m);
+      this.extraDisposables.push(m);
+      this.teleEnds.push({ m, sz });
+    }
+    this.ext = this.ext || 0;
+    this.extTarget = this.extTarget || 0;
+    this.extLen = EXT;
+
     // status LEDs (corner lamps): red = free, amber = landed, green = locked
     const ledGeo = new THREE.BoxGeometry(0.22, 0.16, 0.22);
     for (const sx of [-1, 1]) {
       for (const sz of [-1, 1]) {
         const m = new THREE.Mesh(ledGeo, new THREE.MeshBasicMaterial({ color: 0xff3b2e, fog: false }));
         m.position.set(sx * (hw - 0.14), hy + 0.1, sz * (hl - 0.16));
+        m.userData.z0 = m.position.z;
+        m.userData.sz = sz;
         this.spreader.add(m);
         this.leds.push(m);
         this.extraDisposables.push(m);
@@ -475,8 +500,28 @@ export class CraneView {
     this.trolley.position.x = trolleyX;
   }
 
+  /** Telescope the spreader out to forty feet (true) or back to twenty (false). */
+  setSpreaderLong(on) {
+    this.extTarget = on ? 1 : 0;
+  }
+
   /** Cosmetic per-frame animation. `moving` 0..1 = gantry travel activity. */
   update(dt, t, gantryMoving) {
+    if (this.teleEnds) {
+      const was = this.ext;
+      this.ext += (this.extTarget - this.ext) * Math.min(1, dt * 5);
+      if (Math.abs(this.extTarget - this.ext) < 0.002) this.ext = this.extTarget;
+      if (this.ext !== was || this._extDirty !== false) {
+        this._extDirty = false;
+        const off = this.ext * this.extLen;
+        for (const e of this.teleEnds) {
+          e.m.visible = this.ext > 0.01;
+          e.m.position.z = e.sz * off;
+        }
+        for (const l of this.leds) l.position.z = l.userData.z0 + l.userData.sz * off;
+        if (this.onExtend && (was < 0.5) !== (this.ext < 0.5)) this.onExtend(this.ext >= 0.5);
+      }
+    }
     for (const b of this.beacons) {
       const ph = (t * 0.7 + b.phase) % 1;
       b.s.material.opacity = ph < 0.16 ? 1 : 0.07;

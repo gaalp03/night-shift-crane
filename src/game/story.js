@@ -32,6 +32,12 @@ export const SHIFT_BEATS = {
   s02: { at: 4, lines: [U('Crane Seven. You have steady hands. We will be in touch.', 3400), D('Seven, did somebody just key this channel? …Never mind. Carry on.')] },
 };
 
+/** The first forty-footer of the night. */
+export const LONG_INTRO = [
+  D('Forty-footer on lane one. The spreader telescopes out by itself when you line up on it.'),
+  D('It spans two bays, Seven. Both stacks underneath have to be the same height or the locks will not meet.'),
+];
+
 /** Explains the spot check the first time an amber-sealed box parks. */
 export const CHECK_INTRO = [
   D('That one has a customs seal. Lift it clear and hold it still — your load cell does the rest.'),

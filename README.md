@@ -7,7 +7,7 @@ shift: lift containers off the trucks, fight the swing, the wind and the swell, 
 onto a rolling ship before it sails.
 
 - **12 shifts** with escalating mechanics (destination bays, swell, gusts, heavy / fragile / reefer /
-  hazmat cargo, fog, discharge orders, a full storm), 1–3 stars each
+  hazmat cargo, forty-foot boxes that span two bays, fog, discharge orders, a full storm), 1–3 stars each
 - **Customs spot checks**: amber-sealed boxes have to be weighed on the hook — hold the load steady,
   read the scale, and send anything mis-declared to the customs truck instead of the ship
 - **The Pier Seven file**: five unlisted black boxes turn up over the night, a caller nobody can trace

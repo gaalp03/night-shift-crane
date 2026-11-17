@@ -8,6 +8,8 @@ const C = (zone, type = 'std') => ({ zone, type });
 const K = (zone, bad = false, type = 'std') => ({ zone, type, check: true, contra: !!bad });
 /** An unlisted black box: not on the manifest, not part of the quota. */
 const B = () => ({ zone: 'ANY', type: 'black', black: true });
+/** A forty-footer: spans two neighbouring bays that must stand at the same height. */
+const L = (zone = 'ANY') => ({ zone, type: 'long' });
 const rep = (n, zone, type) => Array.from({ length: n }, () => C(zone, type));
 
 /**
@@ -118,12 +120,12 @@ export const SHIFTS = [
     id: 's09',
     name: 'Fog Bank',
     clock: '03:10',
-    blurb: 'You can barely see the deck. Trust the lasers and the cab view.',
-    feature: { title: 'FOG', text: 'Visibility is down to a few boxes. The drop reticle and the cab view (C) are your eyes.' },
-    ship: { rows: 3, bays: 3, tiers: 3, style: 2, name: 'MV LANTERN', zones: ['NYC', 'OSL', 'SIN'] },
-    preload: [{ r: 0, b: 1, n: 2, zone: 'OSL' }, { r: 2, b: 0, n: 1, zone: 'NYC' }, { r: 1, b: 2, n: 2, zone: 'SIN' }],
-    manifest: [C('NYC'), K('SIN', true), C('OSL'), C('NYC', 'fragile'), C('SIN'), C('OSL', 'heavy'), K('NYC'), C('SIN'), C('OSL')],
-    time: 430,
+    blurb: 'You can barely see the deck — and the first forty-footers are on the list.',
+    feature: { title: 'FORTY-FOOTERS', text: 'Long boxes span two bays. Both columns underneath must stand at the same height, so plan where the short ones go. In the fog, the reticle and the cab view (C) are your eyes.' },
+    ship: { rows: 3, bays: 3, tiers: 3, style: 2, name: 'MV LANTERN', zones: ['NYC', 'OSL', 'OSL'] },
+    preload: [{ r: 0, b: 0, n: 2, zone: 'NYC' }, { r: 2, b: 0, n: 1, zone: 'NYC' }, { r: 1, b: 1, n: 1, zone: 'OSL' }, { r: 1, b: 2, n: 1, zone: 'OSL' }],
+    manifest: [C('NYC'), L('OSL'), K('NYC', true), C('NYC', 'fragile'), C('OSL'), L('OSL'), K('NYC'), C('NYC'), C('OSL')],
+    time: 450,
     events: [{ type: 'blackout', at: 95, dur: 24, deep: true }],
     weather: { rain: 0.15, wind: 0.3, gusts: 0, fog: 0.034, sea: 0.2, clouds: 1 },
   },
@@ -263,18 +265,66 @@ export function endlessShip(n, seed) {
     let type = rng.pick(pool);
     if (type === 'hazmat' && ++haz > 2) type = 'std';
     const spec = C(rng.pick(zones), type);
-    if (n >= 1 && type === 'std' && rng.chance(0.24)) {
+    if (n >= 3 && bays >= 2 && type === 'std' && i < 4 && rng.chance(0.35)) {
+      spec.type = 'long';
+      spec.zone = 'ANY';
+    } else if (n >= 1 && type === 'std' && rng.chance(0.24)) {
       spec.check = true;
       spec.contra = rng.chance(0.55);
     }
     manifest.push(spec);
   }
+  // preloads: distinct cells, so level pairs and deck space survive for what is coming
   const preload = [];
   const pre = Math.min(4, Math.floor(n / 2) + (n > 0 ? 1 : 0));
+  const taken = new Set();
   for (let i = 0; i < pre; i++) {
     const b = rng.int(0, bays - 1);
-    preload.push({ r: rng.int(0, rows - 1), b, n: 1, zone: zones[b] });
+    const r = rng.int(0, rows - 1);
+    if (taken.has(r + ':' + b)) continue;
+    taken.add(r + ':' + b);
+    preload.push({ r, b, n: 1, zone: zones[b] });
   }
+  // forty-footers need level pairs: keep at least two rows free of preloads (one may go to a heavy box)
+  if (manifest.some((m) => m.type === 'long')) {
+    const clean = () => [...Array(rows).keys()].filter((r) => !preload.some((p) => p.r === r));
+    while (clean().length < Math.min(2, rows)) {
+      const used = [...new Set(preload.map((p) => p.r))];
+      const r0 = used[rng.int(0, used.length - 1)];
+      for (let i = preload.length - 1; i >= 0; i--) if (preload[i].r === r0) preload.splice(i, 1);
+    }
+  }
+  // --- make the list stowable, like a real stow plan:
+  // heavy boxes first (they need the deck), then forty-footers (they need level pairs), the rest after
+  const deck = {};
+  zones.forEach((z, b) => (deck[z] = (deck[z] || 0) + rows - preload.filter((p) => p.b === b).length));
+  const hasLong = manifest.some((m) => m.type === 'long');
+  let heavyLeft = hasLong ? 1 : Infinity;
+  let hb = 0;
+  for (const m of manifest) {
+    if (m.type !== 'heavy') continue;
+    // spread across bays, and never more thirty-tonners than a port has deck cells for
+    const z = zones[hb++ % bays];
+    if (heavyLeft-- <= 0 || deck[z] <= 0) {
+      m.type = 'std';
+      continue;
+    }
+    m.zone = z;
+    deck[z]--;
+  }
+  const room = {};
+  zones.forEach((z) => (room[z] = (room[z] || 0) + rows * 3));
+  for (const p of preload) room[p.zone]--;
+  // forty-footers take cells from two bays each: count them against every port
+  const longs = manifest.filter((m) => m.type === 'long').length;
+  for (const z in room) room[z] -= 1 + longs;
+  for (const m of manifest) {
+    if (m.zone === 'ANY') continue;
+    if (room[m.zone] <= 0) m.zone = Object.keys(room).sort((a, b) => room[b] - room[a])[0];
+    room[m.zone]--;
+  }
+  const rank = (m) => (m.type === 'heavy' ? 0 : m.type === 'long' ? 1 : 2);
+  manifest.sort((a, b) => rank(a) - rank(b));
   const w = ENDLESS_WEATHER[Math.min(ENDLESS_WEATHER.length - 1, n % 7 === 6 ? 5 : Math.min(n, 5))];
   const cycle = n >= ENDLESS_WEATHER.length ? ENDLESS_WEATHER[2 + ((n * 3) % 4)] : w;
   return {
@@ -324,6 +374,7 @@ export const DAILY_TWISTS = [
   { id: 'heavy', kind: 'cargo', icon: 'weight', name: 'Steel mill', text: 'Thirty-tonners all night. Heavy goes on the deck or on heavy.', cargo: 'heavy' },
   { id: 'cold', kind: 'cargo', icon: 'snow', name: 'Cold chain', text: 'Reefers thawing on every other truck.', cargo: 'reefer' },
   { id: 'haz', kind: 'cargo', icon: 'flame', name: 'Hot cargo', text: 'Hazmat placards. Keep them apart, keep them gentle.', cargo: 'hazmat' },
+  { id: 'long', kind: 'cargo', icon: 'box', name: 'Long haul', text: 'Forty-footers on the list: each needs two level columns.', cargo: 'long' },
   { id: 'customs', kind: 'law', icon: 'scale', name: 'Customs blitz', text: 'Inspectors everywhere: lots of amber seals to weigh.', checks: 4 },
   { id: 'brownout', kind: 'power', icon: 'bolt', name: 'Brownout', text: 'The substation will trip at least once.', apply: (d, r) => d.events.push({ type: 'blackout', at: r.int(55, 110), dur: r.int(18, 26), deep: r.chance(0.5) }) },
   { id: 'rush', kind: 'clock', icon: 'clock', name: 'Tight turnaround', text: 'The ship sails early: less time on the clock.', time: 0.8 },
@@ -382,8 +433,15 @@ export function dailyShift(key = todayKey()) {
   const types = [];
   const special = ['heavy', 'fragile', 'reefer'];
   for (let i = 0; i < count; i++) {
-    if (cargoTwist && i % 2 === 0) types.push(cargoTwist.cargo);
+    if (cargoTwist && cargoTwist.cargo === 'long') types.push(i < 3 ? 'long' : r.chance(0.3) ? r.pick(special) : 'std');
+    else if (cargoTwist && i % 2 === 0) types.push(cargoTwist.cargo);
     else types.push(r.chance(0.3) ? r.pick(special) : 'std');
+  }
+  if (!cargoTwist && r.chance(0.35)) types[r.int(0, types.length - 1)] = 'long';
+  // forty-footers eat deck space: with them aboard, at most one thirty-tonner
+  if (types.includes('long')) {
+    let hv = 0;
+    for (let i = 0; i < types.length; i++) if (types[i] === 'heavy' && ++hv > 1) types[i] = 'std';
   }
   // feasibility: at most three hazmat, heavy no more than the deck can carry
   let haz = 0;
@@ -393,14 +451,21 @@ export function dailyShift(key = todayKey()) {
     if (types[i] === 'heavy' && ++heavy > bays * 2) types[i] = 'std';
   }
   r.shuffle(types);
-  // heavy boxes come early, like a real stow plan: they need the deck before it fills up
-  types.sort((a, b) => (a === 'heavy' ? 0 : 1) - (b === 'heavy' ? 0 : 1));
+  // heavy boxes and forty-footers come early, like a real stow plan: they need the deck before it fills up
+  const early = (t) => (t === 'heavy' ? 0 : t === 'long' ? 1 : 2);
+  types.sort((a, b) => early(a) - early(b));
   if (types[0] === 'heavy' && types.length > 2) [types[0], types[1]] = [types[1], types[0]];
   const manifest = [];
   let hb = 0;
+  // never more boxes for a port than its bays can hold (with a little slack for preloads)
+  const room = {};
+  for (const z of zones) room[z] = (room[z] || 0) + rows * 3;
+  for (const z in room) room[z] -= 2;
   for (const type of types) {
     // heavy and hazmat boxes are spread across the bays so every one has somewhere legal to go
-    const zone = type === 'heavy' || type === 'hazmat' ? zones[hb++ % bays] : r.pick(zones);
+    let zone = type === 'long' ? 'ANY' : type === 'heavy' || type === 'hazmat' ? zones[hb++ % bays] : r.pick(zones);
+    if (zone !== 'ANY' && room[zone] <= 0) zone = Object.keys(room).sort((a, b) => room[b] - room[a])[0];
+    if (zone !== 'ANY') room[zone]--;
     manifest.push(C(zone, type));
   }
   // spot checks go on ordinary boxes

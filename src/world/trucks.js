@@ -8,21 +8,27 @@ const CAB_COLORS = [0xe2ddd0, 0xe8a61c, 0x34609f, 0xc23d2b, 0x2c8f85];
 const CUSTOMS_CAB = 0x1f4f9c; // harbour customs: blue cab, white band, blue strobe
 const UNMARKED_CAB = 0x121416; // the trucks with no plates
 const SPAWN_Z = -74;
+// a forty-foot chassis runs back from the fifth wheel: its box sits this far behind the 20 ft spot
+export const LONG_OFF = (DIM.L40 - DIM.CONT_L) / 2;
 const EXIT_Z = 86;
 
 let geoCache = null;
-function truckGeometry(cabColor, livery) {
+function truckGeometry(cabColor, livery, long) {
   const v = new Vox();
   const g = new Vox();
   g.shade = false;
   const dark = 0x1c2125;
   const bed = DIM.TRAILER_Y;
-  // trailer: skeletal chassis with twist-lock pads
-  v.box(0, bed - 0.12, -0.1, 2.3, 0.22, 7.0, 0x3a4248);
-  v.box(0, bed - 0.38, -0.1, 0.7, 0.3, 7.2, dark);
-  for (const sz of [-1, 1]) for (const sx of [-1, 1]) v.box(sx * 1.05, bed + 0.03, -0.1 + sz * 2.85, 0.3, 0.1, 0.3, 0xe8b21e);
-  for (const z of [-2.9, -1.8]) for (const sx of [-1, 1]) v.cyl(sx * 1.05, 0.48, z, 0.48, 0.4, 0x0e1012, 10, 1, [0, 0, Math.PI / 2]);
-  v.box(0, 0.75, -3.75, 2.3, 0.5, 0.14, 0xc23d2b);
+  // trailer: skeletal chassis with twist-lock pads (a forty-foot one reaches further back)
+  const zc = long ? -0.1 - LONG_OFF : -0.1;
+  const len = long ? 7.0 + LONG_OFF * 2 : 7.0;
+  const half = len / 2;
+  v.box(0, bed - 0.12, zc, 2.3, 0.22, len, 0x3a4248);
+  v.box(0, bed - 0.38, zc, 0.7, 0.3, len + 0.2, dark);
+  for (const sz of [-1, 1]) for (const sx of [-1, 1]) v.box(sx * 1.05, bed + 0.03, zc + sz * (half - 0.65), 0.3, 0.1, 0.3, 0xe8b21e);
+  const rear = zc - half;
+  for (const z of [rear + 0.85, rear + 1.95]) for (const sx of [-1, 1]) v.cyl(sx * 1.05, 0.48, z, 0.48, 0.4, 0x0e1012, 10, 1, [0, 0, Math.PI / 2]);
+  v.box(0, 0.75, rear, 2.3, 0.5, 0.14, 0xc23d2b);
   // tractor
   const cz = 4.75;
   v.box(0, 0.78, cz - 0.2, 2.2, 0.5, 3.0, dark);
@@ -47,8 +53,8 @@ function truckGeometry(cabColor, livery) {
     g.box(-0.75, 0.95, cz + 1.42, 0.2, 0.1, 0.06, 0x8c7a5a, null, 0.5);
     g.box(0.75, 0.95, cz + 1.42, 0.2, 0.1, 0.06, 0x8c7a5a, null, 0.5);
   }
-  g.box(-0.9, 0.78, -3.83, 0.3, 0.16, 0.04, 0xff2a1e, null, 0.6);
-  g.box(0.9, 0.78, -3.83, 0.3, 0.16, 0.04, 0xff2a1e, null, 0.6);
+  g.box(-0.9, 0.78, rear - 0.08, 0.3, 0.16, 0.04, 0xff2a1e, null, 0.6);
+  g.box(0.9, 0.78, rear - 0.08, 0.3, 0.16, 0.04, 0xff2a1e, null, 0.6);
   return { body: v.build(), glow: g.build() };
 }
 
@@ -75,10 +81,12 @@ export class Truck {
     this.id = Truck._n = (Truck._n || 0) + 1;
 
     this.livery = opts.livery || (this.purpose === 'customs' ? 'customs' : null);
+    this.long = !!opts.long;
+    this.zOff = this.long ? -LONG_OFF : 0;
     const col = this.livery === 'customs' ? CUSTOMS_CAB : this.livery === 'unmarked' ? UNMARKED_CAB : CAB_COLORS[(opts.color || 0) % CAB_COLORS.length];
     geoCache = geoCache || new Map();
-    const gkey = col + ':' + (this.livery || '');
-    if (!geoCache.has(gkey)) geoCache.set(gkey, truckGeometry(col, this.livery));
+    const gkey = col + ':' + (this.livery || '') + (this.long ? ':40' : '');
+    if (!geoCache.has(gkey)) geoCache.set(gkey, truckGeometry(col, this.livery, this.long));
     const geo = geoCache.get(gkey);
     this.group = new THREE.Group();
     const m = new THREE.Mesh(geo.body, MAT.vox);
@@ -108,7 +116,7 @@ export class Truck {
 
   /** World-space centre for a container sitting on the bed. */
   bedCenter(hy, out = new THREE.Vector3()) {
-    return out.set(this.laneX, DIM.QUAY_Y + DIM.TRAILER_Y + hy + 0.02, this.z);
+    return out.set(this.laneX, DIM.QUAY_Y + DIM.TRAILER_Y + hy + 0.02, this.z + this.zOff);
   }
 
   /** Put a container on the bed as pure scenery (no physics until parked). */
@@ -117,7 +125,7 @@ export class Truck {
     cargo.truck = this;
     cargo.state = 'truck';
     this.group.add(cargo.mesh);
-    cargo.mesh.position.set(0, DIM.TRAILER_Y + cargo.hy + 0.02, 0);
+    cargo.mesh.position.set(0, DIM.TRAILER_Y + cargo.hy + 0.02, this.zOff);
     cargo.mesh.quaternion.identity();
   }
 
@@ -126,7 +134,7 @@ export class Truck {
     this.speed = 0;
     this.body = this.phys.fixedBody(this.laneX, DIM.QUAY_Y, this.z);
     const tag = { kind: 'truck', truck: this };
-    this.phys.box(1.15, 0.2, 3.5, { body: this.body, y: DIM.TRAILER_Y - 0.2, z: -0.1, friction: 0.9, tag });
+    this.phys.box(1.15, 0.2, 3.5 + (this.long ? LONG_OFF : 0), { body: this.body, y: DIM.TRAILER_Y - 0.2, z: -0.1 + this.zOff, friction: 0.9, tag });
     this.phys.box(1.1, 1.25, 1.45, { body: this.body, x: -0.1, y: 1.6, z: 4.85, tag: { kind: 'truckcab', truck: this } });
     if (this.cargo) this._solidCargo(this.cargo);
     this.bounceV = -1.2;
@@ -136,6 +144,7 @@ export class Truck {
     cargo.collider = this.phys.box(cargo.hx, cargo.hy, cargo.hz, {
       body: this.body,
       y: DIM.TRAILER_Y + cargo.hy + 0.02,
+      z: this.zOff,
       friction: 0.8,
       tag: { kind: 'cargo', cargo },
     });
@@ -159,7 +168,7 @@ export class Truck {
     cargo.truck = this;
     cargo.state = 'truck';
     this.group.add(cargo.mesh);
-    cargo.mesh.position.set(0, DIM.TRAILER_Y + cargo.hy + 0.02, 0);
+    cargo.mesh.position.set(0, DIM.TRAILER_Y + cargo.hy + 0.02, this.zOff);
     cargo.mesh.quaternion.identity();
     this._solidCargo(cargo);
     this.leaveDelay = 1.6;

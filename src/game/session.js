@@ -347,6 +347,7 @@ export class Session extends Emitter {
         if (!c.truck || !c.truck.parked || c.truck.departing) continue;
       } else if (st === 'locked') {
         if (this.ship.top(c.cell.r, c.cell.b) !== c) continue;
+        if (c.long && this.ship.top(c.cell.r, c.cell.b + 1) !== c) continue;
       } else if (st !== 'loose') continue;
       if (c.inWater) continue;
       this._cargoWorld(c, _v2, _q);
@@ -382,6 +383,7 @@ export class Session extends Emitter {
   }
 
   _zoneOk(cargo, r, b) {
+    if (cargo.long && cargo.zone !== 'ANY') return [b, b + 1].every((bb) => ['ANY', cargo.zone].includes(this.ship.zoneOf(r, bb)));
     const z = this.ship.zoneOf(r, b);
     return z === 'ANY' || cargo.zone === 'ANY' || z === cargo.zone;
   }
@@ -389,6 +391,15 @@ export class Session extends Emitter {
   /** Reasons a box may not be twist-locked at (r, b). Returns null when fine. */
   _ruleProblem(cargo, r, b) {
     const ship = this.ship;
+    if (cargo.long) {
+      // a forty-footer needs two neighbouring columns at the same height to sit on
+      if (b < 0 || b >= ship.bays - 1) return 'full';
+      const h0 = ship.height(r, b);
+      const h1 = ship.height(r, b + 1);
+      if (Math.max(h0, h1) >= ship.maxTiers) return 'full';
+      if (h0 !== h1) return 'uneven';
+      return null;
+    }
     const t = ship.height(r, b);
     if (t >= ship.maxTiers) return 'full';
     const below = ship.top(r, b);
@@ -421,9 +432,9 @@ export class Session extends Emitter {
     const bottom = rig.bottomWorld(_v);
     // --- ship cells
     const l = ship.worldToLocal(bottom, _v2);
-    const col = ship.columnAt(l.x, l.z, 0.12);
+    const col = cargo.long ? ship.pairAt(l.x, l.z, 0.12) : ship.columnAt(l.x, l.z, 0.12);
     if (col && this.phase === 'play') {
-      const t = ship.height(col.r, col.b);
+      const t = cargo.long ? ship.pairHeight(col.r, col.b) : ship.height(col.r, col.b);
       const supportY = DIM.DECK_Y + 0.12 + t * DIM.CONT_H;
       const gap = l.y - supportY;
       if (gap > -0.8) {
@@ -443,7 +454,7 @@ export class Session extends Emitter {
           problem,
           zoneOk,
           seated: gap < 0.17,
-          valid: err <= 1 && tilt > 0.985 && problem !== 'full' && problem !== 'heavy',
+          valid: err <= 1 && tilt > 0.985 && problem !== 'full' && problem !== 'heavy' && problem !== 'uneven',
           grade: err <= TUNE.perfect / this.lockTol ? 'perfect' : err <= TUNE.great / this.lockTol ? 'great' : err <= 1 ? 'good' : 'off',
         };
       }
@@ -601,6 +612,7 @@ export class Session extends Emitter {
       this._makeLoose(c, pose);
       if (seat && seat.seated && seat.kind === 'ship') {
         if (seat.problem === 'heavy') this.emit('toast', { text: 'Too heavy for that stack — the twist-locks will not hold', kind: 'warn' });
+        else if (seat.problem === 'uneven') this.emit('toast', { text: 'A forty-footer needs both columns at the same height', kind: 'warn' });
         else if (seat.problem === 'full') this.emit('toast', { text: 'That stack is at its limit', kind: 'warn' });
         else if (seat.err > 1) this.emit('toast', { text: 'Not on the lock points — it is sitting loose', kind: 'warn', key: 'loose' });
       } else if (seat && seat.kind === 'truck' && seat.problem === 'notout') {
@@ -668,7 +680,7 @@ export class Session extends Emitter {
     c.state = 'locked';
     c.settled = true;
     this._snapVisual(c);
-    const wp = ship.localToWorld(ship.cellLocal(seat.r, seat.b, seat.t), _v3);
+    const wp = ship.localToWorld(c.long ? ship.pairLocal(seat.r, seat.b, seat.t) : ship.cellLocal(seat.r, seat.b, seat.t), _v3);
     const hazard = seat.problem === 'hazmat';
     const zoneOk = seat.zoneOk;
     c.misplaced = !zoneOk || hazard;
@@ -865,8 +877,7 @@ export class Session extends Emitter {
   /** Break a twist-locked box (and everything stacked on it) free. */
   _knockLoose(c, vel) {
     if (c.state !== 'locked') return;
-    const { r, b } = c.cell;
-    const stack = this.ship.grid[r][b].slice(c.cell.t);
+    const stack = [c, ...this.ship.stackAbove(c).reverse()];
     const shipV = this.ship.kick.heaveV;
     for (let i = stack.length - 1; i >= 0; i--) {
       const k = stack[i];
@@ -1114,15 +1125,15 @@ export class Session extends Emitter {
     const r = body.rotation();
     _q.set(r.x, r.y, r.z, r.w);
     const l = ship.worldToLocal(_v.set(t.x, t.y, t.z), _v2);
-    const col = ship.columnAt(l.x, l.z, 0.0);
+    const col = c.long ? ship.pairAt(l.x, l.z, 0.0) : ship.columnAt(l.x, l.z, 0.0);
     const upDot = _s.set(0, 1, 0).applyQuaternion(_q).dot(ship.up(_v3));
     if (!col || upDot < 0.97) return;
-    const tier = ship.height(col.r, col.b);
+    const tier = c.long ? ship.pairHeight(col.r, col.b) : ship.height(col.r, col.b);
     const expectY = ship.tierY(tier);
     const err = Math.max(Math.abs(col.dx) / this.lockTol, Math.abs(col.dz) / (this.lockTol * 1.3));
     const yaw = Math.abs(Math.atan2(2 * (r.w * r.y + r.x * r.z), 1 - 2 * (r.y * r.y + r.x * r.x)));
     const problem = this._ruleProblem(c, col.r, col.b);
-    if (Math.abs(l.y - expectY) < 0.3 && err <= 1 && yaw < 0.14 && problem !== 'full' && problem !== 'heavy') {
+    if (Math.abs(l.y - expectY) < 0.3 && err <= 1 && yaw < 0.14 && problem !== 'full' && problem !== 'heavy' && problem !== 'uneven') {
       const seat = { kind: 'ship', r: col.r, b: col.b, t: tier, dx: col.dx, dz: col.dz, zoneOk: this._zoneOk(c, col.r, col.b), problem, grade: 'good' };
       this.phys.removeBody(c.body);
       c.body = null;
@@ -1228,7 +1239,7 @@ export class Session extends Emitter {
       if (l1.cool <= 0 && this.manifestIdx < this.manifest.length) {
         const spec = this.manifest[this.manifestIdx++];
         const c = this._newCargo(spec);
-        const tr = new Truck(this.ctx.scene, this.phys, { laneX: l1.x, stopZ: l1.z, purpose: 'deliver', color: this.manifestIdx + this.shipIndex, livery: c.black ? 'unmarked' : null });
+        const tr = new Truck(this.ctx.scene, this.phys, { laneX: l1.x, stopZ: l1.z, purpose: 'deliver', color: this.manifestIdx + this.shipIndex, livery: c.black ? 'unmarked' : null, long: c.long });
         tr.load(c);
         if (c.black) this.blackSeen = true;
         tr.onPark = (trk) => {
@@ -1502,6 +1513,9 @@ export class Session extends Emitter {
         }
       }
     }
+    // telescopic spreader: out to forty feet over (or under) a long box
+    const g = this.grab;
+    crane.setSpreaderLong(!!(c ? c.long : g && g.cargo.long && Math.hypot(g.lx, g.lz) < 2.6));
     // LED state
     if (this._ledT > 0) this._ledT -= dt;
     else crane.setLed(c ? 'locked' : this.grab && this.grab.ready ? 'ready' : 'idle');
@@ -1538,7 +1552,7 @@ export class Session extends Emitter {
     if (rig.carry) {
       const s = this.seat;
       if (s) {
-        if (s.problem === 'full' || s.problem === 'heavy' || (s.kind === 'truck' && s.problem)) state = 'bad';
+        if (s.problem === 'full' || s.problem === 'heavy' || s.problem === 'uneven' || (s.kind === 'truck' && s.problem)) state = 'bad';
         else if (!s.zoneOk || s.problem === 'hazmat') state = s.err <= 1 ? 'bad' : 'near';
         else state = s.err <= 1 ? 'good' : 'near';
       }
@@ -1547,7 +1561,7 @@ export class Session extends Emitter {
     }
     g.setReticle(
       visible
-        ? { visible: true, pos: _v2.set(bottom.x, bottom.y - height, bottom.z), quat, height, state, from: bottom, fromQuat: rig.sprQuat }
+        ? { visible: true, pos: _v2.set(bottom.x, bottom.y - height, bottom.z), quat, height, state, from: bottom, fromQuat: rig.sprQuat, long: !!(rig.carry && rig.carry.long) }
         : null,
       dt
     );
@@ -1561,12 +1575,12 @@ export class Session extends Emitter {
       let best = null;
       let bestD = 1e9;
       for (let r = 0; r < ship.rows; r++) {
-        for (let b = 0; b < ship.bays; b++) {
+        for (let b = 0; b < ship.bays - (c.long ? 1 : 0); b++) {
           if (!this._zoneOk(c, r, b)) continue;
           const prob = this._ruleProblem(c, r, b);
           if (prob === 'full') continue;
-          const t = ship.height(r, b);
-          const cell = { pos: ship.cellLocal(r, b, t), color: zoneColor(c.zone === 'ANY' ? ship.zoneOf(r, b) : c.zone), ok: !prob, best: false };
+          const t = c.long ? ship.pairHeight(r, b) : ship.height(r, b);
+          const cell = { pos: c.long ? ship.pairLocal(r, b, t) : ship.cellLocal(r, b, t), color: zoneColor(c.zone === 'ANY' ? ship.zoneOf(r, b) : c.zone), ok: !prob, best: false, long: c.long };
           if (c.zone === 'ANY' && ship.zoneOf(r, b) === 'ANY') cell.color = 0x9fd8ff;
           if (c.black) cell.color = 0x6dffd9;
           cells.push(cell);
@@ -1687,6 +1701,7 @@ export class Session extends Emitter {
       if (s && s.seated && s.valid && (s.kind !== 'truck' || !s.problem)) hint = s.kind === 'truck' ? 'ON THE TRUCK — RELEASE' : !s.zoneOk ? 'WRONG BAY' : s.problem === 'hazmat' ? 'TOO CLOSE TO HAZMAT' : `${s.grade.toUpperCase()} — RELEASE`;
       else if (s && s.problem === 'heavy') hint = 'TOO HEAVY FOR THIS STACK';
       else if (s && s.problem === 'full') hint = 'STACK FULL';
+      else if (s && s.problem === 'uneven') hint = 'UNEVEN — NEEDS TWO LEVEL COLUMNS';
       else if (s && s.seated) hint = 'OFF THE LOCK POINTS';
       else if (s && rig.slack > 0.12 && s.gap > 0.45) hint = 'SNAGGED — LIFT AND RE-CENTRE';
       else if (c.black) hint = 'NO PAPERS — SHIP IT, OR HAND IT IN?';
@@ -1750,6 +1765,7 @@ export class Session extends Emitter {
     this.phys.dispose();
     this.ctx.harbor.clearPickupMarks();
     this.ctx.crane.setLed('idle');
+    this.ctx.crane.setSpreaderLong(false);
     this.cargos.length = 0;
     this.trucks.length = 0;
   }

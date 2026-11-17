@@ -141,6 +141,7 @@ export class Guides {
       if (g.parent !== parent) parent.add(g);
       g.visible = true;
       g.position.copy(c.pos);
+      g.scale.z = c.long ? DIM.L40 / DIM.CONT_L : 1;
       g.material.color.setHex(c.ok ? c.color : 0xff4d3d);
       g.userData.fill.material.color.copy(g.material.color);
       g.userData.best = c.best;
@@ -201,13 +202,18 @@ export class Guides {
     this.beamMat.color.copy(this.color);
     const spread = 1 + clamp(o.height / 9, 0, 1) * 0.55;
     const pulse = o.state === 'good' ? 1 + Math.sin(this.t * 9) * 0.03 : 1;
-    for (const c of this.corners) c.position.copy(c.userData.base).multiplyScalar(spread * pulse);
+    const lz = o.long ? DIM.L40 / DIM.CONT_L : 1;
+    for (const c of this.corners) {
+      c.position.copy(c.userData.base).multiplyScalar(spread * pulse);
+      c.position.z *= lz;
+    }
+    this.reticleFill.scale.y = lz;
     this.fillMat.opacity = o.state === 'good' ? 0.22 + Math.sin(this.t * 9) * 0.06 : 0.08;
     this.reticleMat.opacity = clamp(0.55 + o.height * 0.05, 0.55, 0.95);
     // four plumb lines from the load's lower corners
     let k = 0;
     const hw = DIM.CONT_W / 2;
-    const hl = DIM.CONT_L / 2;
+    const hl = (o.long ? DIM.L40 : DIM.CONT_L) / 2;
     for (const sx of [-1, 1]) {
       for (const sz of [-1, 1]) {
         const b = this.beams[k++];

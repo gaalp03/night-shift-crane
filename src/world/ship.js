@@ -405,6 +405,25 @@ export class Ship {
   cellLocal(r, b, t, out = new THREE.Vector3()) {
     return out.set(this.rowX(r), this.tierY(t), this.bayZ(b));
   }
+  /** Slot of a forty-footer: row r, bays b and b+1 (z halfway between them). */
+  pairLocal(r, b, t, out = new THREE.Vector3()) {
+    return out.set(this.rowX(r), this.tierY(t), (this.bayZ(b) + this.bayZ(b + 1)) / 2);
+  }
+  /** Where a forty-footer would land: the higher of its two columns. */
+  pairHeight(r, b) {
+    return Math.max(this.height(r, b), this.height(r, b + 1));
+  }
+  /** Nearest pair of neighbouring bays (for a 40 ft box) for a ship-local position. */
+  pairAt(lx, lz, margin = 0.2) {
+    if (this.bays < 2) return null;
+    const fr = lx / DIM.CELL_X + (this.rows - 1) / 2;
+    const fb = lz / DIM.CELL_Z + (this.bays - 1) / 2 - 0.5;
+    const r = Math.round(fr);
+    const b = Math.round(fb);
+    if (r < 0 || r >= this.rows || b < 0 || b >= this.bays - 1) return null;
+    if (Math.abs(fr - r) > 0.5 + margin || Math.abs(fb - b) > 0.5 + margin) return null;
+    return { r, b, dx: lx - this.rowX(r), dz: lz - (this.bayZ(b) + this.bayZ(b + 1)) / 2 };
+  }
   height(r, b) {
     return this.grid[r][b].length;
   }
@@ -414,11 +433,26 @@ export class Ship {
   }
   count() {
     let n = 0;
-    for (const row of this.grid) for (const s of row) n += s.length;
+    this.forEachCargo(() => n++);
     return n;
   }
+  /** Each box once (a forty-footer sits in two columns but is one box). */
   forEachCargo(fn) {
-    for (let r = 0; r < this.rows; r++) for (let b = 0; b < this.bays; b++) for (const c of this.grid[r][b]) fn(c, r, b);
+    for (let r = 0; r < this.rows; r++) for (let b = 0; b < this.bays; b++) for (const c of this.grid[r][b]) if (!c.long || c.cell.b === b) fn(c, r, b);
+  }
+  /** Everything resting on `c`, directly or through other boxes (highest first). */
+  stackAbove(c) {
+    const out = new Set();
+    const visit = (k) => {
+      const { r, b, t } = k.cell;
+      const cols = k.long ? [b, b + 1] : [b];
+      for (const bb of cols) for (const o of this.grid[r][bb].slice(t + 1)) if (!out.has(o)) {
+        out.add(o);
+        visit(o);
+      }
+    };
+    visit(c);
+    return [...out].sort((a, b) => b.cell.t - a.cell.t);
   }
 
   /** Nearest column for a ship-local position. Returns null when outside the cargo area. */
@@ -525,9 +559,11 @@ export class Ship {
 
   /** Attach a container to the grid (becomes part of the ship's kinematic body). */
   lock(cargo, r, b) {
-    const t = this.grid[r][b].length;
+    const long = !!cargo.long;
+    const t = long ? this.pairHeight(r, b) : this.grid[r][b].length;
     this.grid[r][b].push(cargo);
-    const lp = this.cellLocal(r, b, t);
+    if (long) this.grid[r][b + 1].push(cargo);
+    const lp = long ? this.pairLocal(r, b, t) : this.cellLocal(r, b, t);
     cargo.cell = { r, b, t };
     cargo.collider = this.phys.box(cargo.hx, cargo.hy, cargo.hz, {
       body: this.body,
@@ -549,9 +585,11 @@ export class Ship {
   /** Detach (for re-grabbing or when knocked loose). Leaves the mesh in world space. */
   unlock(cargo, scene) {
     const { r, b } = cargo.cell;
-    const stack = this.grid[r][b];
-    const i = stack.indexOf(cargo);
-    if (i >= 0) stack.splice(i, 1);
+    for (const bb of cargo.long ? [b, b + 1] : [b]) {
+      const stack = this.grid[r][bb];
+      const i = stack.indexOf(cargo);
+      if (i >= 0) stack.splice(i, 1);
+    }
     this.phys.removeCollider(cargo.collider);
     cargo.collider = null;
     cargo.cell = null;

@@ -16,17 +16,19 @@ const BRANDS = [
 const GENERIC = [0x5d7f3a, 0x7a4466, 0x4f6f86, 0xb9b09a, 0x8c5a36, 0x3f6b62];
 
 const AT = 512;
-// atlas regions in pixels: [x, y, w, h]
-const REG = {
-  side: [0, 0, 512, 208],
-  top: [0, 208, 512, 176],
+// atlas regions in pixels: [x, y, w, h]. A forty-footer's atlas is twice as wide (long sides + roof).
+const regions = (W = AT) => ({
+  side: [0, 0, W, 208],
+  top: [0, 208, W, 176],
   door: [0, 384, 128, 128],
   front: [128, 384, 128, 128],
   bottom: [256, 384, 64, 64],
-};
+});
+const REG = regions();
 
 const matCache = new Map();
 let geoCache = null;
+let geoLong = null;
 let seamGeo = null;
 
 function shade(hex, f) {
@@ -349,11 +351,14 @@ function buildBlackAtlas(seed) {
 }
 
 function buildAtlas(zoneId, type, brandIdx, seed, sealed) {
+  const long = type === 'long';
+  const W = long ? AT * 2 : AT;
+  const REG = regions(W);
   if (type === 'black') return buildBlackAtlas(seed);
   const zone = ZONES[zoneId] || ZONES.ANY;
   const brand = BRANDS[brandIdx % BRANDS.length];
   const rng = makeRng(seed * 977 + brandIdx * 31 + 5);
-  const c = makeCanvas(AT, AT);
+  const c = makeCanvas(W, AT);
   const g = c.getContext('2d');
   // un-zoned boxes get liveries that never clash with the four destination colours
   const paint = zoneId === 'ANY' ? GENERIC[brandIdx % GENERIC.length] : zone.color;
@@ -374,10 +379,20 @@ function buildAtlas(zoneId, type, brandIdx, seed, sealed) {
       for (let px = x; px < x + w; px += 13) g.fillRect(px + 6, y + h * 0.62, 4, h * 0.2);
     }
     // logo panel
-    drawMark(g, brand.mark, x + 86, y + h * 0.42, 62, ink);
-    stencil(g, brand.name, x + 132, y + h * 0.43, 54, ink);
+    if (!long) {
+      drawMark(g, brand.mark, x + 86, y + h * 0.42, 62, ink);
+      stencil(g, brand.name, x + 132, y + h * 0.43, 54, ink);
+    }
     small(g, `${brand.name.slice(0, 3)}U ${100000 + Math.floor(rng() * 899999)} ${Math.floor(rng() * 9)}`, x + w - 26, y + 34, 22, ink, 'right');
-    small(g, type === 'heavy' ? '45G1' : isReefer ? '22R1' : '22G1', x + w - 26, y + 58, 20, ink, 'right');
+    small(g, type === 'heavy' ? '45G1' : isReefer ? '22R1' : long ? '42G1' : '22G1', x + w - 26, y + 58, 20, ink, 'right');
+    if (long) {
+      // a forty-footer carries its owner's name big, and its length where the lashers can read it
+      drawMark(g, brand.mark, x + w * 0.5 - 40, y + h * 0.42, 70, ink);
+      stencil(g, brand.name, x + w * 0.5 + 10, y + h * 0.43, 62, ink);
+      g.fillStyle = 'rgba(12,16,20,0.7)';
+      g.fillRect(x + 30, y + h - 74, 120, 42);
+      stencil(g, "40'", x + 90, y + h - 52, 34, '#f2c14a', 'center');
+    }
     // port code tag: always readable so the player can match bays
     if (zoneId !== 'ANY') {
       g.fillStyle = 'rgba(12,16,20,0.78)';
@@ -508,10 +523,10 @@ function buildAtlas(zoneId, type, brandIdx, seed, sealed) {
   return canvasTexture(c, { aniso: 8 });
 }
 
-function setFaceUV(uv, face, reg, rotate = false) {
+function setFaceUV(uv, face, reg, rotate = false, W = AT) {
   const [x, y, w, h] = reg;
-  const u0 = x / AT;
-  const u1 = (x + w) / AT;
+  const u0 = x / W;
+  const u1 = (x + w) / W;
   const v1 = 1 - y / AT;
   const v0 = 1 - (y + h) / AT;
   const i = face * 4;
@@ -527,6 +542,23 @@ function setFaceUV(uv, face, reg, rotate = false) {
     uv.setXY(i + 2, u1, v0);
     uv.setXY(i + 3, u1, v1);
   }
+}
+
+function longGeometry() {
+  if (geoLong) return geoLong;
+  const W = AT * 2;
+  const R = regions(W);
+  const g = new THREE.BoxGeometry(DIM.CONT_W, DIM.CONT_H, DIM.L40);
+  const uv = g.attributes.uv;
+  setFaceUV(uv, 0, R.side, false, W);
+  setFaceUV(uv, 1, R.side, false, W);
+  setFaceUV(uv, 2, R.top, true, W);
+  setFaceUV(uv, 3, R.bottom, false, W);
+  setFaceUV(uv, 4, R.door, false, W);
+  setFaceUV(uv, 5, R.front, false, W);
+  uv.needsUpdate = true;
+  geoLong = g;
+  return g;
 }
 
 function containerGeometry() {
@@ -569,7 +601,8 @@ export class Cargo {
     this.mass = this.typeDef.mass;
     this.hx = DIM.CONT_W / 2;
     this.hy = DIM.CONT_H / 2;
-    this.hz = DIM.CONT_L / 2;
+    this.long = type === 'long';
+    this.hz = (this.long ? DIM.L40 : DIM.CONT_L) / 2;
     this.state = 'new'; // truck | carried | loose | locked | sunk | gone
     this.body = null;
     this.collider = null;
@@ -596,7 +629,7 @@ export class Cargo {
     this.black = type === 'black';
 
     this.mesh = new THREE.Group();
-    const box = new THREE.Mesh(containerGeometry(), materialFor(zone, type, brand, mobile, check));
+    const box = new THREE.Mesh(this.long ? longGeometry() : containerGeometry(), materialFor(zone, type, brand, mobile, check));
     box.castShadow = true;
     box.receiveShadow = true;
     this.mesh.add(box);

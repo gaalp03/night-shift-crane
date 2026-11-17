@@ -6,6 +6,7 @@ export const DIM = {
   CONT_W: 2.4, // container width  (X)
   CONT_H: 2.6, // container height (Y)
   CONT_L: 6.0, // container length (Z)
+  L40: 12.5, // a forty-footer spans two bay slots (2 x 6.0 + the 0.5 gap between them)
   CELL_X: 2.75, // slot pitch across the ship
   CELL_Z: 6.5, // slot pitch along the ship
   QUAY_Y: 2.4, // quay surface height above still water
@@ -71,6 +72,7 @@ export const CARGO_TYPES = {
   fragile: { id: 'fragile', label: 'Fragile', mass: 0.8, value: 140 },
   reefer: { id: 'reefer', label: 'Reefer', mass: 1.1, value: 120 },
   hazmat: { id: 'hazmat', label: 'Hazmat', mass: 1.2, value: 150 },
+  long: { id: 'long', label: '40 ft', mass: 1.75, value: 130 }, // spans two bays: needs two level columns side by side
   black: { id: 'black', label: 'No papers', mass: 1.45, value: 0 }, // the boxes nobody ordered
 };
 

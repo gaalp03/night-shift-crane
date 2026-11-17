@@ -64,4 +64,4 @@ export function iconEl(name, cls) {
   return t.content.firstChild;
 }
 
-export const TYPE_ICON = { heavy: 'weight', fragile: 'glass', reefer: 'snow', hazmat: 'flame', black: 'eye' };
+export const TYPE_ICON = { heavy: 'weight', fragile: 'glass', reefer: 'snow', hazmat: 'flame', black: 'eye', long: 'box' };

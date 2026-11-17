@@ -28,7 +28,7 @@ import { Screens } from './ui/screens.js';
 import { Radio } from './ui/radio.js';
 import { DeepLight } from './world/deep.js';
 import { WetShine } from './world/shine.js';
-import { SHIFT_OPEN, SHIFT_BEATS, CHECK_INTRO, BLACK_BOXES, BLACKOUT, SMUGGLE_FOUND, epilogue } from './game/story.js';
+import { SHIFT_OPEN, SHIFT_BEATS, CHECK_INTRO, LONG_INTRO, BLACK_BOXES, BLACKOUT, SMUGGLE_FOUND, epilogue } from './game/story.js';
 
 const $ = (id) => document.getElementById(id);
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -523,6 +523,10 @@ function bindSession(s) {
       app.harbor.surge = 1.6;
       app.crew.react('wince', 2.2);
       if (box) app.radio.say(box.arrive, { urgent: true, key: 'black-arrive' });
+    } else if (cargo.long && !save.data.flags.longSeen) {
+      save.data.flags.longSeen = true;
+      save.commit();
+      app.radio.say(LONG_INTRO, { urgent: true, key: 'long-intro' });
     } else if (cargo.check && !save.data.flags.checkSeen) {
       save.data.flags.checkSeen = true;
       save.commit();
@@ -1270,6 +1274,8 @@ if (typeof __DEV__ !== 'undefined' && __DEV__) {
     input,
     SHIFTS,
     THREE,
+    dailyShift,
+    endlessShip,
     sim(sec, step = 1 / 60) {
       const n = Math.round(sec / step);
       for (let i = 0; i < n; i++) {
