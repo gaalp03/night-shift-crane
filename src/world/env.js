@@ -159,6 +159,8 @@ export class Harbor {
     this.flickers = [];
     this.blinkers = [];
     this.lampHeads = []; // world positions, used for water glints
+    this.daylight = 0; // 0 = night, 1 = dawn (eased towards dayTarget)
+    this.dayTarget = 0;
     this.power = 1; // quay mains: set to 0 for a power cut
     this.powerNow = 1;
     this.surge = 0; // seconds of nervous flicker (something is upsetting the grid)
@@ -227,6 +229,7 @@ export class Harbor {
     noiseTex.needsUpdate = true;
     this.skyUniforms = {
       uNoise: { value: noiseTex },
+      uDay: { value: 0 }, // 0 = night, 1 = first light
       uTop: { value: new THREE.Color(PAL.skyTop) },
       uMid: { value: new THREE.Color(PAL.skyMid) },
       uGlow: { value: new THREE.Color(PAL.skyGlow) },
@@ -254,6 +257,7 @@ export class Harbor {
         uniform float uFlash; uniform float uTime; uniform float uClouds;
         uniform vec3 uFogCol; uniform float uFogMix;
         uniform sampler2D uNoise;
+        uniform float uDay;
         varying vec3 vDir;
         float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
         void main() {
@@ -282,10 +286,20 @@ export class Harbor {
           // stars in the gaps
           vec2 sp = d.xz / (0.4 + d.y) * 90.0;
           float sh = hash(floor(sp));
-          float st = step(0.9975, sh) * smoothstep(0.15, 0.5, h) * (1.0 - cover);
+          float st = step(0.9975, sh) * smoothstep(0.15, 0.5, h) * (1.0 - cover) * (1.0 - uDay);
           col += vec3(0.75, 0.82, 1.0) * st * (0.5 + 0.5 * sin(uTime * 2.0 + sh * 40.0));
           // the moon itself, hazed by whatever is in front of it
-          col += vec3(0.85, 0.9, 1.0) * smoothstep(0.9993, 0.9996, m) * (1.0 - cover * 0.8);
+          col += vec3(0.85, 0.9, 1.0) * smoothstep(0.9993, 0.9996, m) * (1.0 - cover * 0.8) * (1.0 - 0.75 * uDay);
+          // first light: the sun about to clear the sea, out past the breakwater
+          if (uDay > 0.001) {
+            vec3 sd = normalize(vec3(0.93, 0.035, 0.36));
+            float sm = max(dot(d, sd), 0.0);
+            float lowSky = exp(-max(h, 0.0) * 6.0);
+            col += vec3(1.0, 0.5, 0.24) * (pow(sm, 6.0) * 0.55 + pow(sm, 60.0) * 0.9) * lowSky * uDay;
+            col += vec3(1.0, 0.86, 0.6) * smoothstep(0.9985, 0.9993, sm) * uDay;
+            // cloud undersides catch it
+            col += vec3(0.9, 0.42, 0.28) * cover * pow(sm, 3.0) * smoothstep(0.02, 0.2, h) * 0.5 * uDay;
+          }
           col += vec3(0.25, 0.32, 0.45) * pow(max(m, 0.0), 180.0) * 0.6;
           col += vec3(0.1, 0.13, 0.2) * pow(max(m, 0.0), 30.0) * (1.0 - cover * 0.5);
           col = mix(col, uFogCol, uFogMix * (0.55 + 0.45 * smoothstep(0.5, 0.0, h)));
@@ -998,6 +1012,7 @@ export class Harbor {
       evening: { top: 0x04080f, mid: 0x0d1826, glow: 0x55341f },
       night: { top: 0x02050a, mid: 0x08101b, glow: 0x3a251d },
       predawn: { top: 0x050a16, mid: 0x131d36, glow: 0x4b3552 },
+      dawn: { top: 0x1d3157, mid: 0x6b5a78, glow: 0xff8f52 },
     }[name] || null;
     if (!P) return;
     this.skyTarget = { top: new THREE.Color(P.top), mid: new THREE.Color(P.mid), glow: new THREE.Color(P.glow) };
@@ -1010,7 +1025,8 @@ export class Harbor {
 
   /** 0..1 visibility of the far shore (fog shifts lower this). */
   setVisibility(v) {
-    for (const m of this.skylineMats) m.color.setScalar(1.15 * v);
+    // (as the day comes up the city switches its windows off)
+    for (const m of this.skylineMats) m.color.setScalar(1.15 * v * (1 - 0.55 * this.daylight));
     this.lighthouseGlow.material.opacity = v;
     for (const s of this.farNeon) s.material.opacity = 0.75 * v * v;
   }
@@ -1048,6 +1064,8 @@ export class Harbor {
       this.skyUniforms.uMid.value.lerp(this.skyTarget.mid, k);
       this.skyUniforms.uGlow.value.lerp(this.skyTarget.glow, k);
     }
+    this.daylight += (this.dayTarget - this.daylight) * Math.min(1, dt * (this.dayTarget > this.daylight ? 0.22 : 3));
+    this.skyUniforms.uDay.value = this.daylight;
     this.skyUniforms.uTime.value = t;
     this.skyUniforms.uFlash.value = flash;
     this.lighthouse.rotation.y = t * 0.55;

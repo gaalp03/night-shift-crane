@@ -237,6 +237,7 @@ function teardownRun() {
   app.timers.length = 0;
   app.radio.clear();
   setPower(true, true);
+  setDawn(false);
   app.deep.target = 0;
   if (app.session) {
     app.session.dispose();
@@ -247,9 +248,26 @@ function teardownRun() {
   showHud(false);
 }
 
+/** First light (the end of the last shift), or back to night. */
+function setDawn(on) {
+  const h = app.harbor;
+  h.dayTarget = on ? 1 : 0;
+  if (on) {
+    h.setSky('dawn');
+    app.weather.set({ rain: 0, wind: 0.25, windDir: 0.4, gusts: 0, fog: 0.0092, sea: 0.22, clouds: 0.55, storm: 0 });
+    // the lamps go off one by one as the day comes up
+    h.power = 0;
+  } else {
+    h.daylight = 0;
+    h.power = 1;
+    h.powerNow = 1;
+  }
+}
+
 function makeAttract() {
   // a docked ship + idle crane behind the menus
   app.level = null;
+  setDawn(false);
   const s = new Session(app.ctx, SHIFTS[0], { attract: true });
   s.attract = true;
   app.session = s;
@@ -674,6 +692,22 @@ async function onFinish(s, res) {
   app.cams.setMode('menu', 2.6);
   await wait(res.success ? 2100 : 1900);
   if (app.session !== s || app.mode !== 'results') return;
+  // the last ship of the night sails into the sunrise
+  if (res.success && level.id === 's12') {
+    setDawn(true);
+    app.radio.clear();
+    app.juice.clearToasts();
+    audio.music.setPlaylist(['menu']);
+    app.juice.letterbox(true, '');
+    app.juice.caption('05:58', 'First light over Pier Seven');
+    await wait(4200);
+    if (app.session !== s || app.mode !== 'results') return;
+    app.juice.caption('MV LOW TIDE', 'Outbound · all boxes accounted for');
+    await wait(3600);
+    app.juice.letterbox(false);
+    await wait(500);
+    if (app.session !== s || app.mode !== 'results') return;
+  }
   audio.play('ui_open');
   app.radio.clear();
   app.screens.results(res, meta);
@@ -878,6 +912,59 @@ function bindGlobalInput() {
   });
 }
 
+// ====================================================================== gamepad in menus
+
+/** Every clickable thing on the open screen, in reading order. */
+function menuTargets(scr) {
+  return [...scr.querySelectorAll('.btn, .tcard:not(.locked), .paint:not(.locked), .seg button, input[type=range]')].filter((el) => !el.disabled && el.offsetParent !== null);
+}
+
+/** D-pad / stick moves a highlight between buttons, A presses, B goes back. */
+function padMenus() {
+  if (input.lastDevice !== 'gamepad') {
+    if (app._padFocus) {
+      app._padFocus.classList.remove('padfocus');
+      app._padFocus = null;
+    }
+    return;
+  }
+  const A = input.touchPressed.has('lock');
+  const B = input.touchPressed.has('horn');
+  if (app.mode === 'intro' && app._skipTour && A) return app._skipTour();
+  const scr = app.screens && app.screens.current;
+  if (!scr || app.busy || app.mode === 'play') return;
+  const p = input.pad;
+  const dir = Math.abs(p.z) > 0.55 ? (p.z > 0 ? 1 : -1) : Math.abs(p.x) > 0.55 ? (p.x > 0 ? 1 : -1) : 0;
+  const list = menuTargets(scr);
+  let cur = app._padFocus && list.includes(app._padFocus) ? app._padFocus : null;
+  const slider = cur && cur.tagName === 'INPUT';
+  if (dir !== app._padDir) {
+    app._padDir = dir;
+    if (dir && slider && Math.abs(p.x) > 0.55) {
+      // left / right on a slider changes its value
+      cur.value = String(clamp(Number(cur.value) + dir * 10, 0, 100));
+      cur.dispatchEvent(new Event('input'));
+      cur.dispatchEvent(new Event('change'));
+    } else if (dir && list.length) {
+      const i = cur ? list.indexOf(cur) : -1;
+      const next = list[(i + dir + list.length) % list.length];
+      if (cur) cur.classList.remove('padfocus');
+      next.classList.add('padfocus');
+      next.scrollIntoView({ block: 'nearest' });
+      app._padFocus = cur = next;
+      audio.play('ui_hover');
+    }
+  }
+  if (A) {
+    const target = cur || scr.querySelector('.btn.primary:not([disabled]), .btn.teal:not([disabled]), .btn.night:not([disabled])');
+    if (target && target.tagName !== 'INPUT') target.click();
+  } else if (B) {
+    const back = scr.querySelector('.btn[data-sound="ui_back"]:not([disabled])');
+    if (back) back.click();
+    else if (app.mode === 'paused') app.resume();
+  }
+}
+
 // ====================================================================== ambience
 
 function startAmbience() {
@@ -925,6 +1012,11 @@ function updateAmbience(dt) {
 // ====================================================================== frame
 
 const _fogA = new THREE.Color(PAL.fog);
+const _moonCol = new THREE.Color(PAL.moon);
+const _sunCol = new THREE.Color(0xffb27a);
+const _skyCol = new THREE.Color(0x5f7fa8);
+const _daySkyCol = new THREE.Color(0x9a8fb0);
+const _dawnFog = new THREE.Color(0x56495a);
 const _fogB = new THREE.Color(0x2a3338);
 const _crewCtx = { focus: null, shadow: { x: 0, z: 0, h: 99 }, carrying: false };
 const _lights = [];
@@ -1064,6 +1156,7 @@ function tick(raw) {
   app.time += dt;
   const s = app.session;
 
+  padMenus();
   // --- global actions
   if (app.mode === 'play') {
     if (input.action('pause')) app.pause();
@@ -1119,8 +1212,19 @@ function tick(raw) {
   app.scene.fog.color.copy(_fogA).lerp(_fogB, thick);
   app.harbor.skyUniforms.uFogCol.value.copy(app.scene.fog.color);
   app.harbor.skyUniforms.uFogMix.value = clamp(thick * 1.15, 0, 0.96);
-  app.harbor.hemi.intensity = app.harbor.hemiBase * app.harbor.hemiPower + flash * 3.5;
-  app.harbor.moon.intensity = 0.42 * (1 - w.clouds * 0.45) + flash * 2.2;
+  const day = app.harbor.daylight;
+  app.harbor.hemi.intensity = app.harbor.hemiBase * app.harbor.hemiPower + day * 0.75 + flash * 3.5;
+  app.harbor.moon.intensity = 0.42 * (1 - w.clouds * 0.45) + day * 0.9 + flash * 2.2;
+  if (day > 0.001) {
+    app.harbor.moon.color.copy(_moonCol).lerp(_sunCol, day);
+    app.harbor.hemi.color.copy(_skyCol).lerp(_daySkyCol, day);
+    app.scene.fog.color.lerp(_dawnFog, day * 0.85);
+    app.harbor.skyUniforms.uFogCol.value.copy(app.scene.fog.color);
+  } else if (app._wasDay) {
+    app.harbor.moon.color.copy(_moonCol);
+    app.harbor.hemi.color.copy(_skyCol);
+  }
+  app._wasDay = day > 0.001;
   app.harbor.skyUniforms.uClouds.value = w.clouds;
   app.harbor.setVisibility(clamp(1.25 - w.fog * 38, 0.06, 1));
   if (flash > 0.02 && gfx.flash < flash * 0.5) gfx.flash = flash * 0.5;
