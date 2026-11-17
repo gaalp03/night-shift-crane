@@ -137,12 +137,15 @@ export class Water {
             ruv += n.xz * vec2(0.05, 0.085) * calm + rip * 0.006;
             float inside = step(0.0, rc.w) * smoothstep(0.0, 0.02, ruv.x) * smoothstep(1.0, 0.98, ruv.x) * smoothstep(0.0, 0.02, ruv.y) * smoothstep(1.0, 0.98, ruv.y);
             // three taps up the image: point lights smear into the long streaks night water is known for
-            float sm = 0.022 + 0.05 * (1.0 - ndv);
+            float sm = (0.012 + 0.03 * (1.0 - ndv)) * calm;
             vec3 r0 = texture2D(uRefl, clamp(ruv, 0.001, 0.999)).rgb;
             vec3 r1 = texture2D(uRefl, clamp(ruv + vec2(0.0, sm), 0.001, 0.999)).rgb;
             vec3 r2 = texture2D(uRefl, clamp(ruv - vec2(0.0, sm * 0.7), 0.001, 0.999)).rgb;
-            vec3 refl = r0 * 0.5 + (r1 + r2) * 0.25;
-            vec3 hot = max(r0, max(r1, r2));
+            vec3 r3 = texture2D(uRefl, clamp(ruv + vec2(0.0, sm * 0.5), 0.001, 0.999)).rgb;
+            vec3 r4 = texture2D(uRefl, clamp(ruv - vec2(0.0, sm * 0.35), 0.001, 0.999)).rgb;
+            vec3 refl = r0 * 0.36 + (r1 + r2 + r3 + r4) * 0.16;
+            // (averaged rather than max: a max of distinct taps prints ghost copies of nearby lights)
+            vec3 hot = refl * 1.25;
             // (looking steeply down, water is nearly transparent to the eye: keep the sea dark under the crane)
             float mirror = clamp(0.08 + 0.92 * pow(1.0 - ndv, 2.0), 0.0, 1.0) * inside * uReflOn;
             // dark shapes (a hull, the quay wall) only dim the surface a little; lights punch through
