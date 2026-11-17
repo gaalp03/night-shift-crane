@@ -143,6 +143,8 @@ export class Weather {
         void main() {
           vec3 col = mix(vec3(0.55, 0.62, 0.7), vec3(1.0, 0.78, 0.5), 0.35) * (0.5 + uFlash * 1.5);
           gl_FragColor = vec4(col * vA * 0.55, 1.0);
+          #include <tonemapping_fragment>
+          #include <colorspace_fragment>
         }
       `,
     });
@@ -204,6 +206,8 @@ export class Weather {
           float ring = smoothstep(0.5, 0.42, d) * smoothstep(0.26, 0.36, d);
           float a = ring * (1.0 - vLife) * vOn;
           gl_FragColor = vec4(vec3(1.0, 0.82, 0.6) * a * 0.5, 1.0);
+          #include <tonemapping_fragment>
+          #include <colorspace_fragment>
         }
       `,
     });

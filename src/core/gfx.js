@@ -208,11 +208,17 @@ class Gfx {
   }
 
   /** quality: 'low' | 'medium' | 'high' | 'auto' */
-  applyQuality(q) {
+  /**
+   * @param startLevel  how far the automatic mode had already stepped down on this machine
+   *                    (remembered between visits so a slow device does not stutter at every start)
+   */
+  applyQuality(q, startLevel = 0) {
     this.auto = q === 'auto';
     if (this.auto) q = this.mobile ? 'medium' : 'high';
     this.quality = q;
-    this._adaptLevel = 0;
+    this._adaptLevel = this.auto ? clamp(startLevel | 0, 0, 6) : 0;
+    this._goodWindows = 0;
+    this._recovered = false;
     this._configure();
   }
 
@@ -239,6 +245,8 @@ class Gfx {
     const lvl = this._adaptLevel;
     this.pixelRatio = this._calcPR();
     this.usePost = q === 'high' && lvl < 4 && !this.mobile;
+    // the mirrored sea costs a second (half-size) scene pass: first thing to go when frames run long
+    this.reflections = q === 'high' && lvl < 1 && !this.mobile;
     this.shadows = q !== 'low' && lvl < 5;
     this.renderer.shadowMap.enabled = this.shadows;
     this.shadowSize = q === 'high' ? 2048 : 1024;
@@ -344,9 +352,20 @@ class Gfx {
     this._adaptT = 0;
     if (avg > 1 / 45 && this._adaptLevel < 6) {
       this._adaptLevel++;
+      this._goodWindows = 0;
       this._configure();
       this._adaptT = -1.5; // let the change settle before judging again
-    }
+      if (this.onAdapt) this.onAdapt(this._adaptLevel);
+    } else if (avg < 1 / 57 && this._adaptLevel > 0 && !this._recovered) {
+      // a long clean run: try one step back up, once (a single bad moment should not cost quality for good)
+      if (++this._goodWindows >= 12) {
+        this._recovered = true;
+        this._adaptLevel--;
+        this._configure();
+        this._adaptT = -1.5;
+        if (this.onAdapt) this.onAdapt(this._adaptLevel);
+      }
+    } else this._goodWindows = 0;
   }
 }
 

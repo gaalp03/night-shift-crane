@@ -195,6 +195,13 @@ export class CraneView {
         this.floodPositions.push(new THREE.Vector3(x, DIM.RAIL_Y - 0.2, sz * 4.1));
       }
     }
+    // marker strips: a thin run of teal LEDs under each girder and up the water-side legs,
+    // so the crane reads as a clean outline against the night
+    for (const sz of [-1, 1]) {
+      g.box((x0 + x1) / 2, DIM.RAIL_Y + 0.3, sz * 3.92, x1 - x0 - 1.2, 0.09, 0.07, 0x6ff0e2, null, 0.5);
+      // (kept faint: the near leg stands right beside the working area)
+      g.box(xw + 0.5, (q + 2.9 + top - 1.2) / 2, sz * LZ, 0.05, top - q - 4.4, 0.06, 0x6ff0e2, null, 0.2);
+    }
     // walk lights up the legs
     for (const sz of [-1, 1]) {
       for (const y of [q + 7, q + 13.5, q + 19]) g.box(xw - 0.52, y, sz * LZ, 0.08, 0.28, 0.28, 0xfff0c8, null, 0.7);

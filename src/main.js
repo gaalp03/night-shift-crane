@@ -27,6 +27,7 @@ import { TouchControls } from './ui/touch.js';
 import { Screens } from './ui/screens.js';
 import { Radio } from './ui/radio.js';
 import { DeepLight } from './world/deep.js';
+import { WetShine } from './world/shine.js';
 import { SHIFT_OPEN, SHIFT_BEATS, CHECK_INTRO, BLACK_BOXES, BLACKOUT, SMUGGLE_FOUND, epilogue } from './game/story.js';
 
 const $ = (id) => document.getElementById(id);
@@ -88,8 +89,10 @@ const app = {
     audio.setVolume('sfx', st.sfx);
     if (app.cams) app.cams.shakeEnabled = st.shake !== false;
     if (gfx.renderer && app._quality !== st.quality) {
+      // (a manual change wipes whatever the automatic mode had learned about this machine)
+      if (app._quality != null) st.autoLevel = 0;
       app._quality = st.quality;
-      gfx.applyQuality(st.quality);
+      gfx.applyQuality(st.quality, st.autoLevel || 0);
       document.body.classList.toggle('post', gfx.usePost);
     }
   },
@@ -708,9 +711,15 @@ async function boot() {
   camera.position.set(-10, 20, 50);
   app.scene = scene;
   app.camera = camera;
+  camera.layers.enable(1); // haze fakes (see FX_LAYER): seen by the player, left out of the sea's mirror image
   gfx.setup(scene, camera);
   app._quality = save.data.settings.quality;
-  gfx.applyQuality(save.data.settings.quality);
+  gfx.applyQuality(save.data.settings.quality, save.data.settings.autoLevel || 0);
+  gfx.onAdapt = (lvl) => {
+    save.data.settings.autoLevel = lvl;
+    save.commit();
+    document.body.classList.toggle('post', gfx.usePost);
+  };
   document.body.classList.toggle('post', gfx.usePost);
 
   app.harbor = new Harbor(scene, { mobile, aniso: Math.min(8, gfx.maxAniso) });
@@ -727,6 +736,7 @@ async function boot() {
   app.touch = new TouchControls();
   app.radio = new Radio();
   app.deep = new DeepLight(scene);
+  app.wet = new WetShine(scene, { y: DIM.QUAY_Y, bounds: { minX: -90, maxX: -0.3, halfZ: 160 }, count: mobile ? 12 : 22 });
   app.hud = new Hud({ onPause: () => app.pause(), onCamera: toggleCamera, touch: app.touchMode });
   app.screens = new Screens(app);
   app.ctx = { scene, harbor: app.harbor, water: app.water, weather: app.weather, fx: app.fx, crane: app.crane, cams: app.cams, save, mobile };
@@ -920,12 +930,81 @@ function waterLights() {
   app.water.setLights(_lights);
 }
 
+// ---- wet quay: every lamp over the concrete gets a reflection streak
+const _wetList = [];
+const _wetPool = Array.from({ length: 32 }, () => ({ pos: new THREE.Vector3(), color: new THREE.Color(), power: 1, width: 0, gain: 1, len: 0 }));
+function wetLights() {
+  _wetList.length = 0;
+  let n = 0;
+  const add = (x, y, z, power, width = 0, gain = 1) => {
+    if (n >= _wetPool.length || power < 0.03) return null;
+    const l = _wetPool[n++];
+    l.pos.set(x, y, z);
+    l.power = power;
+    l.width = width;
+    l.gain = gain;
+    l.len = 0;
+    _wetList.push(l);
+    return l;
+  };
+  const crane = app.crane;
+  const gz = crane.gantry.position.z;
+  // nearest the action first: the pool is small
+  const tx = crane.trolley.position.x;
+  if (tx < -1.5) {
+    const e = add(tx, DIM.RAIL_Y - 0.6, gz, 0.9 * (0.62 + 0.38 * crane.power), 2.6);
+    if (e) e.color.set(PAL.sodiumHot);
+  }
+  for (const nz of app.harbor.neons) {
+    const e = add(nz.pos.x, nz.pos.y, nz.pos.z, nz.power, nz.width, 1.25);
+    if (e) e.color.copy(nz.color);
+  }
+  // trucks: headlights ahead, tail lights behind
+  if (app.session) {
+    for (const tr of app.session.trucks) {
+      if (tr.state === 'gone' || Math.abs(tr.z) > 60) continue;
+      if (tr.livery !== 'unmarked') {
+        const e = add(tr.laneX, DIM.QUAY_Y + 1.0, tr.z + 6.6, 0.55, 2.0);
+        if (e) {
+          e.color.set(0xfff2d0);
+          e.len = 11;
+        }
+      }
+      const t = add(tr.laneX, DIM.QUAY_Y + 0.8, tr.z - 4.0, 0.3, 1.7);
+      if (t) {
+        t.color.set(0xff2a1e);
+        t.len = 6;
+      }
+    }
+  }
+  for (const l of app.harbor.lampHeads) {
+    const e = add(l.pos.x, l.pos.y, l.pos.z, (l.flick == null ? 1 : l.flick) * (l.hgt > 12 ? 0.85 : 0.6));
+    if (e) e.color.copy(l.color);
+  }
+  for (let i = 0; i < crane.floodPositions.length; i++) {
+    const p = crane.floodPositions[i];
+    if (p.x > -1) continue;
+    const e = add(p.x, p.y, p.z + gz, 0.5 * crane.power, 1.6);
+    if (e) e.color.set(PAL.sodiumHot);
+  }
+  const w = app.weather.cur;
+  // (without bloom the streaks need more of their own light to read)
+  app.wet.update(_wetList, app.camera, clamp(0.42 + w.rain * 0.7, 0, 1), w.fog, gfx.usePost ? 1 : 1.8);
+}
+
 let last = 0;
 function frame(now) {
   requestAnimationFrame(frame);
   const raw = Math.min(0.1, Math.max(0, (now - last) / 1000 || 0.016));
   last = now;
   tick(raw);
+  // mirror image for the sea: every other frame is plenty (and skipped behind blurred menus)
+  const mirror = gfx.reflections && !gfx.softTarget && !gfx.contextLost;
+  if (mirror && (app._mirrorTick = !app._mirrorTick)) {
+    const s = app.session;
+    app.water.renderReflection(gfx.renderer, app.scene, app.camera, [app.harbor.sky, app.weather.rain, app.weather.splashes, app.weather.bolt, app.wet.mesh, app.deep.group, s && s.guides && s.guides.group], app.water.uniforms.uSkyTop.value);
+  }
+  app.water.setReflection(mirror || (gfx.reflections && gfx.softTarget), raw);
   gfx.render(raw, app.time);
   input.endFrame();
 }
@@ -1017,6 +1096,7 @@ function tick(raw) {
   }
 
   app.cams.update(raw, s ? { rig: s.rig, groundY: s.groundY } : null);
+  wetLights();
   audio.setListener(app.camera);
   if (app.mode === 'play' && s) {
     const hs = s.hud();

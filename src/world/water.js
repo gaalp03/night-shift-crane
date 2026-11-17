@@ -48,6 +48,10 @@ export class Water {
       uRain: { value: 0 },
       uFlash: { value: 0 },
       uOrigin: { value: new THREE.Vector2(34, 0) },
+      // planar reflection (see renderReflection): the scene mirrored in the water plane
+      uRefl: { value: null },
+      uReflMat: { value: new THREE.Matrix4() },
+      uReflOn: { value: 0 },
     };
     const waveDefs = WAVES.map((w, i) => `#define W${i} vec4(${w[0].toFixed(3)}, ${w[1].toFixed(3)}, ${(6.28318 / w[2]).toFixed(4)}, ${w[3].toFixed(3)})\n#define A${i} ${w[4].toFixed(3)}`).join('\n');
 
@@ -85,6 +89,7 @@ export class Water {
         uniform vec3 uLightCol[${MAX_LIGHTS}];
         uniform vec4 uHull; uniform float uHullOn;
         uniform float uRain; uniform float uFlash;
+        uniform sampler2D uRefl; uniform mat4 uReflMat; uniform float uReflOn;
         varying vec3 vWorld;
         varying float vCrest;
 
@@ -122,6 +127,30 @@ export class Water {
           col *= 0.8 + 0.5 * ndv;
           col = mix(col, sky, fres * 0.9);
 
+          vec3 reflGlow = vec3(0.0);
+          // the mirrored world: each facet shows its own slightly shifted piece of it, so lamps and
+          // hulls break into shards the way they do on real harbour water
+          if (uReflOn > 0.001) {
+            vec4 rc = uReflMat * vec4(vWorld.x, 0.0, vWorld.z, 1.0);
+            vec2 ruv = rc.xy / max(rc.w, 0.001);
+            float calm = 1.0 / (1.0 + dist * 0.012);
+            ruv += n.xz * vec2(0.05, 0.085) * calm + rip * 0.006;
+            float inside = step(0.0, rc.w) * smoothstep(0.0, 0.02, ruv.x) * smoothstep(1.0, 0.98, ruv.x) * smoothstep(0.0, 0.02, ruv.y) * smoothstep(1.0, 0.98, ruv.y);
+            // three taps up the image: point lights smear into the long streaks night water is known for
+            float sm = 0.022 + 0.05 * (1.0 - ndv);
+            vec3 r0 = texture2D(uRefl, clamp(ruv, 0.001, 0.999)).rgb;
+            vec3 r1 = texture2D(uRefl, clamp(ruv + vec2(0.0, sm), 0.001, 0.999)).rgb;
+            vec3 r2 = texture2D(uRefl, clamp(ruv - vec2(0.0, sm * 0.7), 0.001, 0.999)).rgb;
+            vec3 refl = r0 * 0.5 + (r1 + r2) * 0.25;
+            vec3 hot = max(r0, max(r1, r2));
+            // (looking steeply down, water is nearly transparent to the eye: keep the sea dark under the crane)
+            float mirror = clamp(0.08 + 0.92 * pow(1.0 - ndv, 2.0), 0.0, 1.0) * inside * uReflOn;
+            // dark shapes (a hull, the quay wall) only dim the surface a little; lights punch through
+            col = mix(col, refl, mirror * 0.5);
+            float lum = dot(hot, vec3(0.2126, 0.7152, 0.0722));
+            reflGlow = hot * smoothstep(0.06, 0.9, lum) * mirror * 0.8;
+          }
+
           // harbour lights: a broad smear plus a tight sparkle per facet
           vec3 glint = vec3(0.0);
           for (int i = 0; i < ${MAX_LIGHTS}; i++) {
@@ -132,7 +161,8 @@ export class Water {
             float att = 1.0 / (1.0 + d2 * 0.0009);
             glint += uLightCol[i] * (pow(rl, 20.0) * 0.2 + pow(rl, 180.0) * 1.15) * att;
           }
-          col += min(glint, vec3(0.95, 0.8, 0.62));
+          // (with the real reflection on, the analytic glints only add the sparkle on top)
+          col += min(glint, vec3(0.95, 0.8, 0.62)) * (1.0 - 0.25 * uReflOn);
 
           // foam + contact shadow around the hull and along the quay wall
           float dh = sdBox(vWorld.xz - uHull.xy, uHull.zw);
@@ -149,6 +179,8 @@ export class Water {
 
           float fog = 1.0 - exp(-dist * dist * uFogDensity * uFogDensity);
           col = mix(col, uFogColor + uFlash * vec3(0.18, 0.22, 0.3), clamp(fog, 0.0, 1.0));
+          // lights mirrored from across the basin carry through the haze the way the lights themselves do
+          col += reflGlow * (1.0 - 0.55 * clamp(fog, 0.0, 1.0));
           gl_FragColor = vec4(col, 1.0);
           #include <tonemapping_fragment>
           #include <colorspace_fragment>
@@ -163,6 +195,99 @@ export class Water {
     this.lights = [];
     this.amp = 0.25;
     this.time = 0;
+  }
+
+  /**
+   * Planar reflection: render the scene from a camera mirrored in the water plane (y = 0) into a
+   * half-size target the sea shader samples. `hide` lists objects to leave out (rain, guides…).
+   */
+  renderReflection(renderer, scene, camera, hide = [], sky = null) {
+    const R = (this._refl = this._refl || {
+      cam: new THREE.PerspectiveCamera(),
+      rt: null,
+      plane: new THREE.Plane(),
+      clip: new THREE.Vector4(),
+      q: new THREE.Vector4(),
+      v: new THREE.Vector3(),
+      t: new THREE.Vector3(),
+      n: new THREE.Vector3(0, 1, 0),
+      size: new THREE.Vector2(),
+    });
+    renderer.getDrawingBufferSize(R.size);
+    const w = Math.max(64, Math.min(1024, Math.round(R.size.x * 0.5)));
+    const h = Math.max(36, Math.min(600, Math.round(R.size.y * 0.5)));
+    if (!R.rt || R.rt.width !== w || R.rt.height !== h) {
+      if (R.rt) R.rt.dispose();
+      R.rt = new THREE.WebGLRenderTarget(w, h, { type: THREE.HalfFloatType, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthBuffer: true });
+      this.uniforms.uRefl.value = R.rt.texture;
+    }
+    const vc = R.cam;
+    // mirror the eye, its target and its up vector in the plane
+    camera.updateMatrixWorld();
+    R.v.setFromMatrixPosition(camera.matrixWorld);
+    if (R.v.y < 0.3) return false;
+    vc.position.set(R.v.x, -R.v.y, R.v.z);
+    R.t.set(0, 0, -1).transformDirection(camera.matrixWorld);
+    R.t.y = -R.t.y;
+    vc.up.set(0, 1, 0).transformDirection(camera.matrixWorld);
+    vc.up.y = -vc.up.y;
+    vc.lookAt(vc.position.x + R.t.x, vc.position.y + R.t.y, vc.position.z + R.t.z);
+    vc.near = camera.near;
+    vc.far = camera.far;
+    vc.updateMatrixWorld();
+    vc.matrixWorldInverse.copy(vc.matrixWorld).invert();
+    vc.projectionMatrix.copy(camera.projectionMatrix);
+    vc.projectionMatrixInverse.copy(camera.projectionMatrixInverse);
+    // world -> reflection texture coordinates
+    this.uniforms.uReflMat.value.set(0.5, 0, 0, 0.5, 0, 0.5, 0, 0.5, 0, 0, 0.5, 0.5, 0, 0, 0, 1).multiply(vc.projectionMatrix).multiply(vc.matrixWorldInverse);
+    // oblique near plane (Lengyel): nothing below the waterline gets into the mirror image
+    R.plane.setFromNormalAndCoplanarPoint(R.n, R.v.set(0, 0.05, 0)).applyMatrix4(vc.matrixWorldInverse);
+    R.clip.set(R.plane.normal.x, R.plane.normal.y, R.plane.normal.z, R.plane.constant);
+    const pm = vc.projectionMatrix.elements;
+    R.q.set((Math.sign(R.clip.x) + pm[8]) / pm[0], (Math.sign(R.clip.y) + pm[9]) / pm[5], -1, (1 + pm[10]) / pm[14]);
+    R.clip.multiplyScalar(2 / R.clip.dot(R.q));
+    pm[2] = R.clip.x;
+    pm[6] = R.clip.y;
+    pm[10] = R.clip.z + 1 - 0.003;
+    pm[14] = R.clip.w;
+
+    const vis = hide.map((o) => o && o.visible);
+    for (const o of hide) if (o) o.visible = false;
+    const meshVis = this.mesh.visible;
+    this.mesh.visible = false;
+    const prevTarget = renderer.getRenderTarget();
+    const prevAuto = renderer.shadowMap.autoUpdate;
+    renderer.shadowMap.autoUpdate = false; // reuse this frame's shadow maps
+    renderer.setRenderTarget(R.rt);
+    // a flat night sky behind the mirrored world: clouds and moon would only smear into pale blotches
+    R.prevClear = R.prevClear || new THREE.Color();
+    renderer.getClearColor(R.prevClear);
+    const prevAlpha = renderer.getClearAlpha();
+    if (sky) renderer.setClearColor(sky, 1);
+    renderer.clear();
+    renderer.render(scene, vc);
+    renderer.setClearColor(R.prevClear, prevAlpha);
+    renderer.setRenderTarget(prevTarget);
+    renderer.shadowMap.autoUpdate = prevAuto;
+    this.mesh.visible = meshVis;
+    hide.forEach((o, i) => {
+      if (o) o.visible = vis[i];
+    });
+    return true;
+  }
+
+  /** 0 = analytic sky + glints only, 1 = full mirror. Eased so toggling the feature never pops. */
+  setReflection(on, dt = 1) {
+    const u = this.uniforms.uReflOn;
+    u.value += ((on ? 1 : 0) - u.value) * Math.min(1, dt * 4);
+    if (!on && u.value < 0.004) {
+      u.value = 0;
+      if (this._refl && this._refl.rt) {
+        this._refl.rt.dispose();
+        this._refl.rt = null;
+        this.uniforms.uRefl.value = null;
+      }
+    }
   }
 
   /** CPU mirror of the vertex shader (world y of the surface at x, z). */

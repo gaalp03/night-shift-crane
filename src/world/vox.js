@@ -166,6 +166,8 @@ export function initMaterials({ mobile }) {
   MAT.glowSoft = new THREE.MeshBasicMaterial({ vertexColors: true, fog: true });
   MAT.glowSoft.color.setScalar(1.25);
   MAT.dark = new THREE.MeshBasicMaterial({ color: 0x05090d, fog: true });
+  // phones render without bloom: draw the lamp halos larger to make up for it
+  _haloScale = mobile ? 1.6 : 1;
   return MAT;
 }
 
@@ -209,7 +211,16 @@ export function glowTexture() {
 }
 
 /** Additive halo sprite. */
+/**
+ * Haze fakes (halos, light cones, lens flares) live on their own layer: the main camera sees it,
+ * the mirror camera for the sea does not — a lamp should reflect as a lamp, not as a fog bank.
+ */
+export const FX_LAYER = 1;
+
+let _haloScale = 1;
+
 export function glowSprite(color, size, opacity = 1) {
+  size *= _haloScale;
   const mat = new THREE.SpriteMaterial({
     map: glowTexture(),
     color,
@@ -221,6 +232,7 @@ export function glowSprite(color, size, opacity = 1) {
   });
   const s = new THREE.Sprite(mat);
   s.scale.set(size, size, 1);
+  s.layers.set(FX_LAYER);
   return s;
 }
 
@@ -263,11 +275,15 @@ export function lightCone(color, radius, length, opacity = 0.2) {
         float rim = abs(dot(normalize(vN), normalize(vV)));
         float a = pow(rim, 1.6) * (1.0 - vT) * (1.0 - vT) * smoothstep(0.0, 0.06, vT);
         gl_FragColor = vec4(uColor * a * uOpacity, 1.0);
+        // (no-ops inside the post chain; without it they put the cone on screen at the brightness it was drawn)
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
       }
     `,
   });
   const m = new THREE.Mesh(geo, mat);
   m.renderOrder = 5;
   m.frustumCulled = false;
+  m.layers.set(FX_LAYER);
   return m;
 }

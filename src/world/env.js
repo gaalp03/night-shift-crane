@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { Vox, MAT, makeCanvas, canvasTexture, glowSprite, lightCone } from './vox.js';
 import { DIM, PAL, ZONES } from '../config.js';
 import { makeRng, noise1 } from '../core/util.js';
+import { flareSprite, neonSign } from './shine.js';
 
 const QUAY_MIN_X = -92;
 const QUAY_Z = 170;
@@ -171,6 +172,7 @@ export class Harbor {
     this._props();
     this._skyline();
     this._farPort();
+    this._neon();
     this._windsock();
     this._passingShip();
     this._lights();
@@ -262,25 +264,35 @@ export class Harbor {
           float az = 0.5 + 0.5 * dot(normalize(d.xz + 1e-4), normalize(vec2(0.55, -0.83)));
           float glow = exp(-max(h, 0.0) * 9.0) * (0.35 + 0.65 * az);
           col += uGlow * glow * 0.9;
-          // slow overcast with moonlit breaks
+          // overcast in two layers: a slow deck with moonlit breaks, lit from below by the port
           vec2 cp = d.xz / (0.25 + max(h, 0.0)) * 1.3 + vec2(uTime * 0.006, uTime * 0.003);
           float c = texture2D(uNoise, cp * 0.0625).r;
+          float c2 = texture2D(uNoise, cp * 0.19 + vec2(-uTime * 0.004, 0.31)).r;
+          c = c * 0.72 + c2 * 0.28;
           float cover = smoothstep(1.0 - uClouds, 1.2 - uClouds * 0.6, c + 0.25);
-          vec3 cloudCol = mix(uMid * 1.6, uGlow * 0.55, exp(-max(h, 0.0) * 5.0));
-          col = mix(col, cloudCol, cover * smoothstep(0.02, 0.3, h) * 0.75);
+          // the undersides catch the sodium glow of the city, strongest low over the far shore
+          float under = exp(-max(h, 0.0) * 4.2) * (0.3 + 0.7 * az);
+          float body = smoothstep(0.25, 0.75, c2);
+          vec3 cloudCol = mix(uMid * (1.25 + 0.9 * body), uGlow * (0.75 + 0.55 * body), clamp(under * 1.5, 0.0, 1.0));
+          // moon behind the deck: a soft silver edge on the clouds around it
+          vec3 md = normalize(vec3(0.42, 0.5, -0.76));
+          float m = dot(d, md);
+          cloudCol += vec3(0.22, 0.27, 0.36) * pow(max(m, 0.0), 14.0) * (0.4 + 0.6 * body);
+          col = mix(col, cloudCol, cover * smoothstep(0.02, 0.26, h) * 0.86);
           // stars in the gaps
           vec2 sp = d.xz / (0.4 + d.y) * 90.0;
           float sh = hash(floor(sp));
           float st = step(0.9975, sh) * smoothstep(0.15, 0.5, h) * (1.0 - cover);
           col += vec3(0.75, 0.82, 1.0) * st * (0.5 + 0.5 * sin(uTime * 2.0 + sh * 40.0));
-          // moon
-          vec3 md = normalize(vec3(0.42, 0.5, -0.76));
-          float m = dot(d, md);
+          // the moon itself, hazed by whatever is in front of it
           col += vec3(0.85, 0.9, 1.0) * smoothstep(0.9993, 0.9996, m) * (1.0 - cover * 0.8);
           col += vec3(0.25, 0.32, 0.45) * pow(max(m, 0.0), 180.0) * 0.6;
+          col += vec3(0.1, 0.13, 0.2) * pow(max(m, 0.0), 30.0) * (1.0 - cover * 0.5);
           col = mix(col, uFogCol, uFogMix * (0.55 + 0.45 * smoothstep(0.5, 0.0, h)));
           col += vec3(0.6, 0.7, 1.0) * uFlash * (0.25 + 0.75 * smoothstep(0.6, 0.0, h));
           gl_FragColor = vec4(col, 1.0);
+          #include <tonemapping_fragment>
+          #include <colorspace_fragment>
         }
       `,
     });
@@ -448,7 +460,11 @@ export class Harbor {
       pool.position.set(hx, q + 0.04, z);
       pool.renderOrder = 2;
       this.group.add(pool);
-      const lamp = { pos, color: new THREE.Color(col), halo, cone, pool, base: 1, hgt };
+      // cine-lens streak across every lamp head
+      const flare = flareSprite(col, hgt * 1.5, hgt * 0.13, 0.4);
+      flare.position.copy(pos);
+      this.group.add(flare);
+      const lamp = { pos, color: new THREE.Color(col), halo, cone, pool, flare, base: 1, hgt };
       this.lampHeads.push(lamp);
       return lamp;
     };
@@ -609,17 +625,12 @@ export class Harbor {
     s.position.set(x + 4.2, q + 4.2, z);
     this.group.add(s);
     // sign
-    const sign = new THREE.Mesh(
-      new THREE.PlaneGeometry(9.5, 1.5),
-      new THREE.MeshBasicMaterial({ map: signTexture(['PIER SEVEN', null], 640, 100), fog: true })
-    );
-    sign.material.color.setScalar(1.25);
-    sign.position.set(x + 3.56, q + 7.75, z);
-    sign.rotation.y = Math.PI / 2;
-    this.group.add(sign);
+    // (the lettering itself is neon: see _neon)
     const back = new Vox();
-    back.box(x + 3.45, q + 7.75, z, 0.14, 1.8, 9.9, 0x16181a);
+    back.box(x + 3.45, q + 8.15, z, 0.14, 2.7, 10.6, 0x101417);
+    for (const sz of [-1, 1]) back.box(x + 3.3, q + 7.2, z + sz * 4.2, 0.12, 1.4, 0.12, 0x23292e);
     this.group.add(back.mesh(MAT.vox, { cast: false }));
+    this.officeSign = new THREE.Vector3(x + 3.56, q + 8.15, z);
     this.officeDoor = new THREE.Vector3(x + 4.4, q, z + 6.5);
   }
 
@@ -691,6 +702,77 @@ export class Harbor {
     this.group.add(s);
     this.blinkers.push({ s, rate, duty, phase: Math.random() });
     return s;
+  }
+
+  // ---------------------------------------------------------------- neon + marker lights
+
+  _neon() {
+    const q = DIM.QUAY_Y;
+    this.neons = [];
+    /** Register a tube sign: flickers with the mains and throws its colour onto the wet quay. */
+    const add = (mesh, hex, { base = 0.8, bad = false, chase = null, halo = 0, width = 2.2 } = {}) => {
+      this.group.add(mesh);
+      const nz = { mesh, color: new THREE.Color(hex), pos: mesh.position.clone(), base, power: base, bad, chase, seed: this.neons.length * 7.7, width, halo: null, haloBase: 0 };
+      if (halo) {
+        nz.halo = glowSprite(hex, halo, 0.3);
+        nz.haloBase = 0.3;
+        nz.halo.position.copy(mesh.position);
+        this.group.add(nz.halo);
+      }
+      this.neons.push(nz);
+      return nz;
+    };
+    // --- the office: PIER SEVEN in cyan tubes over a pink rule
+    const os = this.officeSign;
+    const sign = neonSign('PIER SEVEN', 2.5, { color: '#35f0e0', underline: '#ff3d9a', gain: 1.5 });
+    sign.position.set(os.x + 0.06, os.y, os.z);
+    sign.rotation.y = Math.PI / 2;
+    add(sign, 0x35f0e0, { base: 0.9, halo: 15, width: 5 });
+
+    // --- gate totem by the yard entrance: PIER / 7 and three chevrons chasing downwards
+    const tx = -28.2;
+    const tz = -9.6;
+    const v = new Vox();
+    v.box(tx, q + 0.4, tz, 1.6, 0.8, 1.6, 0x2a3035);
+    v.box(tx, q + 6.2, tz, 0.5, 11.6, 0.5, 0x23292e);
+    v.box(tx + 0.3, q + 8.6, tz + 0.3, 0.16, 8.6, 3.3, 0x0e1215, [0, Math.PI / 4, 0]);
+    v.box(tx, q + 12.9, tz, 0.9, 0.3, 0.9, 0x23292e);
+    this.group.add(v.mesh(MAT.vox));
+    const face = (m, y) => {
+      m.position.set(tx + 0.42, q + y, tz + 0.42);
+      m.rotation.y = Math.PI / 4;
+      return m;
+    };
+    add(face(neonSign('PIER', 1.5, { color: '#35f0e0', gain: 1.5, pad: 44 }), 11.7), 0x35f0e0, { base: 0.5 });
+    add(face(neonSign('7', 4.4, { color: '#ff4fa3', gain: 1.6, pad: 50 }), 9.2), 0xff4fa3, { base: 1.0, bad: true, halo: 13, width: 3 });
+    for (let i = 0; i < 3; i++) add(face(neonSign('V', 1.35, { color: '#ffb347', gain: 1.5, pad: 40 }), 6.5 - i * 0.95), 0xffb347, { base: 0.35, chase: i });
+
+    // --- berth marker lights along the quay wall, just above the waterline
+    const g = new Vox();
+    g.shade = false;
+    for (let z = -56.25; z <= 57; z += 4.5) {
+      g.box(0.08, q - 0.42, z, 0.1, 0.16, 0.5, 0x58d8ff);
+      g.box(0.05, q - 0.42, z, 0.06, 0.3, 0.7, 0x10262e, null, 0.4);
+    }
+    this.group.add(g.mesh(MAT.glow, { cast: false, receive: false }));
+
+    // --- a few big rooftop signs across the water: too far to read, close enough to colour the night
+    const far = [
+      [205, 62, -262, 0xff3d9a, 46, 7],
+      [118, 44, -318, 0x35f0e0, 34, 6],
+      [262, 38, -196, 0xffb347, 30, 5],
+      [322, 54, -88, 0x7a6bff, 36, 6],
+      [58, 30, -352, 0xff4fa3, 26, 5],
+    ];
+    this.farNeon = [];
+    for (const [x, y, z, col, w, hgt] of far) {
+      const s = glowSprite(col, 1, 0.75);
+      s.scale.set(w, hgt, 1);
+      s.material.fog = false;
+      s.position.set(x, y, z);
+      this.group.add(s);
+      this.farNeon.push(s);
+    }
   }
 
   // ---------------------------------------------------------------- distant scenery
@@ -930,6 +1012,7 @@ export class Harbor {
   setVisibility(v) {
     for (const m of this.skylineMats) m.color.setScalar(1.15 * v);
     this.lighthouseGlow.material.opacity = v;
+    for (const s of this.farNeon) s.material.opacity = 0.75 * v * v;
   }
 
   update(dt, t, flash = 0, weather = null) {
@@ -993,8 +1076,20 @@ export class Harbor {
       f.halo.material.opacity = 0.95 * v;
       f.cone.material.uniforms.uOpacity.value = (this.mobile ? 0.09 : 0.075) * v;
       f.pool.material.opacity = 0.1 * v;
+      f.flare.material.opacity = 0.4 * v;
       if (f.light) f.light.intensity = f.baseIntensity * v;
       f.flick = v;
+    }
+    // neon: steady hum, the odd stutter, and one tube that never quite catches
+    for (const nz of this.neons) {
+      let k = pw > 0.5 ? 1 : 0;
+      if (settling) k = pw * (noise1(t * 23 + nz.seed) > 0 ? 1 : 0.2);
+      if (nz.chase != null) k *= ((t * 2.2) % 4) > nz.chase ? 1 : 0.12;
+      else if (nz.bad) k *= noise1(t * 7.3 + nz.seed) > 0.55 ? 0.15 + 0.5 * Math.abs(noise1(t * 61)) : 1;
+      else k *= 0.94 + 0.06 * noise1(t * 31 + nz.seed);
+      nz.power = nz.base * k;
+      nz.mesh.material.color.setScalar(nz.mesh.userData.gain * k);
+      if (nz.halo) nz.halo.material.opacity = nz.haloBase * k;
     }
     this.hemiPower = 0.72 + 0.28 * pw;
   }
