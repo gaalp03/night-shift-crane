@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { DIM, PAL } from '../config.js';
 import { damp, noise1, clamp, rand } from '../core/util.js';
 
-export const CLEAR = { rain: 0, wind: 0, windDir: 0.4, gusts: 0, fog: 0.0105, storm: 0, sea: 0.12, clouds: 0.45 };
+export const CLEAR = { rain: 0, snow: 0, wind: 0, windDir: 0.4, gusts: 0, fog: 0.0105, storm: 0, sea: 0.12, clouds: 0.45 };
 
 export class Weather {
   constructor(scene, { count = 2000, mobile = false } = {}) {
@@ -26,6 +26,8 @@ export class Weather {
     this.t = 0;
     this._buildRain(count);
     this._buildSplashes(mobile ? 140 : 260);
+    this._buildSnow(mobile ? 1400 : 2600);
+    this.cover = 0; // how much snow has settled on the quay (0..1), builds up slowly
     this._buildBolt();
   }
 
@@ -218,10 +220,79 @@ export class Weather {
     this.scene.add(this.splashes);
   }
 
+  /** Big soft flakes drifting on the wind, drawn as round points. */
+  _buildSnow(count) {
+    const pos = new Float32Array(count * 3);
+    const seed = new Float32Array(count);
+    for (let i = 0; i < count; i++) {
+      pos.set([Math.random(), Math.random(), Math.random()], i * 3);
+      seed[i] = Math.random();
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute('aSeed', new THREE.BufferAttribute(seed, 1));
+    this.snowUniforms = {
+      uTime: { value: 0 },
+      uCenter: { value: new THREE.Vector3() },
+      uWind: { value: new THREE.Vector2() },
+      uAmount: { value: 0 },
+      uBox: { value: new THREE.Vector3(60, 36, 60) },
+      uScale: { value: 800 },
+      uFlash: { value: 0 },
+    };
+    const mat = new THREE.ShaderMaterial({
+      uniforms: this.snowUniforms,
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      vertexShader: /* glsl */ `
+        attribute float aSeed;
+        uniform float uTime; uniform vec3 uCenter; uniform vec2 uWind; uniform float uAmount; uniform vec3 uBox; uniform float uScale;
+        varying float vA;
+        void main() {
+          float t = uTime;
+          vec3 drift = vec3(uWind.x * 0.55, -(1.3 + aSeed * 1.1), uWind.y * 0.55);
+          vec3 p = position * uBox + drift * t;
+          // each flake tumbles on its own little spiral
+          p.x += sin(t * (0.7 + aSeed * 1.3) + aSeed * 40.0) * 0.6;
+          p.z += cos(t * (0.6 + aSeed) + aSeed * 23.0) * 0.6;
+          p = mod(p - uCenter + uBox * 0.5, uBox) - uBox * 0.5 + uCenter;
+          vec4 mv = viewMatrix * vec4(p, 1.0);
+          gl_Position = projectionMatrix * mv;
+          float d = -mv.z;
+          gl_PointSize = uScale * (0.085 + aSeed * 0.08) / max(1.0, d);
+          float on = step(aSeed, uAmount * 1.02);
+          vA = on * smoothstep(60.0, 10.0, d) * smoothstep(0.8, 3.0, d);
+        }
+      `,
+      fragmentShader: /* glsl */ `
+        uniform float uFlash;
+        varying float vA;
+        void main() {
+          float d = length(gl_PointCoord - 0.5);
+          float a = smoothstep(0.5, 0.15, d) * vA;
+          vec3 col = vec3(0.86, 0.9, 1.0) * (0.55 + uFlash);
+          gl_FragColor = vec4(col * a * 0.95, 1.0);
+          #include <tonemapping_fragment>
+          #include <colorspace_fragment>
+        }
+      `,
+    });
+    this.snow = new THREE.Points(geo, mat);
+    this.snow.frustumCulled = false;
+    this.snow.renderOrder = 8;
+    this.snow.visible = false;
+    this.scene.add(this.snow);
+  }
+
   /** Blend towards a weather profile (level defined). */
   set(profile, instant = false) {
     this.target = { ...CLEAR, ...profile };
-    if (instant) this.cur = { ...this.target };
+    if (instant) {
+      this.cur = { ...this.target };
+      // a night that starts in snow starts with some already on the ground
+      this.cover = this.target.snow > 0.15 ? 0.35 * this.target.snow : 0;
+    }
   }
 
   /** Force a telegraphed gust now (scripted events). */
@@ -235,7 +306,9 @@ export class Weather {
     this.t += dt;
     const c = this.cur;
     const tg = this.target;
-    for (const k of ['rain', 'wind', 'gusts', 'fog', 'storm', 'sea', 'clouds']) c[k] = damp(c[k], tg[k], 0.6, dt);
+    for (const k of ['rain', 'snow', 'wind', 'gusts', 'fog', 'storm', 'sea', 'clouds']) c[k] = damp(c[k], tg[k], 0.6, dt);
+    // snow settles slowly and melts slowly
+    this.cover = clamp(this.cover + (c.snow > 0.15 ? c.snow * dt / 90 : -dt / 40), 0, 0.85);
     c.windDir = tg.windDir;
 
     // ---- wind with telegraphed gusts
@@ -280,6 +353,18 @@ export class Weather {
       su.uAmount.value = clamp(c.rain * 1.1, 0, 1);
       su.uCenter.value.copy(focus);
       su.uScale.value = viewH || 800;
+    }
+
+    // ---- snow
+    this.snow.visible = c.snow > 0.02;
+    if (this.snow.visible) {
+      const sn = this.snowUniforms;
+      sn.uTime.value = this.t;
+      sn.uAmount.value = clamp(c.snow, 0, 1);
+      sn.uWind.value.set(this.wind.x * 2.2 + 0.3, this.wind.z * 2.2);
+      camera.getWorldDirection(sn.uCenter.value).multiplyScalar(18).add(camera.position);
+      sn.uScale.value = viewH || 800;
+      sn.uFlash.value = this.flash;
     }
 
     // ---- lightning

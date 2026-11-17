@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { Vox, MAT, makeCanvas, canvasTexture, glowSprite, lightCone } from './vox.js';
 import { DIM, PAL, ZONES } from '../config.js';
 import { makeRng, noise1 } from '../core/util.js';
-import { flareSprite, neonSign } from './shine.js';
+import { flareSprite, neonSign, blotchTexture } from './shine.js';
 
 const QUAY_MIN_X = -92;
 const QUAY_Z = 170;
@@ -336,6 +336,9 @@ export class Harbor {
     ground.receiveShadow = true;
     this.group.add(ground);
     this.ground = ground;
+    this.groundBase = gmat.color.clone();
+    this.groundSnow = new THREE.Color(0xdfe6ee);
+    this._cover = -1;
 
     const v = new Vox();
     // quay wall + cope edge
@@ -1023,6 +1026,32 @@ export class Harbor {
     }
   }
 
+  /** Patchy snow lying on the quay (drifts thicker in some places, swept thin by the trucks in others). */
+  _snowLayer(k) {
+    if (!this.snowMesh) {
+      if (k <= 0.01) return;
+      const q = DIM.QUAY_Y;
+      const lenX = -QUAY_MIN_X;
+      const lenZ = QUAY_Z * 2;
+      const alpha = blotchTexture().clone();
+      alpha.needsUpdate = true;
+      alpha.wrapS = alpha.wrapT = THREE.RepeatWrapping;
+      alpha.repeat.set(lenX / 19, lenZ / 19);
+      const mat = (this.mobile ? THREE.MeshLambertMaterial : THREE.MeshStandardMaterial).prototype.constructor === THREE.MeshStandardMaterial
+        ? new THREE.MeshStandardMaterial({ color: 0xf2f6fb, roughness: 0.9, metalness: 0, transparent: true, alphaMap: alpha, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 })
+        : new THREE.MeshLambertMaterial({ color: 0xf2f6fb, transparent: true, alphaMap: alpha, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(lenX, lenZ), mat);
+      m.rotation.x = -Math.PI / 2;
+      m.position.set(QUAY_MIN_X / 2, q + 0.03, 0);
+      m.receiveShadow = true;
+      m.renderOrder = 1;
+      this.group.add(m);
+      this.snowMesh = m;
+    }
+    this.snowMesh.visible = k > 0.01;
+    this.snowMesh.material.opacity = Math.min(1, k * 1.15);
+  }
+
   /** 0..1 visibility of the far shore (fog shifts lower this). */
   setVisibility(v) {
     // (as the day comes up the city switches its windows off)
@@ -1032,6 +1061,12 @@ export class Harbor {
   }
 
   update(dt, t, flash = 0, weather = null) {
+    // settled snow whitens the concrete (the paint and kerbs stay visible: the ploughs have been)
+    if (weather && Math.abs(weather.cover - this._cover) > 0.01) {
+      this._cover = weather.cover;
+      this.ground.material.color.copy(this.groundBase).lerp(this.groundSnow, weather.cover * 0.5);
+      this._snowLayer(weather.cover);
+    }
     // windsock: swings to the wind, lifts with its strength
     if (weather && this.sock) {
       const sp = weather.windSpeed;

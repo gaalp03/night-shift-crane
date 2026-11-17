@@ -272,7 +272,10 @@ function makeAttract() {
   s.attract = true;
   app.session = s;
   app.cams.setMode('menu', 0);
-  app.weather.set({ rain: 0.45, wind: 0.5, gusts: 0, fog: 0.011, sea: 0.2, clouds: 0.6 });
+  // behind the menus: rain most of the year, snow in the depth of winter
+  const m = new Date().getMonth();
+  const winter = m === 11 || m === 0 || m === 1;
+  app.weather.set(winter ? { snow: 0.7, rain: 0, wind: 0.35, gusts: 0, fog: 0.012, sea: 0.15, clouds: 0.75 } : { rain: 0.45, wind: 0.5, gusts: 0, fog: 0.011, sea: 0.2, clouds: 0.6 });
 }
 
 function showHud(v) {
@@ -1128,7 +1131,8 @@ function wetLights() {
   }
   const w = app.weather.cur;
   // (without bloom the streaks need more of their own light to read)
-  app.wet.update(_wetList, app.camera, clamp(0.42 + w.rain * 0.7, 0, 1), w.fog, gfx.usePost ? 1 : 1.8);
+  // (snow on the ground soaks up the reflections a wet quay would show)
+  app.wet.update(_wetList, app.camera, clamp(0.42 + w.rain * 0.7 - app.weather.cover * 0.6, 0, 1), w.fog, gfx.usePost ? 1 : 1.8);
 }
 
 let last = 0;
@@ -1141,7 +1145,7 @@ function frame(now) {
   const mirror = gfx.reflections && !gfx.softTarget && !gfx.contextLost;
   if (mirror && (app._mirrorTick = !app._mirrorTick)) {
     const s = app.session;
-    app.water.renderReflection(gfx.renderer, app.scene, app.camera, [app.harbor.sky, app.weather.rain, app.weather.splashes, app.weather.bolt, app.wet.mesh, app.deep.group, s && s.guides && s.guides.group], app.water.uniforms.uSkyTop.value);
+    app.water.renderReflection(gfx.renderer, app.scene, app.camera, [app.harbor.sky, app.weather.rain, app.weather.snow, app.weather.splashes, app.weather.bolt, app.wet.mesh, app.deep.group, s && s.guides && s.guides.group], app.water.uniforms.uSkyTop.value);
   }
   app.water.setReflection(mirror || (gfx.reflections && gfx.softTarget), raw);
   gfx.render(raw, app.time);

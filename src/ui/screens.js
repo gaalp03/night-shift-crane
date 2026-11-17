@@ -26,6 +26,7 @@ function fmtDay(key, opts) {
 function weatherIcons(w) {
   const out = [];
   if ((w.rain || 0) > 0.45) out.push('rain');
+  if ((w.snow || 0) > 0.3) out.push('snow');
   if ((w.wind || 0) > 0.6) out.push('wind');
   if ((w.sea || 0) > 0.42) out.push('wave');
   if ((w.fog || 0) > 0.02) out.push('fog');
@@ -38,6 +39,7 @@ function weatherPills(w) {
   const pills = [];
   const lvl = (v, a, b) => (v > b ? 'Heavy' : v > a ? 'Moderate' : 'Light');
   if ((w.rain || 0) > 0.1) pills.push(['rain', `${lvl(w.rain, 0.45, 0.8)} rain`]);
+  if ((w.snow || 0) > 0.1) pills.push(['snow', `${lvl(w.snow, 0.45, 0.8)} snow`]);
   if ((w.wind || 0) > 0.15) pills.push(['wind', `Wind ${Math.round(w.wind * 9)} km/h${(w.gusts || 0) > 0.2 ? ' · gusts' : ''}`]);
   pills.push(['wave', `${(w.sea || 0) > 0.7 ? 'Heavy' : (w.sea || 0) > 0.3 ? 'Moderate' : 'Slight'} swell`]);
   if ((w.fog || 0) > 0.02) pills.push(['fog', 'Dense fog']);
@@ -704,6 +706,31 @@ export class Screens {
       if (meta.ending) add('.primary', 'Morning paper', 'file', () => app.openEpilogue('results'), 'ui_confirm');
       if (meta.nextLevel) add('.primary', 'Next shift', 'next', () => app.openBriefing(meta.nextLevel, true), 'ui_confirm');
       else if (!meta.level.daily && app.endlessUnlocked()) add('.teal', 'Overtime', 'infinity', () => app.openEndlessBriefing());
+      if (meta.level.daily) {
+        // a line to paste into a group chat: today's date, stars, score, the run of nights
+        const shareBtn = add('', 'Share', 'file', () => {
+          const rec = app.dailyRecord();
+          const text = `Night Shift Crane · Tonight ${fmtDay(meta.level.date, { day: 'numeric', month: 'short' })}\n${'★'.repeat(res.stars)}${'☆'.repeat(3 - res.stars)} ${fmtNum(res.score)} · ${meta.level.twists.map((t) => t.name).join(' + ')}${rec.streak > 1 ? ` · ${rec.streak} nights in a row` : ''}`;
+          // (toasts sit under the report, so the button itself confirms)
+          const done = () => {
+            shareBtn.innerHTML = icon('check') + 'Copied';
+            shareBtn.classList.add('teal');
+          };
+          const fallback = () => {
+            const ta = h('textarea', { style: { position: 'fixed', opacity: '0' } });
+            ta.value = text;
+            document.body.appendChild(ta);
+            ta.select();
+            try {
+              document.execCommand('copy');
+              done();
+            } catch (e) {}
+            ta.remove();
+          };
+          if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, fallback);
+          else fallback();
+        });
+      }
       add('', 'Retry', 'retry', () => app.retry());
       add('', 'Workshop', 'wrench', () => app.openWorkshop('results'));
       add('.ghost.icon', '', 'home', () => app.quitToBoard(), 'ui_back');

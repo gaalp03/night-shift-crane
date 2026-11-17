@@ -47,6 +47,10 @@ function streakTexture() {
 }
 
 /** Where the water actually stands: large soft blotches, tiled over the quay. */
+export function blotchTexture() {
+  return puddleTexture();
+}
+
 function puddleTexture() {
   if (_puddle) return _puddle;
   const n = 64;

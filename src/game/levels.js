@@ -369,6 +369,7 @@ export const DAILY_TWISTS = [
   { id: 'gale', kind: 'sky', icon: 'wind', name: 'Gale warning', text: 'Wind far above the usual, gusting hard.', apply: (d, r) => Object.assign(d.weather, { wind: r.range(1.5, 1.85), gusts: 0.85, windDir: r.range(0, 6.28) }) },
   { id: 'fog', kind: 'sky', icon: 'fog', name: 'Pea soup', text: 'Fog so thick the ship is more rumour than vessel.', apply: (d) => Object.assign(d.weather, { fog: 0.032, clouds: 1, rain: 0.15 }) },
   { id: 'storm', kind: 'sky', icon: 'bolt', name: 'Thunderstorm', text: 'Lightning over the basin, rain in sheets.', apply: (d) => { Object.assign(d.weather, { storm: 1, rain: 1, clouds: 1, wind: Math.max(d.weather.wind, 1.1), gusts: 0.6 }); d.music = 'storm'; } },
+  { id: 'snow', kind: 'sky', icon: 'snow', name: 'First snow', text: 'Snow drifting across the quay, and settling. Quiet, slow, beautiful.', apply: (d) => Object.assign(d.weather, { rain: 0, snow: 0.85, fog: 0.0125, clouds: 0.85, wind: Math.min(d.weather.wind, 0.7) }) },
   { id: 'swell', kind: 'sea', icon: 'wave', name: 'Big swell', text: 'The ship rides a long, heavy swell. Time your set-downs.', apply: (d) => { d.weather.sea = 0.85; } },
   { id: 'glass', kind: 'cargo', icon: 'glass', name: 'Gallery night', text: 'Half the manifest is glassware.', cargo: 'fragile' },
   { id: 'heavy', kind: 'cargo', icon: 'weight', name: 'Steel mill', text: 'Thirty-tonners all night. Heavy goes on the deck or on heavy.', cargo: 'heavy' },
@@ -443,11 +444,11 @@ export function dailyShift(key = todayKey()) {
     let hv = 0;
     for (let i = 0; i < types.length; i++) if (types[i] === 'heavy' && ++hv > 1) types[i] = 'std';
   }
-  // feasibility: at most three hazmat, heavy no more than the deck can carry
+  // feasibility: at most two hazmat, heavy no more than the deck can carry
   let haz = 0;
   let heavy = 0;
   for (let i = 0; i < types.length; i++) {
-    if (types[i] === 'hazmat' && ++haz > 3) types[i] = 'std';
+    if (types[i] === 'hazmat' && ++haz > 2) types[i] = 'std';
     if (types[i] === 'heavy' && ++heavy > bays * 2) types[i] = 'std';
   }
   r.shuffle(types);
@@ -460,7 +461,8 @@ export function dailyShift(key = todayKey()) {
   // never more boxes for a port than its bays can hold (with a little slack for preloads)
   const room = {};
   for (const z of zones) room[z] = (room[z] || 0) + rows * 3;
-  for (const z in room) room[z] -= 2;
+  const longCount = types.filter((t) => t === 'long').length;
+  for (const z in room) room[z] -= 2 + longCount;
   for (const type of types) {
     // heavy and hazmat boxes are spread across the bays so every one has somewhere legal to go
     let zone = type === 'long' ? 'ANY' : type === 'heavy' || type === 'hazmat' ? zones[hb++ % bays] : r.pick(zones);
