@@ -13,12 +13,12 @@ const C = (text, dur) => ({ who: 'customs', text, dur });
 
 /** One-liners from the tower as a shift starts (first play of each shift only). */
 export const SHIFT_OPEN = {
-  s02: [D('Colours tonight, Seven. Paint on the box matches paint on the deck.')],
-  s03: [D('Customs are on the quay tonight. If a box wears an amber seal, weigh it before you load it.')],
-  s04: [D('Wind is up. And Seven — if anyone calls you on this channel who is not me, you tell me.')],
+  s02: [D('Colours tonight, Seven. Paint on the box matches paint on the deck. And hold on to your load — the wind is getting up.')],
+  s03: [D('Customs are on the quay tonight. If a box wears an amber seal, weigh it before you load it.'), D('And Seven — if anyone calls you on this channel who is not me, you tell me.')],
+  s04: [D('Gale warning, and the substation has been tripping since midnight. If the lamps go, hold what you have got.')],
   s05: [D('Thirty-tonners. Low and slow.')],
   s06: [D('Glass tonight. Whoever was on this channel last shift, I could not trace them.')],
-  s07: [D('Substation has been tripping since midnight. If the lamps go, hold what you have got.')],
+  s07: [D('Long swell from a storm out at sea. The pilots say something came in with it.')],
   s08: [D('Reefers. The clock is their enemy, not yours.')],
   s09: [D('Fog bank. The pilots say something is following the ships in. Probably a seal.')],
   s10: [D('Three off before the new ones go on. Lane two for the empties.')],
@@ -46,11 +46,11 @@ export const CHECK_INTRO = [
 
 /** The five boxes. `arrive` plays when its truck parks; the others when the player has dealt with it. */
 export const BLACK_BOXES = {
-  s04: {
+  s03: {
     n: 1,
     title: 'Box one · no papers',
     arrive: [U('Crane Seven. The next box is not on your list. Put it on the ship anyway.'), U('There will be an envelope in your locker.', 3200), D('Seven, who was that? Anything unlisted goes to customs, lane two. Your call.')],
-    ship: { say: [U('Good. Nobody saw anything.')], note: 'Stowed on the OSPREY as asked. It was colder than the rain, and the scale would not settle on a number.' },
+    ship: { say: [U('Good. Nobody saw anything.')], note: 'Stowed on the NORDLYS as asked. It was colder than the rain, and the scale would not settle on a number.' },
     customs: { say: [C('We have it. No seal number, no shipper. And it is wet on the inside.')], note: 'Handed to Insp. Okafor. No seal, no shipper. Salt water was running out of the door gasket.' },
     sea: { say: [D('…Seven? The water under you just lit up.')], note: 'It went into the harbour. For a few seconds the water glowed where it sank, then something carried the glow away.' },
     left: { note: 'Left on the quay. By morning the doors were open and there was nothing inside but a puddle.' },
@@ -93,7 +93,7 @@ export const BLACK_BOXES = {
   },
 };
 
-export const BLACK_ORDER = ['s04', 's06', 's08', 's11', 's12'];
+export const BLACK_ORDER = ['s03', 's06', 's08', 's11', 's12'];
 
 /** Radio lines for the scripted power cuts. */
 export const BLACKOUT = {

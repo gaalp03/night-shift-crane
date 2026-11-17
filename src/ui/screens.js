@@ -127,12 +127,12 @@ export class Screens {
             onclick: () => app.openDailyBriefing(),
             html:
               icon(dailyOpen ? 'moon' : 'lock') +
-              `<span class="grow"><b>Tonight</b><small>${!dailyOpen ? 'Clear shift 3' : today.stars ? '★'.repeat(today.stars) + (today.streak > 1 ? ` · ${today.streak} nights` : '') : today.streak ? `${today.streak} night${today.streak === 1 ? '' : 's'} · new shift` : 'New every day'}</small></span>`,
+              `<span class="grow"><b>Tonight</b><small>${!dailyOpen ? 'Clear shift 2' : today.stars ? '★'.repeat(today.stars) + (today.streak > 1 ? ` · ${today.streak} nights` : '') : today.streak ? `${today.streak} night${today.streak === 1 ? '' : 's'} · new shift` : 'New every day'}</small></span>`,
           }),
           h('button.btn' + (endlessOpen ? '.teal' : ''), {
             disabled: !endlessOpen,
             onclick: () => app.openEndlessBriefing(),
-            html: icon(endlessOpen ? 'infinity' : 'lock') + `<span class="grow"><b>Overtime</b><small>${endlessOpen ? (d.endless.best ? 'Best ' + fmtNum(d.endless.best) : 'Endless') : 'Clear shift 4'}</small></span>`,
+            html: icon(endlessOpen ? 'infinity' : 'lock') + `<span class="grow"><b>Overtime</b><small>${endlessOpen ? (d.endless.best ? 'Best ' + fmtNum(d.endless.best) : 'Endless') : 'Clear shift 3'}</small></span>`,
           })
         ),
         h(
@@ -195,7 +195,7 @@ export class Screens {
         { onclick: () => dOpen && app.openDailyBriefing() },
         h('div.no', { html: icon('moon') }),
         h('div.nm', 'Tonight'),
-        h('div.meta', dOpen ? (today.streak ? `${today.streak} night${today.streak === 1 ? '' : 's'} in a row` : 'A new shift every day') : 'Clear shift 3 to unlock'),
+        h('div.meta', dOpen ? (today.streak ? `${today.streak} night${today.streak === 1 ? '' : 's'} in a row` : 'A new shift every day') : 'Clear shift 2 to unlock'),
         dOpen ? h('div.stars', { html: [0, 1, 2].map((k) => `<span class="${k < today.stars ? 'on' : ''}">${icon('star')}</span>`).join('') }) : null,
         today.best ? h('div.best', fmtNum(today.best)) : null,
         dOpen ? null : h('div.lockico', { html: icon('lock') })
@@ -208,7 +208,7 @@ export class Screens {
         { onclick: () => eo && app.openEndlessBriefing() },
         h('div.no', { html: icon('infinity') }),
         h('div.nm', 'Overtime'),
-        h('div.meta', eo ? 'Endless · ship after ship' : 'Clear shift 4 to unlock'),
+        h('div.meta', eo ? 'Endless · ship after ship' : 'Clear shift 3 to unlock'),
         d.endless.best ? h('div.best', 'BEST ' + fmtNum(d.endless.best)) : null,
         eo ? null : h('div.lockico', { html: icon('lock') })
       )
@@ -243,7 +243,7 @@ export class Screens {
       'div.card-body',
       h('div.brief-top', h('div.blurb', level.blurb)),
       level.feature ? h('div.feature', h('b', 'NEW · ' + level.feature.title), level.feature.text) : null,
-      level.also ? h('div.feature.also', h('b', 'CUSTOMS ON THE QUAY'), level.also.replace(/^[A-Z ]+: /, '')) : null,
+      level.also ? h('div.feature.also', h('b', 'NEW · ' + level.also.title), level.also.text) : null,
       h('div.section-label', `Manifest · ${listed.length} to load${out.length ? ` · ${out.length} to discharge` : ''}${checks ? ` · ${checks} spot check${checks === 1 ? '' : 's'}` : ''}`),
       chips,
       h('div.section-label', 'Conditions'),
@@ -603,7 +603,7 @@ export class Screens {
       h('div.ending', h('span', `Ending · ${e.name}`), h('span', `Sailed ${t.ship} · Seized ${t.customs} · Sea ${t.sea}`))
     );
     const back = () => (from === 'results' ? app.reopenResults() : app.openLogbook());
-    const hint = h('div', { style: { color: 'var(--dim)', textAlign: 'center', maxWidth: '26em', lineHeight: '1.3' } }, 'Replay shifts 4, 6, 8, 11 and 12 and choose differently to read another front page.');
+    const hint = h('div', { style: { color: 'var(--dim)', textAlign: 'center', maxWidth: '26em', lineHeight: '1.3' } }, 'Replay shifts 3, 6, 8, 11 and 12 and choose differently to read another front page.');
     const wrap = h('div.paper-wrap.col', paper, hint, h('button.btn.primary', { 'data-sound': 'ui_back', onclick: back, html: icon('back') + 'Back' }));
     return this._mount('epilogue', h('div.screen.dim', wrap));
   }

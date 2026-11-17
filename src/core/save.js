@@ -38,6 +38,12 @@ class Save {
     try {
       const raw = localStorage.getItem(KEY);
       if (raw) merge(this.data, JSON.parse(raw));
+      // 1.3: the first unlisted box moved from shift 4 to shift 3
+      const b = this.data.story && this.data.story.boxes;
+      if (b && b.s04 && !b.s03) {
+        b.s03 = b.s04;
+        delete b.s04;
+      }
     } catch (e) {
       this.ok = false;
     }

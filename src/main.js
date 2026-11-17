@@ -69,11 +69,11 @@ const app = {
     return (save.data.shifts[prev.id] || {}).stars > 0;
   },
   endlessUnlocked() {
-    return (save.data.shifts.s04 || {}).stars > 0;
-  },
-  /** Tonight's Shift opens once the spot checks have been met (shift 3). */
-  dailyUnlocked() {
     return (save.data.shifts.s03 || {}).stars > 0;
+  },
+  /** Tonight's Shift opens after the second night. */
+  dailyUnlocked() {
+    return (save.data.shifts.s02 || {}).stars > 0;
   },
   /** Today's record (empty if the stored one is from another day). */
   dailyRecord() {
@@ -466,13 +466,14 @@ async function runIntro(level, s) {
     };
   } else if (level.feature && !(save.data.shifts[level.id] || {}).stars) {
     j.toast({ text: `${level.feature.title}: ${level.feature.text}`, kind: 'info', dur: 7000 });
+    if (level.also) app.after(7.5, () => j.toast({ text: `${level.also.title}: ${level.also.text}`, kind: 'info', dur: 7000 }), s);
   }
   if (level.daily) {
     const tw = level.twists.map((t) => t.name.toLowerCase());
     app.after(2.5, () => app.radio.say([{ who: 'dispatch', text: `Tonight: ${tw.join(' and ')}. Every crane on the coast works this same shift — make yours the one they talk about.` }]), s);
   }
   // the tower checks in at the start of a shift you have not cleared yet
-  if (!level.endless && SHIFT_OPEN[level.id] && !(save.data.shifts[level.id] || {}).stars) app.after(level.feature ? 7.5 : 2.5, () => app.radio.say(SHIFT_OPEN[level.id]), s);
+  if (!level.endless && SHIFT_OPEN[level.id] && !(save.data.shifts[level.id] || {}).stars) app.after(level.feature ? (level.also ? 15 : 7.5) : 2.5, () => app.radio.say(SHIFT_OPEN[level.id]), s);
   sdk.gameplayStart();
 }
 
