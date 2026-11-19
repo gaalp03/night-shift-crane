@@ -768,6 +768,23 @@ export class Session extends Emitter {
     }
   }
 
+  /** An ignored unlisted box is set down on the land side of the quay, so lane 1 is free again. */
+  _dumpBlack(tr) {
+    const c = tr.cargo;
+    const z = tr.z + tr.zOff + 9;
+    const x = DIM.LANE_X - 7.8; // beyond lane 2, inside the trolley's reach, clear of the crane legs
+    tr.release();
+    this.ctx.scene.attach(c.mesh);
+    const body = this._makeLoose(c, { pos: { x, y: DIM.QUAY_Y + c.hy + 0.25, z }, rot: { x: 0, y: 0, z: 0, w: 1 }, linvel: { x: 0, y: -1, z: 0 }, angvel: { x: 0, y: 0, z: 0 } });
+    body.setAngvel({ x: 0, y: rand(-0.15, 0.15), z: 0 }, true);
+    c.mesh.position.set(x, DIM.QUAY_Y + c.hy + 0.25, z);
+    tr.leaveDelay = 1.2;
+    _v.set(x, DIM.QUAY_Y, z);
+    this.ctx.fx.dust(x, DIM.QUAY_Y + 0.1, z, 18, 0x6f777c, 3);
+    audio.play('impact_heavy', { pos: _v, vol: 0.8 });
+    this.emit('blackDumped', { cargo: c, pos: _v.clone() });
+  }
+
   /** The player has decided what happens to an unlisted box. */
   _blackDone(c, outcome, pos) {
     if (c.resolved === outcome) return;
@@ -1224,8 +1241,13 @@ export class Session extends Emitter {
     const t = this.simT;
     for (const tr of this.trucks) {
       tr.update(dt, t);
+      // the unmarked truck will not wait all night: ignore its box and they tip it off on the apron
+      if (this.phase === 'play' && tr.state === 'wait' && tr.cargo && tr.cargo.black && tr.waitT > 42 && !tr.leaveDelay) {
+        this._dumpBlack(tr);
+        continue;
+      }
       // an impatient driver leans on the horn now and then
-      if (this.phase === 'play' && tr.state === 'wait' && tr.cargo && tr.purpose === 'deliver' && tr.waitT > (tr.nextHonk || 45)) {
+      if (this.phase === 'play' && tr.state === 'wait' && tr.cargo && tr.purpose === 'deliver' && !tr.cargo.black && tr.waitT > (tr.nextHonk || 45)) {
         tr.nextHonk = tr.waitT + rand(26, 40);
         audio.play('horn_truck', { pos: tr.group.position, vol: 0.8 });
         audio.play('horn_truck', { pos: tr.group.position, vol: 0.8, delay: 0.32 });
@@ -1606,7 +1628,7 @@ export class Session extends Emitter {
         if (!rig.carry && c.state === 'truck' && c.truck && c.truck.parked && !c.truck.departing) kind = c.black ? 'black' : c.check ? 'check' : 'pick';
         else if (c.discharge && !c.counted && c.state !== 'truck') kind = 'out';
         else if (c.misplaced) kind = 'bad';
-        else if (c.state === 'loose' && c.settled && !c.inWater && !c.preload) kind = 'warn';
+        else if (c.state === 'loose' && c.settled && !c.inWater && !c.preload) kind = c.black ? 'black' : 'warn';
         if (!kind) continue;
         c.mesh.updateWorldMatrix(true, false);
         tags.push({ pos: new THREE.Vector3(0, c.hy, 0).applyMatrix4(c.mesh.matrixWorld), kind });

@@ -564,6 +564,9 @@ function bindSession(s) {
       app.harbor.surge = 0.8;
     }
   });
+  s.on('blackDumped', () => {
+    app.radio.say([{ who: 'unknown', text: 'Not fast enough, Seven. It is on your quay now. It is still your choice.' }], { urgent: true, key: 'dumped' });
+  });
   s.on('event', (e) => {
     if (e.type === 'blackout') runBlackout(s, e);
   });
