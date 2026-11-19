@@ -972,9 +972,10 @@ function padMenus() {
     const target = cur || scr.querySelector('.btn.primary:not([disabled]), .btn.teal:not([disabled]), .btn.night:not([disabled])');
     if (target && target.tagName !== 'INPUT') target.click();
   } else if (B) {
+    // on the pause card B means "back to work" (its ghost button would clock you out)
+    if (app.mode === 'paused' && app.screens.name === 'pause') return app.resume();
     const back = scr.querySelector('.btn[data-sound="ui_back"]:not([disabled])');
     if (back) back.click();
-    else if (app.mode === 'paused') app.resume();
   }
 }
 

@@ -137,26 +137,32 @@ function gullGeometry() {
   return { body, wing };
 }
 
+const _m = new THREE.Matrix4();
+const _w = new THREE.Matrix4();
+const _q = new THREE.Quaternion();
+const _e = new THREE.Euler();
+const _p = new THREE.Vector3();
+const _s = new THREE.Vector3();
+const _mirror = new THREE.Matrix4().makeScale(-1, 1, 1);
+
+/** A handful of gulls drawn as three instanced meshes (bodies, left wings, right wings): 3 draw calls in all. */
 export class Gulls {
   constructor(scene, count = 7) {
     const geo = gullGeometry();
     this.geo = geo;
     // (a little self-light: at night gulls read as pale shapes catching the port's glow from below)
     this.mat = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide, emissive: 0x3a362f });
+    this.body = new THREE.InstancedMesh(geo.body, this.mat, count);
+    this.left = new THREE.InstancedMesh(geo.wing, this.mat, count);
+    this.right = new THREE.InstancedMesh(geo.wing, this.mat, count);
+    for (const m of [this.body, this.left, this.right]) {
+      m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      m.frustumCulled = false;
+      scene.add(m);
+    }
     this.birds = [];
     for (let i = 0; i < count; i++) {
-      const g = new THREE.Group();
-      const b = new THREE.Mesh(geo.body, this.mat);
-      const l = new THREE.Mesh(geo.wing, this.mat);
-      const r = new THREE.Mesh(geo.wing, this.mat);
-      r.scale.x = -1;
-      g.add(b, l, r);
-      g.scale.setScalar(1.45);
-      scene.add(g);
       this.birds.push({
-        g,
-        l,
-        r,
         // each circles its own thermal over the water
         cx: rand(10, 44),
         cz: rand(-40, 40),
@@ -168,28 +174,36 @@ export class Gulls {
         glide: 0,
       });
     }
+    this.visible = true;
   }
 
   update(dt, t, wind) {
-    for (const B of this.birds) {
+    if (!this.visible) return;
+    for (let i = 0; i < this.birds.length; i++) {
+      const B = this.birds[i];
       B.ph += B.sp * dt;
       const x = B.cx + Math.cos(B.ph) * B.rad + (wind ? wind.x * 2 : 0);
       const z = B.cz + Math.sin(B.ph) * B.rad * 0.7;
       const y = B.h + Math.sin(t * 0.4 + B.cx) * 1.5;
-      // heading along the circle
+      // heading along the circle, banked into the turn
       const hd = Math.atan2(-Math.sin(B.ph) * B.sp, Math.cos(B.ph) * B.sp * 0.7);
-      B.g.position.set(x, y, z);
-      B.g.rotation.set(0, hd, -Math.sign(B.sp) * 0.35);
+      _q.setFromEuler(_e.set(0, hd, -Math.sign(B.sp) * 0.35));
+      _m.compose(_p.set(x, y, z), _q, _s.set(1.45, 1.45, 1.45));
+      this.body.setMatrixAt(i, _m);
       // mostly gliding, a few beats now and then
       B.glide -= dt;
       if (B.glide < -1.2) B.glide = rand(2, 6);
       const beat = B.glide > 0 ? 0.12 : Math.sin(t * 11 + B.flap) * 0.6;
-      B.l.rotation.z = beat;
-      B.r.rotation.z = -beat;
+      this.left.setMatrixAt(i, _w.multiplyMatrices(_m, _w.makeRotationZ(beat)));
+      _w.makeRotationZ(beat);
+      this.right.setMatrixAt(i, _w.premultiply(_mirror).premultiply(_m));
     }
+    for (const m of [this.body, this.left, this.right]) m.instanceMatrix.needsUpdate = true;
   }
 
   setVisible(v) {
-    for (const B of this.birds) B.g.visible = v;
+    if (v === this.visible) return;
+    this.visible = v;
+    this.body.visible = this.left.visible = this.right.visible = v;
   }
 }
