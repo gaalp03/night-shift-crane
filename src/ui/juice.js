@@ -75,6 +75,43 @@ export class Juice {
     setTimeout(() => wrap.remove(), 1350);
   }
 
+  /**
+   * Coins spring out of `pos` and fly to the wallet; `onCoin(share)` runs as each one lands.
+   * @param target element the coins fly to
+   */
+  coins(pos, amount, target, onCoin) {
+    if (!amount) return;
+    const n = Math.max(3, Math.min(12, Math.round(amount / 25)));
+    const from = pos ? this.project(pos) : { x: window.innerWidth / 2, y: window.innerHeight * 0.45 };
+    const r = target ? target.getBoundingClientRect() : { left: window.innerWidth - 60, top: 40, width: 0, height: 0 };
+    const tx = r.left + r.width * 0.25;
+    const ty = r.top + r.height / 2;
+    let left = amount;
+    for (let i = 0; i < n; i++) {
+      const share = i === n - 1 ? left : Math.round(amount / n);
+      left -= share;
+      const el = h('div.coin', { html: icon('coin') });
+      const sx = from.x + (Math.random() - 0.5) * 70;
+      const sy = from.y + (Math.random() - 0.5) * 40;
+      el.style.transform = `translate(${from.x}px, ${from.y}px) scale(0.4)`;
+      this.bursts.appendChild(el);
+      // pop out, hang a beat, then sweep into the wallet
+      setTimeout(() => {
+        el.style.transition = 'transform 0.22s cubic-bezier(0.2, 1.4, 0.4, 1)';
+        el.style.transform = `translate(${sx}px, ${sy - 30}px) scale(1)`;
+      }, 16 + i * 18);
+      setTimeout(() => {
+        el.style.transition = 'transform 0.5s cubic-bezier(0.55, 0, 0.8, 0.4), opacity 0.5s';
+        el.style.transform = `translate(${tx}px, ${ty}px) scale(0.6)`;
+      }, 300 + i * 55);
+      setTimeout(() => {
+        el.remove();
+        if (onCoin) onCoin(share, i === n - 1);
+        if (i % 2 === 0) audio.play('ui_coin', { vol: 0.55, rate: 1 + i * 0.03 });
+      }, 800 + i * 55);
+    }
+  }
+
   toast({ text, kind = 'info', key, dur = 3200, silent }) {
     if (!this.enabled) return;
     const now = performance.now();

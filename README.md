@@ -6,22 +6,24 @@ A 3D harbour-crane stacking game for the browser. Run ship-to-shore crane 07 thr
 shift: lift containers off the trucks, fight the swing, the wind and the swell, and twist-lock them
 onto a rolling ship before it sails.
 
-- **12 shifts** with escalating mechanics (destination bays, swell, gusts, heavy / fragile / reefer /
-  hazmat cargo, forty-foot boxes that span two bays, fog, discharge orders, a full storm), 1–3 stars each
-- **Customs spot checks**: amber-sealed boxes have to be weighed on the hook — hold the load steady,
-  read the scale, and send anything mis-declared to the customs truck instead of the ship
-- **The Pier Seven file**: five unlisted black boxes turn up over the night, a caller nobody can trace
-  wants them shipped, customs wants them seized — and something under the pier wants them back.
-  What you do with each one fills in the logbook and decides which front page you wake up to
-- Power cuts that leave you working by the trolley's battery lamp
-- A **foreman's order** on every shift: a side job (no rough handling, a x5 combo, time to spare…) paid once in cash
-- **Tonight's Shift**: a new generated shift every day (the same one for everyone), two twists from
-  gales and brownouts to customs blitzes and hot cargo, today's best and a run-of-nights streak
-- **Overtime**: an endless high-score mode, ship after ship
-- **Workshop** upgrades and crane paint jobs between shifts, plus a **Logbook** of career stats and commendations
-- Real rigid-body physics: cable-suspended spreader, momentum, wind, a ship that heaves, rolls and
-  lists with its load, stacks that can be knocked into the sea
-- Third-person view and a top-down crane-cab view, desktop keyboard / gamepad and mobile touch controls
+- **Straight into the cab**: a first-time player loads in with a box already on the hook — the first
+  thing they do is let go of it, and coins fly into the wallet. Each following box teaches one
+  control in play (no cards, no tutorial chain, no tour)
+- **The night shift** (main mode): endless, ship after ship. Each ship is a 60–90 second round of
+  4–6 boxes and the next one comes alongside automatically. A dropped box costs its bonus and the
+  combo, never the shift. Combo multiplier up to x3, every box pays straight into the wallet
+- **Upgrades that change the play**: anti-sway damper, drive motors, magnet assist (auto-lock at
+  level 2), wide spreader (longer flippers, more forgiving), hoist winch, overtime clause — bought
+  mid-shift from the upgrade chip. The port visibly grows with everything you move
+- **Reasons to come back**: one episode of the Pier Seven story a night (a black box, your choice,
+  a cliffhanger), and your night crew's takings waiting when you return
+- **One-touch mobile play**: drag the spreader where you want it; hoisting, lowering, locking and
+  releasing happen by themselves. Works in portrait and landscape
+- **Challenges**: 12 hand-made shifts (destination bays, gusts, customs spot checks, heavy / fragile /
+  reefer / hazmat cargo, forty-footers, fog, power cuts, a full storm) and a generated daily shift
+- Progress is saved locally and, for signed-in CrazyGames players, in the cloud
+- Small first load: the physics WASM ships as a binary next to the script, sounds stream in after
+  the game has started
 
 ![Title screen](docs/screenshot-title.jpg)
 

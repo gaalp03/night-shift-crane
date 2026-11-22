@@ -53,7 +53,7 @@ export const SHIFTS = [
     feature: { title: 'SWELL', text: 'The ship heaves and rolls. Wait for the deck to come up to the box, then release.' },
     ship: { rows: 3, bays: 3, tiers: 2, style: 1, name: 'MV NORDLYS', zones: ['ROT', 'NYC', 'SIN'] },
     preload: [{ r: 0, b: 0, n: 1, zone: 'ROT' }, { r: 2, b: 2, n: 1, zone: 'SIN' }],
-    manifest: [C('NYC'), C('ROT'), K('SIN', true), C('NYC'), B(), C('ROT'), K('SIN'), C('NYC')],
+    manifest: [C('NYC'), C('ROT'), K('SIN', true), C('NYC'), C('ROT'), K('SIN'), C('NYC')],
     time: 410,
     weather: { rain: 0.65, wind: 0.65, windDir: 1.2, gusts: 0.35, fog: 0.012, sea: 0.4, clouds: 0.8 },
   },
@@ -89,7 +89,7 @@ export const SHIFTS = [
     feature: { title: 'FRAGILE', text: 'White FRAGILE panels mean glass inside. Any real knock shatters it — creep in and land soft.' },
     ship: { rows: 3, bays: 3, tiers: 2, style: 3, name: 'MV HALCYON', zones: ['ROT', 'ROT', 'NYC'] },
     preload: [{ r: 1, b: 1, n: 1, zone: 'ROT' }],
-    manifest: [C('ROT'), C('NYC', 'fragile'), C('ROT', 'fragile'), K('NYC', true), B(), C('ROT'), C('NYC', 'fragile'), C('ROT'), C('NYC')],
+    manifest: [C('ROT'), C('NYC', 'fragile'), C('ROT', 'fragile'), K('NYC', true), C('ROT'), C('NYC', 'fragile'), C('ROT'), C('NYC')],
     time: 410,
     weather: { rain: 0.7, wind: 0.55, windDir: 0.6, gusts: 0.25, fog: 0.0125, sea: 0.3, clouds: 0.8 },
   },
@@ -113,7 +113,7 @@ export const SHIFTS = [
     feature: { title: 'REEFERS', text: 'Refrigerated boxes lose freshness from the moment the truck parks. The faster they are locked on board, the bigger the bonus.' },
     ship: { rows: 4, bays: 2, tiers: 3, style: 0, name: 'MV BOREALIS', zones: ['SIN', 'NYC'] },
     preload: [{ r: 0, b: 0, n: 1, zone: 'SIN' }, { r: 3, b: 1, n: 1, zone: 'NYC' }],
-    manifest: [C('SIN', 'reefer'), C('NYC'), C('NYC', 'reefer'), K('SIN'), B(), C('SIN', 'heavy'), C('NYC', 'reefer'), K('SIN', true), C('NYC'), C('SIN', 'reefer')],
+    manifest: [C('SIN', 'reefer'), C('NYC'), C('NYC', 'reefer'), K('SIN'), C('SIN', 'heavy'), C('NYC', 'reefer'), K('SIN', true), C('NYC'), C('SIN', 'reefer')],
     time: 440,
     weather: { rain: 0.4, wind: 1.0, windDir: 3.5, gusts: 0.45, fog: 0.012, sea: 0.35 },
   },
@@ -156,7 +156,7 @@ export const SHIFTS = [
     feature: { title: 'HAZMAT', text: 'Placarded boxes may not touch each other — not side by side, not stacked. Hit one hard and it goes up, taking its neighbours with it.' },
     ship: { rows: 4, bays: 3, tiers: 3, style: 1, name: 'MV SALT WIND', zones: ['SIN', 'ROT', 'NYC'] },
     preload: [{ r: 1, b: 0, n: 1, zone: 'SIN' }, { r: 2, b: 2, n: 2, zone: 'NYC' }, { r: 0, b: 1, n: 1, zone: 'ROT' }],
-    manifest: [C('ROT', 'hazmat'), C('SIN'), C('NYC'), K('ROT', true), C('SIN', 'hazmat'), B(), C('NYC', 'heavy'), C('ROT', 'hazmat'), C('SIN', 'reefer'), K('NYC'), C('ROT')],
+    manifest: [C('ROT', 'hazmat'), C('SIN'), C('NYC'), K('ROT', true), C('SIN', 'hazmat'), C('NYC', 'heavy'), C('ROT', 'hazmat'), C('SIN', 'reefer'), K('NYC'), C('ROT')],
     time: 490,
     weather: { rain: 0.65, wind: 1.1, windDir: 5.2, gusts: 0.5, fog: 0.013, sea: 0.45, clouds: 0.85 },
   },
@@ -167,7 +167,7 @@ export const SHIFTS = [
     blurb: 'Everything at once. Last ship before dawn — bring it home.',
     ship: { rows: 4, bays: 3, tiers: 3, style: 4, name: 'MV LOW TIDE', zones: ['OSL', 'ROT', 'SIN'] },
     preload: [{ r: 0, b: 0, n: 2, zone: 'OSL' }, { r: 3, b: 2, n: 2, zone: 'SIN' }, { r: 1, b: 1, n: 1, zone: 'ROT' }, { r: 2, b: 1, n: 1, zone: 'ROT' }],
-    manifest: [C('ROT'), C('OSL', 'heavy'), C('SIN', 'reefer'), C('ROT', 'heavy'), K('OSL', true), C('SIN', 'hazmat'), C('ROT', 'fragile'), B(), C('OSL', 'reefer'), C('SIN'), C('ROT'), C('OSL', 'fragile')],
+    manifest: [C('ROT'), C('OSL', 'heavy'), C('SIN', 'reefer'), C('ROT', 'heavy'), K('OSL', true), C('SIN', 'hazmat'), C('ROT', 'fragile'), C('OSL', 'reefer'), C('SIN'), C('ROT'), C('OSL', 'fragile')],
     time: 530,
     events: [{ type: 'blackout', at: 150, dur: 26, deep: true }],
     weather: { rain: 1, wind: 1.7, windDir: 0.35, gusts: 0.9, fog: 0.016, sea: 0.95, storm: 1, clouds: 1 },
@@ -254,7 +254,8 @@ export function endlessShip(n, seed) {
   const bays = n < 1 ? 2 : rng.chance(0.6) ? 3 : 2;
   const zones = [];
   for (let b = 0; b < bays; b++) zones.push(zonesAll[b % Math.min(zonesAll.length, 2 + Math.min(1, Math.floor(n / 2)))]);
-  const count = Math.min(11, 5 + Math.floor(n * 0.9));
+  // a round is one ship: 4-6 boxes in 60-90 seconds
+  const count = n < 2 ? 4 : Math.min(6, 4 + Math.floor((n + rng.int(0, 2)) / 3));
   const pool = ['std', 'std', 'std'];
   if (n >= 1) pool.push('heavy');
   if (n >= 2) pool.push('fragile');
@@ -337,6 +338,8 @@ export function endlessShip(n, seed) {
     manifest,
     preload,
     time: 0,
+    // (the first two ships give a newcomer room to learn; after that it is 60-90 seconds a ship)
+    roundTime: n < 2 ? 44 + count * 11 : 36 + count * 9,
     bonusTime: 40 + count * 21,
     weather: n >= ENDLESS_WEATHER.length ? cycle : w,
     strikes: 3,
@@ -504,66 +507,78 @@ export function dailyShift(key = todayKey()) {
 
 export const UPGRADES = [
   {
+    id: 'sway',
+    name: 'Anti-Sway Damper',
+    icon: 'sway',
+    desc: 'The load stops swinging sooner.',
+    costs: [250, 600, 1200, 2200],
+    stat: (l) => `+${l * 30}% damping`,
+  },
+  {
     id: 'trolley',
     name: 'Drive Motors',
     icon: 'motor',
     desc: 'Faster trolley and gantry travel.',
-    costs: [220, 480, 860, 1400],
-    stat: (l) => `+${l * 9}% travel speed`,
+    costs: [250, 600, 1200, 2200],
+    stat: (l) => `+${l * 10}% travel speed`,
+  },
+  {
+    id: 'magnet',
+    name: 'Magnet Assist',
+    icon: 'laser',
+    desc: 'Pulls the spreader onto boxes and slots. Level 2 locks on by itself.',
+    costs: [300, 700, 1400],
+    stat: (l) => `+${l * 45}% pull${l >= 2 ? ', auto-lock' : ''}`,
+  },
+  {
+    id: 'spreader',
+    name: 'Wide Spreader',
+    icon: 'hook',
+    desc: 'Longer guide flippers: grabs and set-downs forgive more.',
+    costs: [350, 800, 1600],
+    stat: (l) => `+${l * 18}% tolerance`,
   },
   {
     id: 'hoist',
     name: 'Hoist Winch',
     icon: 'hoist',
     desc: 'Lift and lower quicker.',
-    costs: [200, 440, 800, 1300],
-    stat: (l) => `+${l * 11}% hoist speed`,
-  },
-  {
-    id: 'sway',
-    name: 'Anti-Sway Damper',
-    icon: 'sway',
-    desc: 'The load stops swinging sooner.',
-    costs: [260, 560, 980, 1600],
-    stat: (l) => `+${l * 27}% damping`,
-  },
-  {
-    id: 'guide',
-    name: 'Laser Guides',
-    icon: 'laser',
-    desc: 'Wider twist-lock tolerance and stronger flipper assist.',
-    costs: [240, 540, 1000],
-    stat: (l) => `+${l * 12}% lock tolerance`,
+    costs: [200, 500, 1000, 1800],
+    stat: (l) => `+${l * 12}% hoist speed`,
   },
   {
     id: 'clock',
     name: 'Overtime Clause',
     icon: 'clock',
-    desc: 'More time on every shift.',
-    costs: [180, 420, 820],
-    stat: (l) => `+${l * 8}% shift time`,
-  },
-  {
-    id: 'insure',
-    name: 'Cargo Insurance',
-    icon: 'shield',
-    desc: 'Lost boxes cost less. At max level you get a fourth strike.',
-    costs: [300, 700, 1300],
-    stat: (l) => `-${l * 25}% loss penalty${l >= 3 ? ', +1 strike' : ''}`,
+    desc: 'More time on every ship.',
+    costs: [200, 500, 1000],
+    stat: (l) => `+${l * 10}% round time`,
   },
 ];
 
 export function upgradeMods(levels = {}) {
   const l = (id) => levels[id] || 0;
+  const magnet = l('magnet') || l('guide'); // (older saves called it Laser Guides)
   return {
-    trolley: 1 + 0.09 * l('trolley'),
-    gantry: 1 + 0.09 * l('trolley'),
-    hoist: 1 + 0.11 * l('hoist'),
-    swayMul: 1 + 0.27 * l('sway'),
-    tolMul: 1 + 0.12 * l('guide'),
-    assist: 1 + 0.35 * l('guide'),
-    timeMul: 1 + 0.08 * l('clock'),
-    lossMul: 1 - 0.25 * l('insure'),
-    extraStrike: l('insure') >= 3 ? 1 : 0,
+    trolley: 1 + 0.1 * l('trolley'),
+    gantry: 1 + 0.1 * l('trolley'),
+    hoist: 1 + 0.12 * l('hoist'),
+    swayMul: 1 + 0.3 * l('sway'),
+    tolMul: (1 + 0.06 * magnet) * (1 + 0.18 * l('spreader')),
+    grabMul: 1 + 0.18 * l('spreader'),
+    assist: 1 + 0.45 * magnet,
+    autoLock: magnet >= 2,
+    spreader: l('spreader'),
+    timeMul: 1 + 0.1 * l('clock'),
+    lossMul: 1,
+    extraStrike: 0,
   };
+}
+
+/** Port size from everything ever moved across the quay (you and your night crew). */
+export const PORT_STEPS = [0, 12, 35, 80, 160, 320];
+export function portLevel(boxes) {
+  let l = 0;
+  for (let i = 0; i < PORT_STEPS.length; i++) if (boxes >= PORT_STEPS[i]) l = i;
+  return l;
 }

@@ -18,6 +18,7 @@
     <link rel="preload" href="assets/fonts/barlow-condensed-700.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="stylesheet" href="styles.css" />
     <!-- CrazyGames SDK v3: optional. The game runs without it (GitHub Pages, local, ad blockers). -->
+    <link rel="preload" href="build/rapier.wasm" as="fetch" type="application/wasm" crossorigin>
     <script src="https://sdk.crazygames.com/crazygames-sdk-v3.js" async onerror="window.__cgSdkFailed = true"></script>
   </head>
   <body>
@@ -31,6 +32,7 @@
       <div id="tutorial" class="hidden"></div>
       <div id="toasts"></div>
       <div id="radio"></div>
+      <div id="coach"></div>
       <div id="letterbox" class="hidden">
         <div class="bar top"></div>
         <div class="bar bottom"></div>

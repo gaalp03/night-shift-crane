@@ -9,7 +9,8 @@ import { cargoChip } from './hud.js';
 import { audio } from '../core/audio.js';
 import { save } from '../core/save.js';
 import { gfx } from '../core/gfx.js';
-import { BLACK_BOXES, BLACK_ORDER, EPILOGUES, epilogue, tally } from '../game/story.js';
+import { BLACK_BOXES, BLACK_ORDER, EPILOGUES, epilogue, tally, episodeFor } from '../game/story.js';
+import { todayKey } from '../game/levels.js';
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -112,14 +113,15 @@ export class Screens {
     const endlessOpen = app.endlessUnlocked();
     const dailyOpen = app.dailyUnlocked();
     const today = app.dailyRecord();
+    const episode = d.flags.played ? episodeFor(d.story, todayKey()) : null;
     const col = h(
       'div.title-col',
       h('div', h('div.logo', h('span.logo-top', 'Night Shift'), h('span.logo-main', 'Crane')), h('div.tagline', { style: { marginTop: '1.2em' } }, 'Pier Seven · Graveyard shift')),
       h(
         'div.menu',
-        h('button.btn.primary.big', { 'data-sound': 'ui_confirm', onclick: () => app.openBriefing(next), html: icon('play') + `<span class="grow">${fresh ? 'Clock in' : 'Continue'}</span><span class="badge">Shift ${next.n}</span>` }),
-        h('button.btn', { onclick: () => app.openBoard(), html: icon('board') + '<span class="grow">Shift board</span>' + `<span class="badge">${icon('star')} ${stars}/${SHIFTS.length * 3}</span>` }),
-        // the two open-ended modes share a row: the daily shift and endless Overtime
+        // the night shift itself (endless, ship after ship) is the game; everything else hangs off it
+        h('button.btn.primary.big', { 'data-sound': 'ui_confirm', onclick: () => app.startEndless(), html: icon('play') + `<span class="grow">Clock in</span><span class="badge">${d.endless.best ? 'Best ' + fmtNum(d.endless.best) : 'Pier Seven'}</span>` }),
+        episode ? h('div.episode', { html: icon('eye') + `<span><b>Tonight</b> · episode ${BLACK_ORDER.indexOf(episode) + 1} of the Pier Seven file is on its way</span>` }) : null,
         h(
           'div.menu-row.duo',
           h('button.btn' + (dailyOpen ? '.night' : ''), {
@@ -127,12 +129,11 @@ export class Screens {
             onclick: () => app.openDailyBriefing(),
             html:
               icon(dailyOpen ? 'moon' : 'lock') +
-              `<span class="grow"><b>Tonight</b><small>${!dailyOpen ? 'Clear shift 2' : today.stars ? '★'.repeat(today.stars) + (today.streak > 1 ? ` · ${today.streak} nights` : '') : today.streak ? `${today.streak} night${today.streak === 1 ? '' : 's'} · new shift` : 'New every day'}</small></span>`,
+              `<span class="grow"><b>Daily shift</b><small>${!dailyOpen ? 'After your first ship' : today.stars ? '★'.repeat(today.stars) + (today.streak > 1 ? ` · ${today.streak} nights` : '') : today.streak ? `${today.streak} night${today.streak === 1 ? '' : 's'} · new shift` : 'New every day'}</small></span>`,
           }),
-          h('button.btn' + (endlessOpen ? '.teal' : ''), {
-            disabled: !endlessOpen,
-            onclick: () => app.openEndlessBriefing(),
-            html: icon(endlessOpen ? 'infinity' : 'lock') + `<span class="grow"><b>Overtime</b><small>${endlessOpen ? (d.endless.best ? 'Best ' + fmtNum(d.endless.best) : 'Endless') : 'Clear shift 3'}</small></span>`,
+          h('button.btn', {
+            onclick: () => app.openBoard(),
+            html: icon('board') + `<span class="grow"><b>Shift board</b><small>${icon('star')} ${stars}/${SHIFTS.length * 3} challenges</small></span>`,
           })
         ),
         h(
@@ -149,6 +150,29 @@ export class Screens {
     const foot = h('div.title-foot', h('div', { html: icon('music') + ' ' }, this.trackEl), h('div', `v${GAME_VERSION}`));
     this._setTrack(app.nowPlaying);
     return this._mount('title', h('div.screen.shade', col, foot));
+  }
+
+  /** Back after a while: what the night crew moved, and what is waiting tonight. */
+  welcome(idle) {
+    const app = this.app;
+    const hrs = idle.hrs >= 1 ? `${Math.floor(idle.hrs)} hour${Math.floor(idle.hrs) === 1 ? '' : 's'}` : `${Math.round(idle.hrs * 60)} minutes`;
+    const card = h(
+      'div.card.welcome',
+      h('div.card-head', h('h2', 'Welcome back')),
+      h(
+        'div.card-body',
+        h('div.crew', h('div.big', { html: icon('truck') }), h('div', h('b', `Your night crew moved ${idle.boxes} box${idle.boxes === 1 ? '' : 'es'}`), h('span', `while you were away (${hrs})`))),
+        h('div.crewpay', { html: icon('coin') + ` +$${fmtNum(idle.cash)}` }),
+        idle.episode ? h('div.episode', { html: icon('eye') + '<span><b>Tonight</b> · a new box of the Pier Seven file is on its way</span>' }) : null
+      ),
+      h(
+        'div.card-foot',
+        app.adsAvailable() ? h('button.btn.teal', { 'data-sound': 'ui_confirm', onclick: () => app.collectIdle(idle, true), html: icon('ad') + 'Collect ×2' }) : null,
+        h('div.spacer'),
+        h('button.btn.primary', { 'data-sound': 'ui_confirm', onclick: () => app.collectIdle(idle, false), html: icon('coin') + 'Collect' })
+      )
+    );
+    return this._mount('welcome', h('div.screen.dim', card));
   }
 
   _setTrack(t) {
@@ -366,6 +390,7 @@ export class Screens {
                 d.upgrades[u.id] = lvl + 1;
                 save.commit(true);
                 audio.play('ui_buy');
+                if (app.upgradesChanged) app.upgradesChanged();
                 audio.play('ui_coin', { delay: 0.1 });
                 render();
               },
@@ -405,6 +430,10 @@ export class Screens {
       else if (from === 'daily') app.openDailyBriefing();
       else if (from && from.startsWith('brief:')) app.openBriefing(SHIFTS.find((s) => s.id === from.slice(6)));
       else if (from === 'results') app.reopenResults();
+      else if (from === 'play') {
+        app.screens.hide();
+        app.resume();
+      }
       else app.gotoTitle();
     };
     const card = h(
@@ -561,7 +590,7 @@ export class Screens {
       file.appendChild(
         out
           ? h('div.case', h('div.no', String(box.n)), h('div', h('b', box.title, h(`span.tag.${out}`, tagText[out] || '')), h('span', (box[out] && box[out].note) || '')))
-          : h('div.case.locked', h('div.no', '?'), h('div', h('b', known || box.n === 1 ? 'Not yet seen' : '· · ·'), h('span', box.n === 1 || story.boxes[BLACK_ORDER[box.n - 2]] ? `Something is due on shift ${shift ? shift.n : '?'}.` : 'Keep working nights.')))
+          : h('div.case.locked', h('div.no', '?'), h('div', h('b', known || box.n === 1 ? 'Not yet seen' : '· · ·'), h('span', box.n === 1 || story.boxes[BLACK_ORDER[box.n - 2]] ? 'Due on a coming night: one box arrives each night you clock in.' : 'Keep working nights.')))
       );
     }
     const end = epilogue(story);

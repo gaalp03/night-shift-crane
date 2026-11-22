@@ -50,15 +50,41 @@ class Save {
     return this.data;
   }
 
+  /**
+   * Platform cloud save (CrazyGames data module): adopt it if it is further along than this
+   * browser's copy, and mirror every later write to it.
+   * @param store { getItem(key), setItem(key, value) }
+   */
+  attachCloud(store) {
+    if (!store) return false;
+    this.cloud = store;
+    try {
+      const raw = store.getItem(KEY);
+      const remote = raw ? JSON.parse(raw) : null;
+      if (remote && (remote.t || 0) > (this.data.t || 0)) {
+        const fresh = defaults();
+        merge(fresh, remote);
+        this.data = fresh;
+        return true;
+      }
+    } catch (e) {}
+    return false;
+  }
+
   /** Debounced write so rapid changes (sliders) do not hammer storage. */
   commit(immediate = false) {
     clearTimeout(this._timer);
     const write = () => {
+      this.data.t = Date.now();
+      const json = JSON.stringify(this.data);
       try {
-        localStorage.setItem(KEY, JSON.stringify(this.data));
+        localStorage.setItem(KEY, json);
       } catch (e) {
         this.ok = false;
       }
+      try {
+        if (this.cloud) this.cloud.setItem(KEY, json);
+      } catch (e) {}
     };
     if (immediate) write();
     else this._timer = setTimeout(write, 250);

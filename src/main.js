@@ -1,7 +1,7 @@
 // Night Shift Crane — application shell: boot, world, game flow, main loop.
 import * as THREE from 'three';
 import { DIM, PAL } from './config.js';
-import { clamp, damp, rand, isMobile, isIOS, Tweens } from './core/util.js';
+import { clamp, damp, rand, fmtNum, isMobile, isIOS, Tweens } from './core/util.js';
 import { save } from './core/save.js';
 import { sdk } from './core/sdk.js';
 import { input } from './core/input.js';
@@ -19,7 +19,8 @@ import { Crew } from './world/crew.js';
 import { CameraRig } from './game/cameras.js';
 import { Session } from './game/session.js';
 import { Tutorial } from './game/tutorial.js';
-import { SHIFTS, endlessShip, upgradeMods, dailyShift, todayKey, dayBefore } from './game/levels.js';
+import { SHIFTS, UPGRADES, endlessShip, upgradeMods, dailyShift, todayKey, dayBefore, portLevel } from './game/levels.js';
+import { Coach } from './game/coach.js';
 import { checkAwards } from './game/awards.js';
 import { Juice } from './ui/juice.js';
 import { Hud } from './ui/hud.js';
@@ -29,7 +30,7 @@ import { Radio } from './ui/radio.js';
 import { DeepLight } from './world/deep.js';
 import { WetShine } from './world/shine.js';
 import { Tug, Gulls } from './world/harborlife.js';
-import { SHIFT_OPEN, SHIFT_BEATS, CHECK_INTRO, LONG_INTRO, BLACK_BOXES, BLACKOUT, SMUGGLE_FOUND, epilogue } from './game/story.js';
+import { CLIFFHANGERS, episodeFor, SHIFT_OPEN, SHIFT_BEATS, CHECK_INTRO, LONG_INTRO, BLACK_BOXES, BLACKOUT, SMUGGLE_FOUND, epilogue } from './game/story.js';
 
 const $ = (id) => document.getElementById(id);
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -69,11 +70,11 @@ const app = {
     return (save.data.shifts[prev.id] || {}).stars > 0;
   },
   endlessUnlocked() {
-    return (save.data.shifts.s03 || {}).stars > 0;
+    return true; // the endless night is the main game now
   },
-  /** Tonight's Shift opens after the second night. */
+  /** Tonight's Shift opens once the first ship has sailed. */
   dailyUnlocked() {
-    return (save.data.shifts.s02 || {}).stars > 0;
+    return !!save.data.flags.played || (save.data.shifts.s02 || {}).stars > 0;
   },
   /** Today's record (empty if the stored one is from another day). */
   dailyRecord() {
@@ -132,6 +133,25 @@ const app = {
   openWorkshop(from) {
     app.screens.workshop(from);
   },
+  /** Mid-shift upgrade stop: the game pauses behind the workshop and resumes after. */
+  openWorkshopInPlay() {
+    if (app.mode !== 'play') return;
+    app.pause();
+    app.screens.workshop('play');
+  },
+  /** Cash on hand vs the cheapest upgrade still to buy. */
+  canUpgrade() {
+    const d = save.data;
+    return UPGRADES.some((u) => {
+      const lvl = d.upgrades[u.id] || 0;
+      return lvl < u.costs.length && d.money >= u.costs[lvl];
+    });
+  },
+  /** Something was bought: a running shift feels it straight away. */
+  upgradesChanged() {
+    if (app.session && !app.session.attract) app.session.refreshMods();
+    app.hud.setMoney(save.data.money, app.canUpgrade());
+  },
   openBriefing(level) {
     app.screens.briefing(level);
   },
@@ -155,9 +175,9 @@ const app = {
   startDaily(level) {
     return beginRun(level || dailyShift(todayKey()));
   },
-  startEndless() {
+  startEndless(first = false) {
     const seed = Math.floor(Math.random() * 1e9);
-    return beginRun(endlessShip(0, seed), { seed });
+    return beginRun(endlessShip(0, seed), { seed, first: first === true });
   },
   retry() {
     if (!app.level) return app.gotoTitle();
@@ -184,6 +204,14 @@ const app = {
   },
   async quitToBoard() {
     if (app.busy) return;
+    // clocking out of the endless night: the shift report first, then home
+    const s = app.session;
+    if (s && s.endless && !s.attract && (s.phase === 'play' || s.phase === 'swap')) {
+      app.screens.hide();
+      app.mode = 'play';
+      s._finish(true, 'clockout');
+      return;
+    }
     app.busy = true;
     sdk.gameplayStop();
     await app.juice.transition(async () => {
@@ -193,7 +221,7 @@ const app = {
       app.mode = 'menu';
       audio.setMuffle(0);
       audio.music.setPlaylist(['menu']);
-      app.screens.board();
+      app.screens.title();
     });
     app.busy = false;
   },
@@ -281,7 +309,8 @@ function makeAttract() {
 
 function showHud(v) {
   app.hud.show(v);
-  app.touch.show(v && app.touchMode);
+  // (one-touch play: the old stick and hoist buttons stay hidden; see bindGlobalInput)
+  app.touch.show(false);
 }
 
 function setCab(on, silent) {
@@ -371,11 +400,13 @@ async function beginRun(level, opts = {}) {
   app.busy = true;
   sdk.gameplayStop();
   // ad break between shifts (never before the first one of a visit)
-  if (app.shiftsStarted > 0 && sdk.available) {
+  if (app.shiftsStarted > 0 && sdk.available && !opts.first) {
     await sdk.midgame({ pause: () => audio.setMuted(true, 'ad'), resume: () => audio.setMuted(false, 'ad') });
   }
   app.shiftsStarted++;
-  await app.juice.transition(async () => {
+  // (the very first load is already behind the loading screen: no doors needed)
+  const cover = opts.first ? async (fn) => fn() : (fn) => app.juice.transition(fn);
+  await cover(async () => {
     app.screens.hide();
     teardownRun();
     app.level = level;
@@ -399,11 +430,12 @@ async function beginRun(level, opts = {}) {
     app.cams.fov = 46;
   });
   app.busy = false;
-  runIntro(level, app.session);
+  runIntro(level, app.session, opts);
 }
 
-async function runIntro(level, s) {
-  const tour = level.tour && !save.data.flags.introSeen;
+async function runIntro(level, s, opts = {}) {
+  // (no tours, no cards: the night starts at the controls)
+  const tour = false;
   const j = app.juice;
   if (tour) {
     j.letterbox(true, app.touchMode ? 'Tap to skip' : 'Click or press Space to skip');
@@ -440,13 +472,16 @@ async function runIntro(level, s) {
     save.commit();
     app.cams.setMode(save.data.settings.cabDefault ? 'cab' : 'chase', skipped ? 0.9 : 1.8);
     await wait(skipped ? 500 : 1100);
+  } else if (opts.first) {
+    // first ever load: straight into the cab with a box on the hook
+    app.cams.setMode('chase', 0);
   } else {
-    app.cams.setMode(save.data.settings.cabDefault ? 'cab' : 'chase', 2.0);
-    const t1 = level.endless ? 'OVERTIME' : level.daily ? 'TONIGHT’S SHIFT' : `SHIFT ${String(level.n).padStart(2, '0')}`;
+    app.cams.setMode(save.data.settings.cabDefault ? 'cab' : 'chase', 1.2);
+    const t1 = level.endless ? 'CLOCKED IN' : level.daily ? 'TONIGHT’S SHIFT' : `SHIFT ${String(level.n).padStart(2, '0')}`;
     const t2 = level.endless ? s.ship.name : level.daily ? level.twists.map((t) => t.name).join(' · ') : `${level.name} · ${level.clock}`;
-    j.banner(t1, t2, 2300);
+    j.banner(t1, t2, 2000);
     audio.play('sax_start', { vol: 0.8, delay: 0.15 });
-    await wait(1700);
+    await wait(level.endless ? 900 : 1500);
   }
   if (app.session !== s) return;
   setCab(app.cams.mode === 'cab');
@@ -455,16 +490,12 @@ async function runIntro(level, s) {
   showHud(true);
   s.start();
   if (level.endless) {
-    s.time = level.bonusTime + 30;
-    s.timeTotal = s.time;
+    // tonight's episode of the Pier Seven file rides in on the second ship
+    s.onShip = (def, n) => injectEpisode(def, n);
+    if (opts.first || (save.data.flags.coach || 0) === 0) s.prehook();
+    app.hud.setMoney(save.data.money, app.canUpgrade());
   }
-  if (level.tutorial && !save.data.flags.tutorialDone) {
-    app.tutorial = new Tutorial(s, { touch: app.touchMode });
-    app.tutorial.onDone = () => {
-      save.data.flags.tutorialDone = true;
-      save.commit();
-    };
-  } else if (level.feature && !(save.data.shifts[level.id] || {}).stars) {
+  if (level.feature && !(save.data.shifts[level.id] || {}).stars) {
     j.toast({ text: `${level.feature.title}: ${level.feature.text}`, kind: 'info', dur: 7000 });
     if (level.also) app.after(7.5, () => j.toast({ text: `${level.also.title}: ${level.also.text}`, kind: 'info', dur: 7000 }), s);
   }
@@ -483,6 +514,61 @@ function buzz(pattern) {
   try {
     navigator.vibrate(pattern);
   } catch (e) {}
+}
+
+/** Money in: coins fly from `pos` to the wallet, which counts up as they land. */
+function earn(amount, pos) {
+  const d = save.data;
+  d.money += amount;
+  d.stats.earned += amount;
+  save.commit();
+  let shown = app._walletShown == null ? d.money - amount : app._walletShown;
+  app._walletShown = shown;
+  app.juice.coins(pos, amount, app.hud.el.wallet, (share, last) => {
+    app._walletShown = last ? save.data.money : Math.min(save.data.money, app._walletShown + share);
+    app.hud.setMoney(app._walletShown, app.canUpgrade());
+  });
+  updatePort(true);
+}
+
+/** Lifetime boxes (yours and the crew's) decide how big the port has grown. */
+function updatePort(announce) {
+  const st = save.data.stats;
+  const l = portLevel((st.placed || 0) + (st.crew || 0) + (app.session && app.session.stats ? app.session.stats.placed : 0));
+  if (l === app.harbor.portLevel) return;
+  const grew = app.harbor.portLevel != null && l > app.harbor.portLevel;
+  app.harbor.setPortLevel(l);
+  if (grew && announce) {
+    app.juice.toast({ text: ['', 'Pier Seven is growing: the gate sign is lit', 'The neighbouring berths have opened', 'The yard is filling up', 'More stacks, more ships — the port keeps growing', 'Pier Seven is the busiest berth on the coast'][l] || 'The port has grown', kind: 'good', key: 'port' + l, dur: 4200 });
+    audio.play('sting_levelup', { vol: 0.7 });
+  }
+}
+
+/** Tonight's black box joins the second ship of the night, once per calendar day. */
+function injectEpisode(def, n) {
+  if (n !== 1) return def;
+  const key = episodeFor(save.data.story, todayKey());
+  if (!key) return def;
+  const m = def.manifest.slice();
+  m.splice(Math.min(2, m.length), 0, { zone: 'ANY', type: 'black', black: true, episode: key });
+  return { ...def, manifest: m };
+}
+
+function recordEpisode(s, key, outcome) {
+  const st = (save.data.story = save.data.story || { boxes: {}, opened: {}, ending: null });
+  if (st.boxes[key]) return;
+  st.boxes[key] = outcome;
+  st.lastEpisode = todayKey();
+  if (outcome === 'ship') earn(300 + (BLACK_BOXES[key] ? BLACK_BOXES[key].n * 40 : 0), s.rig.sprPos.clone());
+  const end = epilogue(st);
+  if (end) st.ending = end.id;
+  save.commit(true);
+  // every episode ends on tomorrow
+  app.after(9, () => {
+    app.radio.say(CLIFFHANGERS[key]);
+    if (end) app.after(6, () => app.juice.toast({ text: 'The Pier Seven file is complete — the morning paper is in your Logbook', kind: 'good', dur: 6000 }), s);
+    else app.after(7, () => app.juice.toast({ text: 'Episode complete · the next box arrives tomorrow night', kind: 'info', key: 'ep', dur: 5000 }), s);
+  }, s);
 }
 
 function bindSession(s) {
@@ -511,20 +597,35 @@ function bindSession(s) {
     buzz([60, 50, 90]);
   });
   s.on('shipDone', (e) => {
-    j.banner('SHIP LOADED', `+${e.bonus} · next vessel inbound`, 3000);
-    sdk.happytime();
+    const cash = Math.round(e.bonus * 0.3);
+    if (e.complete) {
+      j.banner('SHIP LOADED', cash ? `+$${cash} full-ship bonus · next vessel inbound` : 'next vessel inbound', 2600);
+      sdk.happytime();
+    } else j.banner('SHIP SAILED', `${e.placed} of ${e.quota} aboard · next vessel inbound`, 2600);
+    if (cash) earn(cash, s.ship.group.position);
+    // the very first ship: now the game can introduce itself
+    if (!save.data.flags.played) {
+      save.data.flags.played = true;
+      save.commit();
+      app.after(3.2, () => {
+        j.banner('NIGHT SHIFT CRANE', 'Pier Seven · your shift has begun', 3200);
+        app.radio.say([{ who: 'dispatch', text: 'Nice work, Seven. Ships keep coming all night — fill each one before its clock runs out.' }, { who: 'dispatch', text: 'Every box pays. Spend it in the workshop. And keep your radio on.' }]);
+      }, s);
+    }
+    // a natural break for an ad, now and then
+    if (sdk.available && e.n % 5 === 0) app.after(4.5, () => sdk.midgame({ pause: () => audio.setMuted(true, 'ad'), resume: () => audio.setMuted(false, 'ad') }), s);
   });
   s.on('shipIncoming', (e) => {
     app.hud.build(s.level, s);
     j.toast({ text: `${e.def.ship.name} is coming alongside`, kind: 'info', dur: 4200 });
   });
   s.on('shipDocked', (e) => {
-    j.banner(e.def.ship.name, `Ship ${e.n} · +${e.bonusTime}s on the clock`, 2600);
+    j.banner(e.def.ship.name, `Ship ${e.n} · ${e.def.manifest.filter((m) => !m.black).length} boxes · ${Math.round(s.timeTotal)}s on the clock`, 2400);
   });
   s.on('finish', (res) => onFinish(s, res));
   // ---- the Pier Seven file
   s.on('truck', ({ cargo }) => {
-    const box = BLACK_BOXES[s.level.id];
+    const box = BLACK_BOXES[cargo.episode || s.level.id];
     if (cargo.black) {
       app.harbor.surge = 1.6;
       app.crew.react('wince', 2.2);
@@ -547,7 +648,9 @@ function bindSession(s) {
     }
   });
   s.on('black', (e) => {
-    const box = BLACK_BOXES[s.level.id];
+    const key = (e.cargo && e.cargo.episode) || s.level.id;
+    const box = BLACK_BOXES[key];
+    if (e.cargo && e.cargo.episode) recordEpisode(s, key, e.outcome);
     const out = box && box[e.outcome];
     if (out && out.say) app.radio.say(out.say, { key: 'black-' + e.outcome });
     if (e.outcome === 'sea') {
@@ -579,6 +682,12 @@ function bindSession(s) {
     if (Math.random() < 0.4) audio.play('vox_laugh', { delay: 0.6, vol: 0.5 });
   });
   s.on('placed', (e) => {
+    // the main shift pays per box, straight into the wallet
+    if (s.endless && e.pts > 0) {
+      e.cargo.mesh.getWorldPosition(_tmp);
+      earn(Math.round(e.pts * 0.25), _tmp.clone());
+    }
+    app.coach.onPlaced();
     const beat = SHIFT_BEATS[s.level.id];
     if (beat && !s._beatDone && s.delivered >= beat.at && !(save.data.shifts[s.level.id] || {}).stars) {
       s._beatDone = true;
@@ -616,7 +725,7 @@ async function onFinish(s, res) {
   let newBest = false;
   let newStars = 0;
   if (endless) {
-    payout = Math.round(res.score * 0.2);
+    payout = 0; // (the main shift pays as it goes)
     d.endless.runs++;
     if (res.score > d.endless.best) {
       d.endless.best = res.score;
@@ -695,7 +804,10 @@ async function onFinish(s, res) {
   setCab(false, true);
   app.timers.length = 0;
   setPower(true);
-  if (res.success) {
+  if (endless) {
+    app.juice.banner('CLOCKED OUT', `${res.ships} ship${res.ships === 1 ? '' : 's'} · ${fmtNum(res.score)} points`, 2200);
+    audio.play('horn_ship', { vol: 0.6 });
+  } else if (res.success) {
     app.juice.banner(res.stars >= 3 ? 'FLAWLESS SHIFT' : 'SHIFT COMPLETE', s.ship.name + ' is ready to sail', 2200);
     audio.play('horn_ship', { vol: 0.7 });
     audio.play(res.stars >= 3 ? 'sting_win3' : 'sting_win', { delay: 0.5 });
@@ -782,17 +894,17 @@ async function boot() {
 
   // fonts feed the canvas-drawn textures, so wait for them (briefly)
   const fonts = ['400 32px "Saira Stencil One"', '700 32px "Barlow Condensed"', '400 32px "Bungee"'];
-  await Promise.race([Promise.all(fonts.map((f) => (document.fonts && document.fonts.load ? document.fonts.load(f) : null))).catch(() => {}), wait(2500)]);
+  await Promise.race([Promise.all(fonts.map((f) => (document.fonts && document.fonts.load ? document.fonts.load(f) : null))).catch(() => {}), wait(1200)]);
   setLoad(0.12, 'Warming up the winches…');
 
   try {
     await initPhysics();
   } catch (e) {
     fail('Could not start the physics engine (WebAssembly is unavailable).');
+    if (typeof __DEV__ !== 'undefined' && __DEV__) console.error('physics init', e && (e.stack || e.message || e));
     return;
   }
-  setLoad(0.2, 'Loading the night’s sounds…');
-  const audioLoad = audio.load((p) => setLoad(0.2 + p * 0.55));
+  setLoad(0.35, 'Building the pier…');
 
   // ---- world
   initMaterials({ mobile });
@@ -830,7 +942,8 @@ async function boot() {
   app.tug = new Tug(scene);
   app.gulls = new Gulls(scene, mobile ? 4 : 7);
   app.wet = new WetShine(scene, { y: DIM.QUAY_Y, bounds: { minX: -90, maxX: -0.3, halfZ: 160 }, count: mobile ? 12 : 22 });
-  app.hud = new Hud({ onPause: () => app.pause(), onCamera: toggleCamera, touch: app.touchMode });
+  app.hud = new Hud({ onPause: () => app.pause(), onCamera: toggleCamera, onUpgrade: () => app.openWorkshopInPlay(), touch: app.touchMode });
+  app.coach = new Coach(save, () => app.touchMode);
   app.screens = new Screens(app);
   app.ctx = { scene, harbor: app.harbor, water: app.water, weather: app.weather, fx: app.fx, crane: app.crane, cams: app.cams, save, mobile };
 
@@ -848,39 +961,132 @@ async function boot() {
   // compile shaders + upload textures before the doors open
   gfx.renderer.compile(scene, camera);
   bindGlobalInput();
-  await Promise.all([audioLoad, sdkReady.catch(() => {})]);
+  // the platform gets a moment to answer; sounds stream in after the first frame
+  await Promise.race([sdkReady.catch(() => {}), wait(1500)]);
+  // signed-in CrazyGames players carry their progress between devices
+  if (save.attachCloud(sdk.data)) {
+    app.applySettings();
+    app.applyPaint();
+  }
   setLoad(1, 'Ready');
   sdk.loadingStop();
-
+  updatePort(false);
+  const idle = idleEarnings();
+  save.data.lastSeen = Date.now();
+  save.commit();
   startAmbience();
-  app.mode = 'menu';
-  app.screens.title();
-  audio.music.setPlaylist(['menu']);
   requestAnimationFrame(frame);
-  await wait(350);
+  const first = !save.data.flags.played && !(save.data.stats.placed > 0);
+  if (first) {
+    // a brand-new player starts at the controls, a box on the hook
+    app.mode = 'menu';
+    await app.startEndless(true);
+  } else {
+    app.mode = 'menu';
+    if (idle) app.screens.welcome(idle);
+    else app.screens.title();
+    audio.music.setPlaylist(['menu']);
+  }
+  await wait(250);
   $('loading').classList.add('out');
   setTimeout(() => $('loading').remove(), 800);
+  setTimeout(() => audio.load(), 400);
 }
 
+/** What the night crew got done while the player was away (up to eight hours of it). */
+function idleEarnings() {
+  const d = save.data;
+  if (!d.lastSeen || !d.flags.played) return null;
+  const mins = (Date.now() - d.lastSeen) / 60000;
+  if (mins < 10) return null;
+  const hrs = Math.min(8, mins / 60);
+  const l = app.harbor.portLevel || 0;
+  const boxes = Math.max(1, Math.floor(hrs * (6 + 4 * l)));
+  return { boxes, cash: boxes * (12 + 5 * l), hrs, episode: !!episodeFor(d.story, todayKey()) };
+}
+
+/** Collect the crew's takings (doubled after a rewarded ad when the platform offers one). */
+app.collectIdle = async (idle, double) => {
+  if (double && sdk.available) {
+    const r = await sdk.rewarded({ pause: () => audio.setMuted(true, 'ad'), resume: () => audio.setMuted(false, 'ad') });
+    if (!r.rewarded) double = false;
+  }
+  const cash = idle.cash * (double ? 2 : 1);
+  const d = save.data;
+  d.money += cash;
+  d.stats.earned += cash;
+  d.stats.crew = (d.stats.crew || 0) + idle.boxes;
+  save.commit(true);
+  audio.play('ui_cash');
+  updatePort(true);
+  app.screens.title();
+};
+
 // ====================================================================== input glue
+
+const _ray = new THREE.Raycaster();
+const _ndc = new THREE.Vector2();
+const _plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -5);
+const _hit = new THREE.Vector3();
+/** Screen point -> the spot on the quay / deck under it (a plane at roughly box-top height). */
+function pickGround(cx, cy) {
+  _ndc.set((cx / window.innerWidth) * 2 - 1, -(cy / window.innerHeight) * 2 + 1);
+  _ray.setFromCamera(_ndc, app.camera);
+  return _ray.ray.intersectPlane(_plane, _hit);
+}
 
 function bindGlobalInput() {
   const canvas = $('game');
   let drag = null;
+  let finger = null;
   canvas.addEventListener('pointerdown', (e) => {
-    if (app.mode !== 'play' || app.cams.mode !== 'chase') return;
+    if (app.mode !== 'play') return;
+    const s = app.session;
+    // one-touch play: a finger puts the spreader where it points; a tap locks or lets go
+    if (e.pointerType === 'touch' && s && !s.attract) {
+      app.setTouchMode(true);
+      finger = { id: e.pointerId, x: e.clientX, y: e.clientY, moved: false, t: performance.now() };
+      try {
+        canvas.setPointerCapture(e.pointerId);
+      } catch (err) {}
+      return;
+    }
+    if (app.cams.mode !== 'chase') return;
     drag = { id: e.pointerId, x: e.clientX, y: e.clientY, yaw: app.cams.yaw, pitch: app.cams.pitch };
     try {
       canvas.setPointerCapture(e.pointerId);
     } catch (err) {}
   });
   canvas.addEventListener('pointermove', (e) => {
+    if (finger && e.pointerId === finger.id) {
+      if (!finger.moved && Math.hypot(e.clientX - finger.x, e.clientY - finger.y) < 12) return;
+      finger.moved = true;
+      const p = pickGround(e.clientX, e.clientY);
+      if (p && app.session) app.session.setTarget(p.x, p.z, true);
+      return;
+    }
     if (!drag || e.pointerId !== drag.id) return;
     const k = 2.4 / Math.max(320, window.innerHeight);
     app.cams.yaw = clamp(drag.yaw - (e.clientX - drag.x) * k, -0.95, 1.05);
     app.cams.pitch = clamp(drag.pitch + (e.clientY - drag.y) * k, -0.24, 0.6);
   });
   const end = (e) => {
+    if (finger && e.pointerId === finger.id) {
+      const s = app.session;
+      if (s && app.mode === 'play') {
+        if (!finger.moved && performance.now() - finger.t < 450) input.fire('lock');
+        else {
+          // let go: settle on whatever the finger was obviously aiming for
+          const p = pickGround(e.clientX, e.clientY);
+          if (p) {
+            const t = s.snapTarget(p.x, p.z);
+            s.setTarget(t.x, t.z, false);
+          } else if (s.target) s.target.held = false;
+        }
+      }
+      finger = null;
+      return;
+    }
     if (drag && e.pointerId === drag.id) drag = null;
   };
   canvas.addEventListener('pointerup', end);
@@ -1271,8 +1477,19 @@ function tick(raw) {
   if (app.mode === 'play' && s) {
     const hs = s.hud();
     app.hud.update(hs);
-    if (app.touchMode) app.touch.setAction(hs.action, hs.state);
     applyCabGhost(app.cams.mode === 'cab' ? s.rig.carry : null);
+  }
+  // coaching (one prompt at a time) and the automatic helpers it hands out
+  if (app.mode === 'play' && s && !s.attract && !app.tutorial) {
+    app.coach.update(s);
+    app.coach.tick(dt);
+  } else app.coach.hide();
+  // a heartbeat for the night crew's clock
+  app._seenT = (app._seenT || 0) - raw;
+  if (app._seenT < 0) {
+    app._seenT = 20;
+    save.data.lastSeen = Date.now();
+    save.commit();
   }
   updateAmbience(dt);
   audio.update();

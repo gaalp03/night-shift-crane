@@ -16,10 +16,11 @@ export function cargoChip(spec, cls = '') {
 }
 
 export class Hud {
-  constructor({ onPause, onCamera, touch }) {
+  constructor({ onPause, onCamera, onUpgrade, touch }) {
     this.root = document.getElementById('hud');
     this.onPause = onPause;
     this.onCamera = onCamera;
+    this.onUpgrade = onUpgrade;
     this.touch = touch;
     this.cache = {};
     this.el = {};
@@ -61,8 +62,11 @@ export class Hud {
     e.scoreLbl = h('div.lbl', endless ? 'Overtime score' : 'Score');
     const scoreplate = h('div.scoreplate.plate', e.scoreLbl, e.score, endless ? null : e.starbar);
     e.combo = h('div.combo', 'COMBO');
-    e.strikes = h('div.strikes.plate');
-    r.appendChild(h('div.hud-tr', h('div.hud-btns', e.camBtn, e.pauseBtn), scoreplate, e.combo, e.strikes));
+    // wallet: coins from every box fly in here; the upgrade chip lights up when something is affordable
+    e.walletVal = h('span', '0');
+    e.wallet = h('div.wallet.plate', { html: icon('coin') }, e.walletVal);
+    e.upgrade = h('button.btn.small.upgrade.hidden', { onclick: () => this.onUpgrade && this.onUpgrade(), html: icon('wrench') + 'Upgrade' });
+    r.appendChild(h('div.hud-tr', h('div.hud-btns', e.camBtn, e.pauseBtn), scoreplate, e.wallet, e.upgrade, e.combo));
 
     // --- bottom left: wind, reefers
     e.windNeedle = h('i');
@@ -146,11 +150,7 @@ export class Hud {
     });
     this._set('combo', s.combo >= 2 ? s.combo : 0, (v) => {
       e.combo.classList.toggle('on', v >= 2);
-      if (v >= 2) e.combo.textContent = `COMBO x${(1 + 0.1 * Math.min(10, v - 1)).toFixed(1)}`;
-    });
-    this._set('strikes', s.strikes + '/' + s.maxStrikes, () => {
-      e.strikes.innerHTML = '';
-      for (let i = 0; i < s.maxStrikes; i++) e.strikes.appendChild(h(i < s.strikes ? 'i.gone' : 'i'));
+      if (v >= 2) e.combo.textContent = `COMBO x${s.mult.toFixed(1)}`;
     });
     // queue: parked truck first, then what is still to arrive
     const qk = s.waiting.map((c) => c.id).join(',') + '|' + s.next.length + '|' + (s.next[0] ? s.next[0].zone + s.next[0].type : '') + '|' + s.shipIndex;
@@ -219,6 +219,23 @@ export class Hud {
     this._set('ship', s.ship.name, (v) => {
       e.shipName.textContent = v;
     });
+  }
+
+  /** Wallet readout; `canBuy` lights the upgrade chip. */
+  setMoney(v, canBuy) {
+    const e = this.el;
+    if (!e.walletVal) return;
+    if (this.cache.money !== v) {
+      this.cache.money = v;
+      e.walletVal.textContent = fmtNum(v);
+      e.wallet.classList.remove('bump');
+      void e.wallet.offsetWidth;
+      e.wallet.classList.add('bump');
+    }
+    if (this.cache.canBuy !== canBuy) {
+      this.cache.canBuy = canBuy;
+      e.upgrade.classList.toggle('hidden', !canBuy);
+    }
   }
 
   setCameraMode(mode) {

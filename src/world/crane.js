@@ -333,6 +333,8 @@ export class CraneView {
     this.spreaderMesh = v.mesh(MAT.vox);
     this.spreader.add(this.spreaderMesh);
 
+    this._buildFlippers(P);
+
     // telescopic ends: they slide out to forty-foot length when a long box is near
     const EXT = (DIM.L40 - DIM.CONT_L) / 2;
     this.teleEnds = [];
@@ -498,6 +500,36 @@ export class CraneView {
   setPose(gantryZ, trolleyX) {
     this.gantry.position.z = gantryZ;
     this.trolley.position.x = trolleyX;
+  }
+
+  /** Wide Spreader upgrade: longer, splayed guide flippers at the four corners. */
+  setFlippers(level) {
+    if (level === this.flipLevel) return;
+    this.flipLevel = level;
+    this._buildFlippers(PAINTS[this.paintId] || PAINTS.yellow);
+  }
+
+  _buildFlippers(P) {
+    if (this.flipMesh) {
+      this.spreader.remove(this.flipMesh);
+      this.flipMesh.geometry.dispose();
+      this.flipMesh = null;
+    }
+    const l = this.flipLevel || 0;
+    if (!l) return;
+    const v = new Vox();
+    const hw = DIM.CONT_W / 2 - 0.05;
+    const hl = DIM.CONT_L / 2 - 0.05;
+    const hy = DIM.SPR_H / 2;
+    const len = 0.5 + l * 0.32;
+    for (const sx of [-1, 1]) {
+      for (const sz of [-1, 1]) {
+        v.box(sx * (hw + 0.14 + l * 0.05), -hy - len / 2 + 0.05, sz * (hl - 0.5), 0.12, len, 0.62, P.trim, [0, 0, sx * (0.32 + l * 0.05)]);
+        v.box(sx * (hw - 0.5), -hy - len / 2 + 0.05, sz * (hl + 0.14 + l * 0.05), 0.62, len, 0.12, P.trim, [-sz * (0.32 + l * 0.05), 0, 0]);
+      }
+    }
+    this.flipMesh = v.mesh(MAT.vox);
+    this.spreader.add(this.flipMesh);
   }
 
   /** Telescope the spreader out to forty feet (true) or back to twenty (false). */

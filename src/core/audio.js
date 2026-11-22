@@ -392,8 +392,18 @@ class AudioEngine {
       if (onProgress) onProgress(1);
       return;
     }
+    if (this._loading) return this._loading;
+    // gameplay never waits for this: the sounds the first box needs come first, the long
+    // ambience beds (most of the bytes) last
+    const first = ['lock', 'unlock', 'perfect', 'great', 'good', 'ui_coin', 'ui_cash', 'impact_deck', 'impact_light', 'impact_med', 'chain', 'ui_click', 'ui_toast', 'air_brake', 'motor_trolley', 'motor_hoist', 'motor_gantry', 'radio_in', 'radio_out', 'beep', 'hydraulic'];
+    const weight = (k) => {
+      const i = first.indexOf(k);
+      if (i >= 0) return i;
+      return this.defs[k].bus === 'amb' ? 1000 : 100;
+    };
+    const keys = Object.keys(this.defs).sort((a, b) => weight(a) - weight(b));
     const files = new Set();
-    for (const k in this.defs) for (const f of this.defs[k].files) files.add(f);
+    for (const k of keys) for (const f of this.defs[k].files) files.add(f);
     const list = [...files];
     let done = 0;
     const loadOne = async (f) => {
@@ -412,14 +422,15 @@ class AudioEngine {
     // modest parallelism keeps mobile decoders responsive
     const queue = list.slice();
     const workers = [];
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < 4; i++) {
       workers.push(
         (async () => {
           while (queue.length) await loadOne(queue.shift());
         })()
       );
     }
-    await Promise.all(workers);
+    this._loading = Promise.all(workers);
+    return this._loading;
   }
 
   setListener(camera) {
@@ -502,17 +513,33 @@ class AudioEngine {
     const def = this.defs[name];
     const dummy = { set() {}, stop() {}, start() {}, playing: false };
     if (!this.ctx || !def) return dummy;
-    const buf = this.buffers.get(def.files[0]);
-    if (!buf) return dummy;
     const bus = this.buses[def.bus || 'amb'];
     const base = def.vol == null ? 1 : def.vol;
-    const inner = def.x ? new XLoop(this, buf, bus, def.x === true ? 1.2 : def.x) : new Loop(this, buf, bus);
+    // the buffer may still be streaming in: the loop starts itself the first time it is driven after it lands
+    let inner = null;
+    let stopped = false;
+    const get = () => {
+      if (inner || stopped) return inner;
+      const buf = this.buffers.get(def.files[0]);
+      if (!buf) return null;
+      inner = def.x ? new XLoop(this, buf, bus, def.x === true ? 1.2 : def.x) : new Loop(this, buf, bus);
+      return inner;
+    };
     return {
-      set: (v, r, tc) => inner.set(v * base, r, tc),
-      stop: (f) => inner.stop(f),
-      start: () => inner.start(),
+      set: (v, r, tc) => {
+        const L = get();
+        if (L) L.set(v * base, r, tc);
+      },
+      stop: (f) => {
+        stopped = true;
+        if (inner) inner.stop(f);
+      },
+      start: () => {
+        const L = get();
+        if (L) L.start();
+      },
       get playing() {
-        return inner.playing;
+        return !!(inner && inner.playing);
       },
     };
   }

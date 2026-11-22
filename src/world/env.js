@@ -567,6 +567,9 @@ export class Harbor {
             const hgt = Math.max(0, Math.floor(rng() * 5.2) - (bx === 0 ? 1 : 0));
             for (let t = 0; t < hgt; t++) {
               spots.push({
+                t,
+                bx,
+                k: rng(),
                 x: ox - r * 2.75 + (rng() - 0.5) * 0.12,
                 y: q + DIM.CONT_H / 2 + t * DIM.CONT_H,
                 z: oz + b * 6.6 + (rng() - 0.5) * 0.16,
@@ -578,7 +581,11 @@ export class Harbor {
         }
       }
     }
+    // the yard fills bottom tier first, nearest blocks first: setPortLevel shows a growing share of it
+    spots.sort((a, b) => a.t - b.t || a.bx - b.bx || a.k - b.k);
+    // (a stack never floats: a spot comes after the one beneath it because tiers sort first)
     const inst = new THREE.InstancedMesh(geo, mat, spots.length);
+    this.yardTotal = spots.length;
     const m = new THREE.Matrix4();
     const qq = new THREE.Quaternion();
     const e = new THREE.Euler();
@@ -754,7 +761,9 @@ export class Harbor {
     v.box(tx, q + 6.2, tz, 0.5, 11.6, 0.5, 0x23292e);
     v.box(tx + 0.3, q + 8.6, tz + 0.3, 0.16, 8.6, 3.3, 0x0e1215, [0, Math.PI / 4, 0]);
     v.box(tx, q + 12.9, tz, 0.9, 0.3, 0.9, 0x23292e);
-    this.group.add(v.mesh(MAT.vox));
+    this.gateTotem = v.mesh(MAT.vox);
+    this.group.add(this.gateTotem);
+    const gateFrom = this.neons.length;
     const face = (m, y) => {
       m.position.set(tx + 0.42, q + y, tz + 0.42);
       m.rotation.y = Math.PI / 4;
@@ -763,6 +772,7 @@ export class Harbor {
     add(face(neonSign('PIER', 1.5, { color: '#35f0e0', gain: 1.5, pad: 44 }), 11.7), 0x35f0e0, { base: 0.5 });
     add(face(neonSign('7', 4.4, { color: '#ff4fa3', gain: 1.6, pad: 50 }), 9.2), 0xff4fa3, { base: 1.0, bad: true, halo: 13, width: 3 });
     for (let i = 0; i < 3; i++) add(face(neonSign('V', 1.35, { color: '#ffb347', gain: 1.5, pad: 40 }), 6.5 - i * 0.95), 0xffb347, { base: 0.35, chase: i });
+    this.gateNeons = this.neons.slice(gateFrom);
 
     // --- berth marker lights along the quay wall, just above the waterline
     const g = new Vox();
@@ -939,7 +949,9 @@ export class Harbor {
     for (let i = 0; i < 6; i++) g.box(-40 + i * -6, q + 7, -106.9, 2.2, 1.2, 0.1, 0xffd9a0, null, 0.4);
     const m = v.mesh(new THREE.MeshLambertMaterial({ vertexColors: true }), { cast: false, receive: false });
     this.group.add(m);
-    this.group.add(g.mesh(MAT.glow, { cast: false, receive: false }));
+    // (the neighbouring berths only light up once the port has grown: see setPortLevel)
+    this.farGlow = g.mesh(MAT.glow, { cast: false, receive: false });
+    this.group.add(this.farGlow);
   }
 
   // ---------------------------------------------------------------- windsock + far traffic
@@ -1050,6 +1062,25 @@ export class Harbor {
     }
     this.snowMesh.visible = k > 0.01;
     this.snowMesh.material.opacity = Math.min(1, k * 1.15);
+  }
+
+  /**
+   * The port grows with everything ever moved across it: fuller yard, the gate sign, and the
+   * neighbouring berths coming to life.
+   */
+  setPortLevel(l) {
+    this.portLevel = l;
+    const share = [0.3, 0.45, 0.6, 0.75, 0.9, 1][Math.min(5, l)];
+    this.yard.count = Math.round(this.yardTotal * share);
+    const gate = l >= 1;
+    this.gateTotem.visible = gate;
+    for (const nz of this.gateNeons) {
+      nz.mesh.visible = gate;
+      if (nz.halo) nz.halo.visible = gate;
+      if (nz.base0 == null) nz.base0 = nz.base;
+      nz.base = gate ? nz.base0 : 0;
+    }
+    if (this.farGlow) this.farGlow.visible = l >= 2;
   }
 
   /** 0..1 visibility of the far shore (fog shifts lower this). */

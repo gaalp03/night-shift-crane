@@ -31,6 +31,11 @@ export const sdk = {
   get environment() {
     return state.env;
   },
+  /** CrazyGames cloud data (mirrors localStorage for signed-in players); null when not offered. */
+  get data() {
+    const d = state.ready && state.sdk && state.sdk.data;
+    return d && typeof d.getItem === 'function' && typeof d.setItem === 'function' ? d : null;
+  },
   get adActive() {
     return state.adActive;
   },

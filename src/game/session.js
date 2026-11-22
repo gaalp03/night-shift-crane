@@ -114,6 +114,7 @@ export class Session extends Emitter {
       mods: { trolley: this.mods.trolley, gantry: this.mods.gantry, hoist: this.mods.hoist, sway: TUNE.swayDamp * this.mods.swayMul },
     });
     this.guides = new Guides(scene);
+    crane.setFlippers(this.mods.spreader);
     harbor.clearPickupMarks();
     harbor.markPickup(this.lanes[0].x, this.lanes[0].z);
     if (this._needsLane2()) harbor.markPickup(this.lanes[1].x, this.lanes[1].z);
@@ -155,6 +156,7 @@ export class Session extends Emitter {
   _newCargo(spec, brand) {
     const c = new Cargo({ zone: spec.zone, type: spec.type, brand: (brand == null ? this.cargos.length : brand) % BRAND_COUNT, mobile: this.ctx.mobile, check: !!spec.check });
     c.mass = c.typeDef.mass;
+    if (spec.episode) c.episode = spec.episode;
     // what the papers say it weighs, and what the load cell will say
     const range = { std: [9, 21], heavy: [28, 30.4], fragile: [6, 11], reefer: [14, 22], hazmat: [12, 20], black: [17, 19] }[c.type] || [9, 21];
     c.declT = Math.round(rand(range[0], range[1]) * 10) / 10;
@@ -173,7 +175,193 @@ export class Session extends Emitter {
 
   start() {
     this.phase = 'play';
+    if (this.endless) this.time = this.timeTotal = this.level.roundTime * this.mods.timeMul;
     this.emit('start');
+  }
+
+  /** Upgrades bought mid-run take effect at once. */
+  refreshMods() {
+    this.mods = upgradeMods(this.ctx.save.data.upgrades);
+    this.lockTol = TUNE.lockTol * this.mods.tolMul;
+    Object.assign(this.rig.mods, { trolley: this.mods.trolley, gantry: this.mods.gantry, hoist: this.mods.hoist, sway: TUNE.swayDamp * this.mods.swayMul });
+    this.ctx.crane.setFlippers(this.mods.spreader);
+  }
+
+  /** Combo multiplier: the main (endless) mode climbs to x3, the challenge shifts to x2. */
+  multFor(combo) {
+    return 1 + (this.endless ? 0.2 : 0.1) * Math.min(10, Math.max(0, combo - 1));
+  }
+
+  /**
+   * Opening of the very first night: the first box already hangs on the spreader, seated over
+   * its slot, so the first thing the player ever does is let go of it.
+   */
+  prehook() {
+    const ship = this.ship;
+    const spec = this.manifest[this.manifestIdx++];
+    const c = this._newCargo(spec);
+    // the free deck cell nearest the quay, in a bay that takes this box
+    let cell = null;
+    for (let r = 0; r < ship.rows && !cell; r++) for (let b = 0; b < ship.bays && !cell; b++) if (this._zoneOk(c, r, b) && !this._ruleProblem(c, r, b) && ship.height(r, b) === 0) cell = { r, b };
+    if (!cell) cell = { r: 0, b: 0 };
+    const wp = ship.localToWorld(ship.cellLocal(cell.r, cell.b, 0));
+    const rig = this.rig;
+    rig.reset(wp.x, wp.z, 7);
+    this.ctx.scene.add(c.mesh);
+    c.state = 'carried';
+    rig.attach(c);
+    // settle the rope so the box hangs a hand's width over the deck
+    for (let k = 0; k < 4; k++) {
+      for (let i = 0; i < 6; i++) this._fixedStep(1 / 60, true);
+      const gap = rig.bottomWorld(_v).y - (DIM.DECK_Y + 0.12 + ship.pose.y) - 0.07;
+      rig.rope = clamp(rig.rope + gap, DIM.ROPE_MIN, DIM.ROPE_MAX);
+      rig._setRope(rig.rope);
+    }
+    for (let i = 0; i < 30; i++) this._fixedStep(1 / 60, true);
+    this.carryT = 0;
+    c.pickedAt = this.elapsed;
+    this._syncVisuals(0);
+    this.prehooked = c;
+    return c;
+  }
+
+  // ---------------------------------------------------------------- automation (one-touch play + coaching)
+
+  /** Point the crane at (x, z); `held` = a finger is still on it (nothing automatic happens meanwhile). */
+  setTarget(x, z, held) {
+    if (x == null) {
+      this.target = null;
+      return;
+    }
+    this.target = this.target || {};
+    this.target.x = clamp(x, DIM.TROLLEY_MIN_X, DIM.TROLLEY_MAX_X);
+    this.target.z = clamp(z, -DIM.GANTRY_RANGE, DIM.GANTRY_RANGE);
+    this.target.held = !!held;
+  }
+
+  /** Where a released finger most likely meant: the nearest box to pick up, or the nearest legal slot. */
+  snapTarget(x, z) {
+    const ship = this.ship;
+    let best = null;
+    let bd = 3.2;
+    const consider = (px, pz) => {
+      const d = Math.hypot(px - x, (pz - z) * 0.7);
+      if (d < bd) {
+        bd = d;
+        best = { x: px, z: pz };
+      }
+    };
+    const c = this.rig.carry;
+    if (!c) {
+      for (const k of this.cargos) {
+        if (k.state === 'truck' && k.truck && k.truck.parked && !k.truck.departing && k.truck.purpose === 'deliver') consider(k.truck.laneX, k.truck.z + k.truck.zOff);
+        else if ((k.state === 'loose' && k.settled && !k.inWater) || (k.state === 'locked' && (k.discharge || k.misplaced) && ship.top(k.cell.r, k.cell.b) === k)) {
+          k.mesh.getWorldPosition(_v);
+          consider(_v.x, _v.z);
+        }
+      }
+    } else {
+      for (let r = 0; r < ship.rows; r++) {
+        for (let b = 0; b < ship.bays - (c.long ? 1 : 0); b++) {
+          if (!this._zoneOk(c, r, b) || this._ruleProblem(c, r, b)) continue;
+          const lp = c.long ? ship.pairLocal(r, b, 0) : ship.cellLocal(r, b, 0);
+          ship.localToWorld(lp, _v);
+          consider(_v.x, _v.z);
+        }
+      }
+      for (const tr of this.trucks) if (tr.parked && !tr.cargo && (tr.purpose === 'collect' || tr.purpose === 'customs')) consider(tr.laneX, tr.z + tr.zOff);
+    }
+    return best || { x, z };
+  }
+
+  /** Steer trolley and gantry towards the target, braking in time. */
+  _steer(ctl) {
+    const T = this.target;
+    const rig = this.rig;
+    const axis = (err, v, vmax, acc) => {
+      if (Math.abs(err) < 0.04 && Math.abs(v) < 0.15) return 0;
+      const want = Math.sign(err) * Math.min(vmax, Math.sqrt(2 * acc * Math.abs(err)) * 0.8);
+      return clamp(want / vmax + (want - v) * 0.6, -1, 1);
+    };
+    ctl.x = axis(T.x - rig.x, rig.vx, TUNE.trolleySpeed * this.mods.trolley, TUNE.trolleyAccel);
+    ctl.z = axis(T.z - rig.z, rig.vz, TUNE.gantrySpeed * this.mods.gantry, TUNE.gantryAccel);
+  }
+
+  /** Is a box that wants picking up right under the spreader (any height)? */
+  _boxBelow(tol) {
+    const sp = this.rig.sprPos;
+    for (const k of this.cargos) {
+      let ok = false;
+      if (k.state === 'truck') ok = k.truck && k.truck.parked && !k.truck.departing && k.truck.purpose === 'deliver';
+      else if (k.state === 'loose') ok = k.settled && !k.inWater;
+      else if (k.state === 'locked') ok = (k.misplaced || k.discharge) && this.ship.top(k.cell.r, k.cell.b) === k;
+      if (!ok) continue;
+      k.mesh.getWorldPosition(_v2);
+      if (Math.abs(_v2.x - sp.x) < tol && Math.abs(_v2.z - sp.z) < tol * 1.6 && sp.y > _v2.y) return true;
+    }
+    return false;
+  }
+
+  /** A grab worth making: not a box that is already where it belongs on the ship. */
+  wantedGrab() {
+    const g = this.grab;
+    if (!g) return null;
+    const c = g.cargo;
+    if (c.state === 'locked' && !c.misplaced && !c.discharge && !(c.preload && c.discharge)) return null;
+    return g;
+  }
+
+  /** Automatic hoist: lift clear while travelling, lower onto whatever the spreader is lined up with. */
+  _autoHoist(ctl) {
+    const rig = this.rig;
+    const moving = Math.abs(ctl.x) + Math.abs(ctl.z) > 0.12 || (this.target && Math.hypot(this.target.x - rig.x, this.target.z - rig.z) > 0.6);
+    const swing = Math.hypot(rig.sprVel.x - rig.vx, rig.sprVel.z - rig.vz);
+    const clear = 6.3;
+    let lower = false;
+    if (!moving && swing < 1.3 && !(this.target && this.target.held)) {
+      if (rig.carry) {
+        const s = this.seat;
+        lower = !!(s && s.err < 0.7 && !s.seated && s.problem !== 'full' && s.problem !== 'heavy' && s.problem !== 'uneven' && (s.kind !== 'truck' || !s.problem));
+        if (s && s.seated) return 0;
+      } else {
+        const g = this.wantedGrab();
+        if (g && g.ready) return 0;
+        // (the grab finder only looks a few metres down: from travelling height, check the boxes directly)
+        lower = !!(g && Math.hypot(g.lx, g.lz) < 0.5) || this._boxBelow(0.5);
+      }
+    }
+    if (lower) return -1;
+    return rig.rope > clear + 0.2 ? 1 : 0;
+  }
+
+  /** Automatic lock / release once the spreader is settled where it should be. */
+  _autoActions(dt) {
+    const A = this.auto;
+    if (!A || this.phase !== 'play' || this.controlsLocked || (this.target && this.target.held)) {
+      this._autoT = 0;
+      return;
+    }
+    const rig = this.rig;
+    const wg = this.wantedGrab();
+    if (!rig.carry && A.lock && wg && wg.ready) {
+      this._autoT = (this._autoT || 0) + dt;
+      if (this._autoT > 0.18) {
+        this._autoT = 0;
+        this.tryGrab();
+      }
+      return;
+    }
+    const s = this.seat;
+    const good = s && s.seated && s.valid && (s.kind === 'truck' ? !s.problem : s.zoneOk && !s.problem);
+    if (rig.carry && A.release && rig.carry !== this.holdBack && good) {
+      this._autoT = (this._autoT || 0) + dt;
+      if (this._autoT > 0.3) {
+        this._autoT = 0;
+        this.release();
+      }
+      return;
+    }
+    this._autoT = 0;
   }
 
   setControlsLocked(v) {
@@ -246,6 +434,7 @@ export class Session extends Emitter {
       this.elapsed += dt;
       if ((!this.endless || this.time > 0) && !this.timeFrozen) this.time -= dt;
       this._handleActions();
+      this._autoActions(dt);
       this._updateTrucks(dt);
       this._checkEnd(dt);
     } else {
@@ -288,17 +477,21 @@ export class Session extends Emitter {
       return { x: Math.sin(t * 0.21) * 0.45, z: Math.sin(t * 0.13 + 1) * 0.3, hoist: this.rig.rope > 8.5 ? 0.6 : Math.sin(t * 0.33 + 2) * 0.35 };
     }
     if (this.phase !== 'play' || this.controlsLocked) return { x: 0, z: 0, hoist: 0 };
+    const ctl = { x: this.allow.x ? input.axisX : 0, z: this.allow.z ? input.axisZ : 0, hoist: 0 };
+    // a finger (or any manual axis input, which cancels it) steers the crane to a point
+    if (this.target) {
+      if (Math.abs(ctl.x) + Math.abs(ctl.z) > 0.2) this.target = null;
+      else this._steer(ctl);
+    }
     let hoist = this.allow.hoist ? input.hoist : 0;
+    if (this.auto && this.auto.hoist && Math.abs(hoist) < 0.1) hoist = this._autoHoist(ctl);
     if (hoist < 0 && this.altitude < 2.3) {
       // creep speed for the last couple of metres, like a real hoist: no accidental slams
       const cap = TUNE.creepSpeed / (TUNE.hoistSpeed * this.mods.hoist);
       hoist = Math.max(hoist, -lerp(cap, 1, clamp((this.altitude - 0.4) / 1.9, 0, 1)));
     }
-    return {
-      x: this.allow.x ? input.axisX : 0,
-      z: this.allow.z ? input.axisZ : 0,
-      hoist,
-    };
+    ctl.hoist = hoist;
+    return ctl;
   }
 
   _fixedStep(h, warm = false) {
@@ -373,7 +566,7 @@ export class Session extends Emitter {
         lx: _v3.x,
         lz: _v3.z,
         dy,
-        ready: Math.abs(_v3.x) < TUNE.grabTolX && Math.abs(_v3.z) < TUNE.grabTolZ && dy > -0.3 && dy < 0.34 && yaw < 0.2 && tiltOk,
+        ready: Math.abs(_v3.x) < TUNE.grabTolX * this.mods.grabMul && Math.abs(_v3.z) < TUNE.grabTolZ * this.mods.grabMul && dy > -0.3 && dy < 0.34 && yaw < 0.2 && tiltOk,
         top: new THREE.Vector3(0, c.hy, 0).applyQuaternion(_q).add(_v2),
         quat: _q.clone(),
         pos: _v2.clone(),
@@ -831,7 +1024,7 @@ export class Session extends Emitter {
     if (grade === 'perfect' || grade === 'great') this.combo++;
     else if (grade === 'sloppy' || dropped) this.combo = 0;
     this.bestCombo = Math.max(this.bestCombo, this.combo);
-    const mult = 1 + 0.1 * Math.min(10, Math.max(0, this.combo - 1));
+    const mult = this.multFor(this.combo);
     pts = Math.round(pts * mult);
     if (!c.scored) {
       this.score += pts;
@@ -874,9 +1067,7 @@ export class Session extends Emitter {
     this.score += Math.round(SCORE.lost * this.mods.lossMul);
     audio.play('strike', { delay: 0.25 });
     this.emit('strike', { cargo: c, reason, pos: pos ? pos.clone() : null, strikes: this.strikes, max: this.maxStrikes });
-    if (this.strikes >= this.maxStrikes && this.phase === 'play') {
-      this._failT = 1.6;
-    }
+    // (a lost box costs its bonus and the combo — never the shift)
   }
 
   _removeCargo(c) {
@@ -1411,23 +1602,44 @@ export class Session extends Emitter {
       }
     } else this._doneT = 0;
     if (this.time <= 0 && this.phase === 'play') {
-      if (this.endless) this._finish(false, 'time');
+      // a ship never waits: when its clock runs out it sails with whatever is aboard
+      if (this.endless) this._beginSwap({ timeout: true });
       else this._finish(this.delivered >= Math.ceil(this.quota * 0.6), 'time');
     }
   }
 
   // ====================================================================== endless: ship rotation
 
-  _beginSwap() {
+  _beginSwap(o = {}) {
     this.phase = 'swap';
     this.swapT = 0;
     this.swapStage = 0;
     this.stats.ships++;
-    const bonus = 400 + this.shipIndex * 60;
+    const quota = this.manifest.filter((m) => !m.black).length;
+    const placed = Math.max(0, this.delivered - this.shipBase);
+    const complete = !o.timeout && placed >= quota;
+    // a full ship pays a bonus, more the sooner it is done; a ship that sails short just sails
+    const bonus = complete ? Math.round((150 + this.shipIndex * 25 + Math.max(0, this.time) * 3) * this.multFor(this.combo)) : 0;
     this.score += bonus;
+    // whatever did not make it aboard stays behind
+    if (this.rig.carry) {
+      const c = this.rig.carry;
+      if (c.black) this._blackDone(c, 'left', null);
+      this._removeCargo(c);
+    }
+    for (const c of this.cargos) {
+      if (c.state === 'gone') continue;
+      const stranded = c.state === 'truck' || (c.state === 'loose' && (!c.body || c.body.translation().x <= 1));
+      if (!stranded) continue;
+      if (c.black && !c.resolved) this._blackDone(c, 'left', null);
+      if (c.state === 'truck' && c.truck) c.truck.depart();
+      else this._removeCargo(c);
+    }
+    this.manifestIdx = this.manifest.length;
+    if (o.timeout && !complete) this.combo = 0;
     audio.play('horn_ship', { pos: this.ship.group.position });
-    audio.play('sting_win', { delay: 0.3 });
-    this.emit('shipDone', { n: this.shipIndex + 1, bonus });
+    audio.play(complete ? 'sting_win' : 'ui_warn', { delay: 0.3 });
+    this.emit('shipDone', { n: this.shipIndex + 1, bonus, complete, placed, quota, timeLeft: Math.max(0, this.time) });
     const smug = this._sweep();
     if (smug) this.emit('smuggled', { n: smug });
     // anything loose rides away lashed down
@@ -1460,7 +1672,8 @@ export class Session extends Emitter {
         ship.dispose();
         this.shipIndex++;
         this.shipBase = this.delivered;
-        const def = endlessShip(this.shipIndex, this.seed);
+        let def = endlessShip(this.shipIndex, this.seed);
+        if (this.onShip) def = this.onShip(def, this.shipIndex) || def;
         this.level = def;
         this.manifest = def.manifest.slice();
         this.manifestIdx = 0;
@@ -1485,8 +1698,7 @@ export class Session extends Emitter {
       if (k >= 1) {
         this.ship.offsetZ = 0;
         this.ship.offsetX = 0;
-        this.time = Math.min(this.time + this.level.bonusTime, 420);
-        this.timeTotal = Math.max(this.time, 1);
+        this.time = this.timeTotal = this.level.roundTime * this.mods.timeMul;
         this.phase = 'play';
         this.lanes[0].cool = 0.3;
         audio.play('horn_ship', { pos: this.ship.group.position, vol: 0.7 });
@@ -1753,7 +1965,8 @@ export class Session extends Emitter {
       strikes: this.strikes,
       maxStrikes: this.maxStrikes,
       delivered: this.delivered,
-      quota: this.endless ? this.manifest.length : this.quota,
+      quota: this.endless ? this.manifest.filter((m) => !m.black).length : this.quota,
+      mult: this.multFor(this.combo),
       shipDelivered: this.delivered - this.shipBase,
       carry: c,
       seat: s,
