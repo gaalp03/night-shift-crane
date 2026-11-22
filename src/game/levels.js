@@ -327,8 +327,10 @@ export function endlessShip(n, seed) {
   }
   const rank = (m) => (m.type === 'heavy' ? 0 : m.type === 'long' ? 1 : 2);
   manifest.sort((a, b) => rank(a) - rank(b));
-  const w = ENDLESS_WEATHER[Math.min(ENDLESS_WEATHER.length - 1, n % 7 === 6 ? 5 : Math.min(n, 5))];
-  const cycle = n >= ENDLESS_WEATHER.length ? ENDLESS_WEATHER[2 + ((n * 3) % 4)] : w;
+  // weather turns slowly: a new stage every two ships, the storm not before the eleventh
+  const stage = Math.floor(n / 2);
+  const w = ENDLESS_WEATHER[Math.min(ENDLESS_WEATHER.length - 1, stage)];
+  const cycle = stage >= ENDLESS_WEATHER.length ? ENDLESS_WEATHER[2 + ((n * 3) % 4)] : w;
   return {
     id: 'endless',
     endless: true,
@@ -341,7 +343,7 @@ export function endlessShip(n, seed) {
     // (the first two ships give a newcomer room to learn; after that it is 60-90 seconds a ship)
     roundTime: n < 2 ? 44 + count * 11 : 36 + count * 9,
     bonusTime: 40 + count * 21,
-    weather: n >= ENDLESS_WEATHER.length ? cycle : w,
+    weather: stage >= ENDLESS_WEATHER.length ? cycle : w,
     strikes: 3,
     quota: count,
   };

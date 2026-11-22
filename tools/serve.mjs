@@ -3,9 +3,13 @@ import { createServer } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import { extname, join, normalize, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { gzipSync } from 'node:zlib';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const port = Number(process.argv[2] || 8080);
+// text, code and wasm go out gzipped (as any real CDN would): realistic transfer sizes when testing
+const ZIP = new Set(['.html', '.js', '.css', '.json', '.svg', '.wasm', '.webmanifest']);
+const gz = new Map();
 const types = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
   '.json': 'application/json', '.mp3': 'audio/mpeg', '.ogg': 'audio/ogg', '.wav': 'audio/wav',
@@ -28,6 +32,12 @@ createServer(async (req, res) => {
       const end = m[2] ? Number(m[2]) : st.size - 1;
       res.writeHead(206, { ...head, 'Content-Range': `bytes ${start}-${end}/${st.size}`, 'Content-Length': end - start + 1 });
       res.end(data.subarray(start, end + 1));
+    } else if (ZIP.has(extname(file)) && /\bgzip\b/.test(req.headers['accept-encoding'] || '')) {
+      const k = file + ':' + st.mtimeMs;
+      if (!gz.has(k)) gz.set(k, gzipSync(data, { level: 9 }));
+      const z = gz.get(k);
+      res.writeHead(200, { ...head, 'Content-Encoding': 'gzip', 'Content-Length': z.length, Vary: 'Accept-Encoding' });
+      res.end(z);
     } else {
       res.writeHead(200, { ...head, 'Content-Length': st.size });
       res.end(data);

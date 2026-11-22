@@ -82,7 +82,7 @@ export class Juice {
   coins(pos, amount, target, onCoin) {
     if (!amount) return;
     const n = Math.max(3, Math.min(12, Math.round(amount / 25)));
-    const from = pos ? this.project(pos) : { x: window.innerWidth / 2, y: window.innerHeight * 0.45 };
+    const from = pos && pos.screen ? { x: pos.x, y: pos.y } : pos ? this.project(pos) : { x: window.innerWidth / 2, y: window.innerHeight * 0.45 };
     const r = target ? target.getBoundingClientRect() : { left: window.innerWidth - 60, top: 40, width: 0, height: 0 };
     const tx = r.left + r.width * 0.25;
     const ty = r.top + r.height / 2;

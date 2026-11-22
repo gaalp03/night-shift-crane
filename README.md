@@ -54,6 +54,8 @@ three.js and the Rapier physics engine included — nothing is loaded from a CDN
 ```bash
 npm run build      # src/ -> build/game.js
 npm run watch      # rebuilds build/game.dev.js on change (with dev hooks + source maps)
+npm run serve      # local server (gzip, like a CDN) on :8080
+npm run release    # prod build + release/night-shift-crane-crazygames.zip (index.html at the root)
 ```
 
 `tools/make_audio.py` documents how every file in `assets/audio/` was cut from its source
@@ -63,4 +65,19 @@ recording. See [CREDITS.md](CREDITS.md) for all third-party audio, music, fonts 
 
 The game integrates the CrazyGames HTML5 SDK v3 (loading, gameplay start/stop, happytime, midgame
 ads between shifts, rewarded "second chance"). Every SDK call is a safe no-op when the SDK is not
-present, so the same build runs on GitHub Pages or locally. Progress is stored in `localStorage`.
+present, so the same build runs on GitHub Pages or locally.
+
+- **Straight into play.** No title, menu or tutorial before the first box: the page boots into the
+  night shift with a container on the hook. Only the code, physics (Rapier wasm) and fonts are on the
+  critical path (~0.9 MB gzipped); sounds stream in afterwards, music only once the first-box sounds
+  are in.
+- **Saves** go to `localStorage` and, when the platform offers it, the CrazyGames data module (the
+  newer copy wins). Every reward is written at once; the tab going hidden flushes too.
+- **Coming back:** daily login streak (7-day ladder), the night crew's idle earnings, one Pier Seven
+  episode per day with a cliffhanger, and a "tomorrow night" teaser on the pause card and the slip.
+- **SDK:** loading start/stop, gameplay start/stop around pause, menus, results and ads, happytime on
+  full ships, goals and milestones, platform mute, midgame ads every fifth ship, rewarded doubling.
+- **Analytics:** `src/core/analytics.js` sends `game_loaded`, `first_input`, `first_reward`,
+  `round_complete`, `upgrade_bought`, `daily_reward_claim`, `idle_collect`, `return_day_N` and
+  `session_end` (with `duration_s`) to ByteBrew when its web SDK is on the page, to
+  `window.NSC_ANALYTICS(name, params)` if defined, or to sinks added with `nscAnalytics.addSink(fn)`.

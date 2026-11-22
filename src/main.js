@@ -19,8 +19,11 @@ import { Crew } from './world/crew.js';
 import { CameraRig } from './game/cameras.js';
 import { Session } from './game/session.js';
 import { Tutorial } from './game/tutorial.js';
-import { SHIFTS, UPGRADES, endlessShip, upgradeMods, dailyShift, todayKey, dayBefore, portLevel } from './game/levels.js';
+import { SHIFTS, UPGRADES, endlessShip, upgradeMods, dailyShift, todayKey, dayBefore, portLevel, PORT_STEPS } from './game/levels.js';
 import { Coach } from './game/coach.js';
+import { analytics } from './core/analytics.js';
+import { icon } from './ui/icons.js';
+import { h } from './core/util.js';
 import { checkAwards } from './game/awards.js';
 import { Juice } from './ui/juice.js';
 import { Hud } from './ui/hud.js';
@@ -30,7 +33,7 @@ import { Radio } from './ui/radio.js';
 import { DeepLight } from './world/deep.js';
 import { WetShine } from './world/shine.js';
 import { Tug, Gulls } from './world/harborlife.js';
-import { CLIFFHANGERS, episodeFor, SHIFT_OPEN, SHIFT_BEATS, CHECK_INTRO, LONG_INTRO, BLACK_BOXES, BLACKOUT, SMUGGLE_FOUND, epilogue } from './game/story.js';
+import { BLACK_ORDER, CLIFFHANGERS, episodeFor, SHIFT_OPEN, SHIFT_BEATS, CHECK_INTRO, LONG_INTRO, BLACK_BOXES, BLACKOUT, SMUGGLE_FOUND, epilogue } from './game/story.js';
 
 const $ = (id) => document.getElementById(id);
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -148,7 +151,8 @@ const app = {
     });
   },
   /** Something was bought: a running shift feels it straight away. */
-  upgradesChanged() {
+  upgradesChanged(info) {
+    if (info) analytics.track('upgrade_bought', info);
     if (app.session && !app.session.attract) app.session.refreshMods();
     app.hud.setMoney(save.data.money, app.canUpgrade());
   },
@@ -175,9 +179,9 @@ const app = {
   startDaily(level) {
     return beginRun(level || dailyShift(todayKey()));
   },
-  startEndless(first = false) {
+  startEndless(first = false, boot = false) {
     const seed = Math.floor(Math.random() * 1e9);
-    return beginRun(endlessShip(0, seed), { seed, first: first === true });
+    return beginRun(endlessShip(0, seed), { seed, first: first === true, boot });
   },
   retry() {
     if (!app.level) return app.gotoTitle();
@@ -230,7 +234,7 @@ const app = {
     app.busy = true;
     let ok = true;
     if (sdk.available) {
-      const r = await sdk.rewarded({ pause: () => audio.setMuted(true, 'ad'), resume: () => audio.setMuted(false, 'ad') });
+      const r = await sdk.rewarded(adHooks());
       ok = r.rewarded;
       if (!ok) app.juice.toast({ text: 'No ad available right now — try again in a moment', kind: 'warn' });
     }
@@ -401,11 +405,11 @@ async function beginRun(level, opts = {}) {
   sdk.gameplayStop();
   // ad break between shifts (never before the first one of a visit)
   if (app.shiftsStarted > 0 && sdk.available && !opts.first) {
-    await sdk.midgame({ pause: () => audio.setMuted(true, 'ad'), resume: () => audio.setMuted(false, 'ad') });
+    await sdk.midgame(adHooks());
   }
   app.shiftsStarted++;
   // (the very first load is already behind the loading screen: no doors needed)
-  const cover = opts.first ? async (fn) => fn() : (fn) => app.juice.transition(fn);
+  const cover = opts.first || opts.boot ? async (fn) => fn() : (fn) => app.juice.transition(fn);
   await cover(async () => {
     app.screens.hide();
     teardownRun();
@@ -481,7 +485,8 @@ async function runIntro(level, s, opts = {}) {
     const t2 = level.endless ? s.ship.name : level.daily ? level.twists.map((t) => t.name).join(' · ') : `${level.name} · ${level.clock}`;
     j.banner(t1, t2, 2000);
     audio.play('sax_start', { vol: 0.8, delay: 0.15 });
-    await wait(level.endless ? 900 : 1500);
+    // (on a fresh page load the player is at the controls at once; the camera settles while they play)
+    if (!opts.boot) await wait(level.endless ? 900 : 1500);
   }
   if (app.session !== s) return;
   setCab(app.cams.mode === 'cab');
@@ -508,12 +513,97 @@ async function runIntro(level, s, opts = {}) {
   sdk.gameplayStart();
 }
 
+/** Around every ad: silence, freeze (the tick checks sdk.adActive) and tell the platform gameplay stopped. */
+function adHooks() {
+  return {
+    pause: () => {
+      audio.setMuted(true, 'ad');
+      sdk.gameplayStop();
+    },
+    resume: () => {
+      audio.setMuted(false, 'ad');
+      input.clear();
+      if (app.mode === 'play') sdk.gameplayStart();
+    },
+  };
+}
+
 /** Short vibration on phones that support it (Android); silently ignored elsewhere. */
 function buzz(pattern) {
   if (!app.touchMode || !navigator.vibrate) return;
+  if (navigator.userActivation && !navigator.userActivation.hasBeenActive) return;
   try {
     navigator.vibrate(pattern);
   } catch (e) {}
+}
+
+/** Save now and report how long this visit lasted (once per visit). */
+function endSession() {
+  save.data.lastSeen = Date.now();
+  save.flush();
+  if (app._sessionEnded) return;
+  app._sessionEnded = true;
+  analytics.track('session_end', { duration_s: Math.round(performance.now() / 1000), ships: app.session && app.session.stats ? app.session.stats.ships : 0, money: save.data.money });
+}
+
+// ====================================================================== goals (always one in view)
+
+/** Tonight's goals: one at a time, each with a cash reward; they keep coming as long as you play. */
+const GOALS = [
+  { text: 'Fill 2 ships', val: (s) => s.fullShips || 0, n: 2, reward: 200 },
+  { text: 'Land 6 PERFECTs', val: (s) => s.stats.perfect, n: 6, reward: 250 },
+  { text: 'Fill 4 ships', val: (s) => s.fullShips || 0, n: 4, reward: 350 },
+  { text: 'Build a x5 combo', val: (s) => s.bestCombo, n: 5, reward: 400 },
+  { text: 'Load 25 boxes', val: (s) => s.stats.placed, n: 25, reward: 500 },
+  { text: 'Fill 8 ships', val: (s) => s.fullShips || 0, n: 8, reward: 700 },
+  { text: 'Land 15 PERFECTs', val: (s) => s.stats.perfect, n: 15, reward: 800 },
+  { text: 'Build a x8 combo', val: (s) => s.bestCombo, n: 8, reward: 900 },
+];
+function goalAt(i) {
+  if (i < GOALS.length) return GOALS[i];
+  const k = i - GOALS.length + 1;
+  return { text: `Fill ${8 + k * 4} ships`, val: (s) => s.fullShips || 0, n: 8 + k * 4, reward: 900 + k * 250 };
+}
+
+/** The next big thing: an upgrade within reach, the next port expansion, or a ship milestone. */
+function nextGoal(s) {
+  const d = save.data;
+  const cands = [];
+  let cheapest = null;
+  for (const u of UPGRADES) {
+    const l = d.upgrades[u.id] || 0;
+    if (l >= u.costs.length) continue;
+    if (!cheapest || u.costs[l] < cheapest.cost) cheapest = { name: u.name, cost: u.costs[l] };
+  }
+  if (cheapest) cands.push({ lbl: 'Next', text: d.money >= cheapest.cost ? `${cheapest.name} — ready to buy` : `${cheapest.name} $${fmtNum(d.money)}/$${fmtNum(cheapest.cost)}`, k: d.money / cheapest.cost, prio: 0.05 });
+  const boxes = (d.stats.placed || 0) + (d.stats.crew || 0) + (s.stats.placed || 0);
+  const lvl = portLevel(boxes);
+  if (lvl < PORT_STEPS.length - 1) {
+    const lo = PORT_STEPS[lvl];
+    const hi = PORT_STEPS[lvl + 1];
+    cands.push({ lbl: 'Port', text: `Expansion ${boxes}/${hi} boxes`, k: (boxes - lo) / (hi - lo), prio: 0 });
+  }
+  const ships = s.stats.ships || 0;
+  const m = (Math.floor(ships / 5) + 1) * 5;
+  cands.push({ lbl: 'Ship', text: `Milestone: ship ${m} (${ships}/${m})`, k: (ships % 5) / 5, prio: -0.02 });
+  cands.sort((a, b) => b.k + b.prio - (a.k + a.prio));
+  return cands[0];
+}
+
+function updateGoals(s) {
+  if (!s.endless || s.attract) return;
+  s.goalIdx = s.goalIdx || 0;
+  let g = goalAt(s.goalIdx);
+  const v = Math.min(g.n, g.val(s));
+  if (v >= g.n && s.phase !== 'over') {
+    s.goalIdx++;
+    app.juice.banner('GOAL COMPLETE', `${g.text} · +$${g.reward}`, 2200);
+    audio.play('sting_levelup', { vol: 0.8 });
+    sdk.happytime();
+    earn(g.reward, null);
+    g = goalAt(s.goalIdx);
+  }
+  app.hud.setGoals([{ lbl: 'Goal', text: `${g.text} ${Math.min(g.n, g.val(s))}/${g.n}`, k: g.val(s) / g.n, reward: g.reward }, nextGoal(s)]);
 }
 
 /** Money in: coins fly from `pos` to the wallet, which counts up as they land. */
@@ -521,7 +611,8 @@ function earn(amount, pos) {
   const d = save.data;
   d.money += amount;
   d.stats.earned += amount;
-  save.commit();
+  save.flush(); // every reward is on disk (and in the cloud copy) the moment it is given
+  analytics.trackOnce('first_reward', { amount, ms: Math.round(performance.now()) });
   let shown = app._walletShown == null ? d.money - amount : app._walletShown;
   app._walletShown = shown;
   app.juice.coins(pos, amount, app.hud.el.wallet, (share, last) => {
@@ -603,17 +694,36 @@ function bindSession(s) {
       sdk.happytime();
     } else j.banner('SHIP SAILED', `${e.placed} of ${e.quota} aboard · next vessel inbound`, 2600);
     if (cash) earn(cash, s.ship.group.position);
+    if (e.complete && e.streak >= 2) app.after(1.4, () => j.toast({ text: `${e.streak} full ships in a row · ship bonus x${e.streakMul.toFixed(2)}`, kind: 'good', key: 'streak' + e.streak, dur: 3000 }), s);
+    analytics.track('round_complete', { ship: e.n, complete: e.complete ? 1 : 0, placed: e.placed, quota: e.quota, time_left: Math.round(e.timeLeft || 0), streak: e.streak || 0 });
+    // every fifth ship: a milestone worth celebrating
+    if (s.endless && e.n % 5 === 0) {
+      const prize = 100 + 150 * (e.n / 5);
+      app.after(2.6, () => {
+        j.banner(`${e.n} SHIPS TONIGHT`, `Milestone bonus +$${prize}`, 2600);
+        audio.play('sting_levelup', { vol: 0.8 });
+        sdk.happytime();
+        earn(prize, null);
+      }, s);
+    }
     // the very first ship: now the game can introduce itself
     if (!save.data.flags.played) {
       save.data.flags.played = true;
       save.commit();
       app.after(3.2, () => {
         j.banner('NIGHT SHIFT CRANE', 'Pier Seven · your shift has begun', 3200);
+        // day one of the login streak, and the promise of day two
+        app.after(5, () => {
+          const pay = loginReward(1);
+          earn(pay, null);
+          j.toast({ text: `Daily bonus · day 1 +$${pay} — come back tomorrow for +$${loginReward(2)}`, kind: 'good', key: 'login1', dur: 6000 });
+          analytics.track('daily_reward_claim', { day: 1, amount: pay });
+        }, s);
         app.radio.say([{ who: 'dispatch', text: 'Nice work, Seven. Ships keep coming all night — fill each one before its clock runs out.' }, { who: 'dispatch', text: 'Every box pays. Spend it in the workshop. And keep your radio on.' }]);
       }, s);
     }
     // a natural break for an ad, now and then
-    if (sdk.available && e.n % 5 === 0) app.after(4.5, () => sdk.midgame({ pause: () => audio.setMuted(true, 'ad'), resume: () => audio.setMuted(false, 'ad') }), s);
+    if (sdk.available && e.n % 5 === 0) app.after(4.5, () => sdk.midgame(adHooks()), s);
   });
   s.on('shipIncoming', (e) => {
     app.hud.build(s.level, s);
@@ -861,6 +971,29 @@ function fail(msg) {
   $('loadfill').style.width = '100%';
 }
 
+/** Compile the scene's programs for the target the frame really draws into (the post chain's
+ *  linear buffer, or the screen without post), without blocking where the browser can help. */
+async function warmShaders() {
+  const r = gfx.renderer;
+  const prev = r.getRenderTarget();
+  try {
+    r.setRenderTarget(gfx.composer && gfx.usePost ? gfx.composer.renderTarget1 : null);
+    const parallel = r.compileAsync && r.extensions && r.extensions.has('KHR_parallel_shader_compile');
+    const p = parallel ? r.compileAsync(app.ctx.scene, app.camera) : (r.compile(app.ctx.scene, app.camera), null);
+    r.setRenderTarget(prev);
+    if (p) await Promise.race([p, wait(6000)]);
+  } catch (e) {
+    r.setRenderTarget(prev);
+  }
+}
+
+/** Boot timeline marks (read them in the browser's performance panel). */
+function mark(name) {
+  try {
+    performance.mark(name);
+  } catch (e) {}
+}
+
 async function boot() {
   save.load();
   const mobile = isMobile();
@@ -874,8 +1007,8 @@ async function boot() {
   window.addEventListener('resize', orient);
   setLoad(0.04, 'Clocking in…');
 
+  sdk.loadingStart(); // (remembered and sent the moment the SDK is ready)
   const sdkReady = sdk.init().then(() => {
-    sdk.loadingStart();
     const apply = (st) => audio.setMuted(!!(st && st.muteAudio), 'platform');
     apply(sdk.settings());
     sdk.onSettings(apply);
@@ -892,13 +1025,18 @@ async function boot() {
   };
   app.applySettings();
 
+  // physics (the wasm download) and the fonts load side by side
+  const physics = initPhysics();
+  physics.catch(() => {});
   // fonts feed the canvas-drawn textures, so wait for them (briefly)
   const fonts = ['400 32px "Saira Stencil One"', '700 32px "Barlow Condensed"', '400 32px "Bungee"'];
   await Promise.race([Promise.all(fonts.map((f) => (document.fonts && document.fonts.load ? document.fonts.load(f) : null))).catch(() => {}), wait(1200)]);
   setLoad(0.12, 'Warming up the winches…');
 
+  mark('nsc-fonts');
   try {
-    await initPhysics();
+    await physics;
+    mark('nsc-physics');
   } catch (e) {
     fail('Could not start the physics engine (WebAssembly is unavailable).');
     if (typeof __DEV__ !== 'undefined' && __DEV__) console.error('physics init', e && (e.stack || e.message || e));
@@ -958,8 +1096,7 @@ async function boot() {
 
   setLoad(0.8, 'Fuelling the trucks…');
   makeAttract();
-  // compile shaders + upload textures before the doors open
-  gfx.renderer.compile(scene, camera);
+  mark('nsc-world');
   bindGlobalInput();
   // the platform gets a moment to answer; sounds stream in after the first frame
   await Promise.race([sdkReady.catch(() => {}), wait(1500)]);
@@ -977,21 +1114,112 @@ async function boot() {
   startAmbience();
   requestAnimationFrame(frame);
   const first = !save.data.flags.played && !(save.data.stats.placed > 0);
-  if (first) {
-    // a brand-new player starts at the controls, a box on the hook
-    app.mode = 'menu';
-    await app.startEndless(true);
-  } else {
-    app.mode = 'menu';
-    if (idle) app.screens.welcome(idle);
-    else app.screens.title();
-    audio.music.setPlaylist(['menu']);
-  }
-  await wait(250);
+  const login = dailyLogin(first);
+  const today = todayKey();
+  if (!save.data.install) save.data.install = today;
+  const returnDay = daysBetween(save.data.install, today);
+  // nobody waits behind a menu: new and returning players alike start at the controls
+  app.mode = 'menu';
+  await app.startEndless(first, true);
+  mark('nsc-session');
+  // every shader the first frame needs (the night's ship and cargo included), compiled in parallel
+  // while the loading bar is still up, so the first frame does not stall on them one by one
+  app.warming = true;
+  await warmShaders();
+  app.warming = false;
+  mark('nsc-shaders');
+  await wait(120);
   $('loading').classList.add('out');
   setTimeout(() => $('loading').remove(), 800);
   setTimeout(() => audio.load(), 400);
+  // first gameplay frame on screen: the number the conversion target is about
+  requestAnimationFrame(() => {
+    window.__nscFirstFrame = performance.now();
+    try {
+      performance.mark('nsc-first-frame');
+    } catch (e) {}
+    analytics.trackOnce('game_loaded', { ms: Math.round(window.__nscFirstFrame), first: first ? 1 : 0, day: returnDay });
+    if (!first && returnDay > 0) analytics.trackOnce('return_day_' + returnDay, { day: returnDay });
+  });
+  if (!first && (idle || login)) setTimeout(() => showWelcomeStrip(idle, login), 1500);
 }
+
+/** Whole calendar days from one 'YYYY-MM-DD' to another. */
+function daysBetween(a, b) {
+  const p = (k) => {
+    const [y, m, d] = k.split('-').map(Number);
+    return Date.UTC(y, m - 1, d);
+  };
+  return Math.max(0, Math.round((p(b) - p(a)) / 864e5));
+}
+
+// ====================================================================== returning players
+
+/** Daily login streak: the reward grows for each day in a row, up to day 7 and its jackpot. */
+const LOGIN_PAY = [100, 150, 200, 250, 300, 400, 750];
+function loginReward(day) {
+  return LOGIN_PAY[Math.min(LOGIN_PAY.length, Math.max(1, day)) - 1];
+}
+function dailyLogin(first) {
+  const L = (save.data.login = save.data.login || { last: '', streak: 0, best: 0 });
+  const today = todayKey();
+  if (L.last === today) return null;
+  L.streak = L.last === dayBefore(today) ? (L.streak || 0) + 1 : 1;
+  L.last = today;
+  L.best = Math.max(L.best || 0, L.streak);
+  save.flush();
+  // (a brand-new player gets day one's bonus with their first full ship instead)
+  if (first) return null;
+  return { day: L.streak, cash: loginReward(L.streak) };
+}
+
+/** Night crew + login bonus, shown over the running game (it never pauses or blocks). */
+function showWelcomeStrip(idle, login) {
+  const root = $('strip');
+  root.innerHTML = '';
+  const total = (idle ? idle.cash : 0) + (login ? login.cash : 0);
+  let done = false;
+  const collect = async (double) => {
+    if (done) return;
+    done = true;
+    clearTimeout(timer);
+    if (double && sdk.available) {
+      const r = await sdk.rewarded(adHooks());
+      if (!r.rewarded) double = false;
+    }
+    const k = double ? 2 : 1;
+    const rect = card.getBoundingClientRect();
+    if (idle) save.data.stats.crew = (save.data.stats.crew || 0) + idle.boxes;
+    earn(total * k, { screen: true, x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
+    if (login) analytics.track('daily_reward_claim', { day: login.day, amount: login.cash * k });
+    if (idle) analytics.track('idle_collect', { boxes: idle.boxes, amount: idle.cash * k });
+    card.classList.add('out');
+    setTimeout(() => (root.innerHTML = ''), 320);
+  };
+  const rows = [];
+  if (idle) rows.push(h('div.row', { html: icon('truck') + `<span>Your night crew moved ${idle.boxes} box${idle.boxes === 1 ? '' : 'es'}<small>while you were away</small></span><span class="amt">+$${fmtNum(idle.cash)}</span>` }));
+  if (login) rows.push(h('div.row', { html: icon('star') + `<span>Day ${login.day} in a row${login.day >= 7 ? ' — jackpot!' : ''}<small>Daily bonus · tomorrow: +$${fmtNum(loginReward(login.day + 1))}</small></span><span class="amt">+$${fmtNum(login.cash)}</span>` }));
+  const acts = h('div.acts');
+  if (sdk.available) acts.appendChild(h('button.btn.small.teal', { onclick: () => collect(true), html: icon('ad') + 'Collect ×2' }));
+  acts.appendChild(h('button.btn.small.primary', { onclick: () => collect(false), html: icon('coin') + 'Collect' }));
+  const card = h('div.strip', h('div.row', { html: `<b style="font-family:var(--font-stencil);letter-spacing:.12em;color:var(--amber)">WELCOME BACK</b>` }), ...rows, acts);
+  root.appendChild(card);
+  audio.play('ui_open');
+  // collects itself if ignored: the reward is never lost
+  const timer = setTimeout(() => collect(false), 9000);
+}
+
+/** What tomorrow brings — for the pause card and the end-of-shift report. */
+app.tomorrow = () => {
+  const L = save.data.login || { streak: 0 };
+  const lines = [`Day ${(L.streak || 0) + 1} login bonus: +$${fmtNum(loginReward((L.streak || 0) + 1))}`];
+  const st = save.data.story || {};
+  const next = BLACK_ORDER.find((k) => !(st.boxes || {})[k]);
+  if (next) lines.push(st.lastEpisode === todayKey() ? `Episode ${BLACK_ORDER.indexOf(next) + 1} of the Pier Seven file` : `Tonight's episode is still waiting — clock in`);
+  lines.push('Your night crew keeps working (up to 8 h of earnings)');
+  lines.push('A new Daily shift');
+  return lines;
+};
 
 /** What the night crew got done while the player was away (up to eight hours of it). */
 function idleEarnings() {
@@ -1008,7 +1236,7 @@ function idleEarnings() {
 /** Collect the crew's takings (doubled after a rewarded ad when the platform offers one). */
 app.collectIdle = async (idle, double) => {
   if (double && sdk.available) {
-    const r = await sdk.rewarded({ pause: () => audio.setMuted(true, 'ad'), resume: () => audio.setMuted(false, 'ad') });
+    const r = await sdk.rewarded(adHooks());
     if (!r.rewarded) double = false;
   }
   const cash = idle.cash * (double ? 2 : 1);
@@ -1103,7 +1331,15 @@ function bindGlobalInput() {
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
   document.addEventListener('visibilitychange', () => {
     if (document.hidden && app.mode === 'play') app.pause();
+    if (document.hidden) endSession();
   });
+  window.addEventListener('pagehide', endSession);
+  // funnel: the first deliberate input
+  const firstInput = (kind) => {
+    if (app.mode === 'play') analytics.trackOnce('first_input', { kind, ms: Math.round(performance.now()) });
+  };
+  window.addEventListener('keydown', () => firstInput('key'), { capture: true });
+  window.addEventListener('pointerdown', (e) => firstInput(e.pointerType || 'pointer'), { capture: true });
   window.addEventListener('blur', () => {
     if (app.mode === 'play' && !sdk.adActive) app.pause();
   });
@@ -1354,6 +1590,10 @@ function wetLights() {
 let last = 0;
 function frame(now) {
   requestAnimationFrame(frame);
+  if (app.warming) {
+    last = now;
+    return;
+  }
   const raw = Math.min(0.1, Math.max(0, (now - last) / 1000 || 0.016));
   last = now;
   tick(raw);
@@ -1479,6 +1719,7 @@ function tick(raw) {
     app.hud.update(hs);
     applyCabGhost(app.cams.mode === 'cab' ? s.rig.carry : null);
   }
+  if (app.mode === 'play' && s && !s.attract && s.endless) updateGoals(s);
   // coaching (one prompt at a time) and the automatic helpers it hands out
   if (app.mode === 'play' && s && !s.attract && !app.tutorial) {
     app.coach.update(s);

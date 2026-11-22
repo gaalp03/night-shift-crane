@@ -177,6 +177,8 @@ class Music {
     if (!def || !this.e.ctx) return null;
     const p = (async () => {
       try {
+        // music (the biggest files) never competes with the first seconds of play
+        await this.e.musicGate;
         const res = await fetch(this.e.base + def.file);
         const arr = await res.arrayBuffer();
         const buf = await this.e.decode(arr);
@@ -280,6 +282,9 @@ class Music {
 class AudioEngine {
   constructor() {
     this.ctx = null;
+    // opens once the first-box sounds are in (see load), or after a few seconds whatever happens
+    this.musicGate = new Promise((r) => (this._openMusic = r));
+    setTimeout(() => this._openMusic(), 9000);
     this.base = 'assets/audio/';
     this.defs = {};
     this.buffers = new Map();
@@ -406,6 +411,9 @@ class AudioEngine {
     for (const k of keys) for (const f of this.defs[k].files) files.add(f);
     const list = [...files];
     let done = 0;
+    const firstFiles = new Set();
+    for (const k of first) if (this.defs[k]) for (const f of this.defs[k].files) firstFiles.add(f);
+    let firstLeft = firstFiles.size;
     const loadOne = async (f) => {
       try {
         const res = await fetch(this.base + f);
@@ -417,6 +425,7 @@ class AudioEngine {
         // missing sound: stay silent rather than break the game
       }
       done++;
+      if (firstFiles.has(f) && --firstLeft <= 0) this._openMusic();
       if (onProgress) onProgress(done / list.length);
     };
     // modest parallelism keeps mobile decoders responsive
@@ -429,7 +438,7 @@ class AudioEngine {
         })()
       );
     }
-    this._loading = Promise.all(workers);
+    this._loading = Promise.all(workers).then(() => this._openMusic());
     return this._loading;
   }
 

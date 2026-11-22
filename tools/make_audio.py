@@ -254,7 +254,7 @@ def motor(name, pack, src, start, dur, level, lp=None, hp=None, ratio=1.0, sr=22
     done.append((name + ".wav", len(x) / SR))
 
 
-def music(name, src, start, dur, fin=0.05, fout=5.0, lufs=-18.5, bitrate="96k"):
+def music(name, src, start, dur, fin=0.05, fout=5.0, lufs=-18.5, bitrate="64k"):
     f = path("music", src)
     af = f"afade=t=in:st=0:d={fin},afade=t=out:st={dur - fout}:d={fout},loudnorm=I={lufs}:TP=-1.5:LRA=11,lowpass=f=15500"
     os.makedirs(OUT, exist_ok=True)

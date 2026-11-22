@@ -65,6 +65,7 @@ export const sdk = {
     } catch (e) {
       state.ready = false;
     }
+    this._sync();
     return state.ready;
   },
 
@@ -76,25 +77,53 @@ export const sdk = {
     state.listeners.add(fn);
   },
 
+  // The game may report loading / gameplay before the SDK has finished initialising: the wanted
+  // state is remembered and replayed the moment it is ready (see _sync), so no event is lost.
   loadingStart() {
-    if (!state.ready || state.loading) return;
-    state.loading = true;
-    call(() => state.sdk.game.loadingStart());
+    if (state.loadDone) return;
+    state.wantLoading = true;
+    if (state.ready && !state.loading) {
+      state.loading = true;
+      call(() => state.sdk.game.loadingStart());
+    }
   },
   loadingStop() {
-    if (!state.ready || !state.loading) return;
-    state.loading = false;
-    call(() => state.sdk.game.loadingStop());
+    state.loadDone = true;
+    state.wantLoading = false;
+    if (state.ready && state.loading) {
+      state.loading = false;
+      call(() => state.sdk.game.loadingStop());
+    }
   },
   gameplayStart() {
     if (state.playing) return;
     state.playing = true;
-    if (state.ready) call(() => state.sdk.game.gameplayStart());
+    if (state.ready) {
+      state.sentPlaying = true;
+      call(() => state.sdk.game.gameplayStart());
+    }
   },
   gameplayStop() {
     if (!state.playing) return;
     state.playing = false;
-    if (state.ready) call(() => state.sdk.game.gameplayStop());
+    if (state.ready && state.sentPlaying) {
+      state.sentPlaying = false;
+      call(() => state.sdk.game.gameplayStop());
+    }
+  },
+  _sync() {
+    if (!state.ready) return;
+    if (state.wantLoading && !state.loadDone && !state.loading) {
+      state.loading = true;
+      call(() => state.sdk.game.loadingStart());
+    }
+    if (state.playing && !state.sentPlaying) {
+      state.sentPlaying = true;
+      call(() => state.sdk.game.gameplayStart());
+    }
+  },
+  get isPlaying() {
+    return state.playing;
   },
   happytime() {
     if (state.ready) call(() => state.sdk.game.happytime());

@@ -1618,8 +1618,12 @@ export class Session extends Emitter {
     const quota = this.manifest.filter((m) => !m.black).length;
     const placed = Math.max(0, this.delivered - this.shipBase);
     const complete = !o.timeout && placed >= quota;
+    // full ships in a row raise the ship bonus: keep going and it keeps paying more
+    this.fullStreak = complete ? (this.fullStreak || 0) + 1 : 0;
+    if (complete) this.fullShips = (this.fullShips || 0) + 1;
+    const streakMul = 1 + 0.25 * Math.min(4, Math.max(0, this.fullStreak - 1));
     // a full ship pays a bonus, more the sooner it is done; a ship that sails short just sails
-    const bonus = complete ? Math.round((150 + this.shipIndex * 25 + Math.max(0, this.time) * 3) * this.multFor(this.combo)) : 0;
+    const bonus = complete ? Math.round((150 + this.shipIndex * 25 + Math.max(0, this.time) * 3) * this.multFor(this.combo) * streakMul) : 0;
     this.score += bonus;
     // whatever did not make it aboard stays behind
     if (this.rig.carry) {
@@ -1639,7 +1643,7 @@ export class Session extends Emitter {
     if (o.timeout && !complete) this.combo = 0;
     audio.play('horn_ship', { pos: this.ship.group.position });
     audio.play(complete ? 'sting_win' : 'ui_warn', { delay: 0.3 });
-    this.emit('shipDone', { n: this.shipIndex + 1, bonus, complete, placed, quota, timeLeft: Math.max(0, this.time) });
+    this.emit('shipDone', { n: this.shipIndex + 1, bonus, complete, placed, quota, timeLeft: Math.max(0, this.time), streak: this.fullStreak, streakMul });
     const smug = this._sweep();
     if (smug) this.emit('smuggled', { n: smug });
     // anything loose rides away lashed down

@@ -42,7 +42,19 @@ export class Hud {
     e.queue = h('div.queue.plate', h('div.lbl', 'Trucks inbound'), e.queueChips);
     // the foreman's side job for this shift, kept in the corner of the eye
     const order = !endless && level.order ? h('div.orderline.plate', h('span.lbl', 'Order'), level.order.text) : null;
-    r.appendChild(h('div.hud-tl', plate, e.queue, order));
+    // always-visible goals in the endless night: tonight's goal (with its reward) and the next big thing
+    e.goals = endless ? h('div.goals.plate') : null;
+    e.goalRows = [];
+    if (endless) {
+      for (let i = 0; i < 2; i++) {
+        const row = { lbl: h('span.lbl'), txt: h('span.txt'), bar: h('i'), rew: h('span.rew') };
+        row.el = h('div.goal', h('div.gl', row.lbl, row.txt, row.rew), h('div.gbar', row.bar));
+        e.goalRows.push(row);
+        e.goals.appendChild(row.el);
+      }
+    }
+    r.appendChild(h('div.hud-tl', plate, e.goals, e.queue, order));
+    document.body.classList.toggle('goals-on', endless);
 
     // --- top centre: clock + progress
     e.timeTxt = h('span', '0:00');
@@ -218,6 +230,26 @@ export class Hud {
     }
     this._set('ship', s.ship.name, (v) => {
       e.shipName.textContent = v;
+    });
+  }
+
+  /** rows: [{ lbl, text, k (0..1), reward }] — at most two. */
+  setGoals(rows) {
+    const e = this.el;
+    if (!e.goals) return;
+    rows.forEach((g, i) => {
+      const R = e.goalRows[i];
+      if (!R) return;
+      const key = g ? g.lbl + g.text + Math.round(g.k * 40) + (g.reward || '') : '';
+      if (this.cache['goal' + i] === key) return;
+      this.cache['goal' + i] = key;
+      R.el.classList.toggle('hidden', !g);
+      if (!g) return;
+      R.lbl.textContent = g.lbl;
+      R.txt.textContent = g.text;
+      R.rew.textContent = g.reward ? '+$' + fmtNum(g.reward) : '';
+      R.bar.style.width = Math.round(clamp(g.k, 0, 1) * 100) + '%';
+      R.el.classList.toggle('done', g.k >= 1);
     });
   }
 

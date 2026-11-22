@@ -11,7 +11,9 @@ const defaults = () => ({
   daily: { date: '', best: 0, stars: 0, order: '', streak: 0, bestStreak: 0, last: '', plays: 0 },
   settings: { music: 0.7, sfx: 0.9, quality: 'auto', shake: true, cabDefault: false, hints: true, flashes: true },
   flags: { introSeen: false, tutorialDone: false, endlessSeen: false, checkSeen: false },
-  story: { boxes: {}, opened: {}, ending: null }, // what became of each unlisted box (shift id -> outcome)
+  story: { boxes: {}, opened: {}, ending: null },
+  login: { last: '', streak: 0, best: 0 }, // daily login streak (local calendar days)
+  install: '', // first day played (YYYY-MM-DD), for return-day analytics // what became of each unlisted box (shift id -> outcome)
   paint: 'yellow',
   awards: {},
   stats: { placed: 0, lost: 0, perfects: 0, earned: 0, playSeconds: 0, busted: 0, smuggled: 0 },
@@ -88,6 +90,11 @@ class Save {
     };
     if (immediate) write();
     else this._timer = setTimeout(write, 250);
+  }
+
+  /** Write now (tab hidden, page closing, rewards). */
+  flush() {
+    this.commit(true);
   }
 
   reset() {

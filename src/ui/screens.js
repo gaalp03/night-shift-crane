@@ -390,7 +390,7 @@ export class Screens {
                 d.upgrades[u.id] = lvl + 1;
                 save.commit(true);
                 audio.play('ui_buy');
-                if (app.upgradesChanged) app.upgradesChanged();
+                if (app.upgradesChanged) app.upgradesChanged({ id: u.id, level: lvl + 1, cost });
                 audio.play('ui_coin', { delay: 0.1 });
                 render();
               },
@@ -643,7 +643,7 @@ export class Screens {
     const app = this.app;
     const touch = app.touchMode;
     const help = touch
-      ? 'Stick: trolley + gantry · arrows: hoist · round button: lock / release · drag the view to look around'
+      ? 'Drag: move the crane · let go over a slot: it lands · tap: lock on / release · the hoist works by itself'
       : 'A/D trolley · W/S gantry · E/Q hoist · SPACE lock / release · C cab view · H horn · drag to look around';
     const tips = 'Amber-sealed boxes: lift, hold steady and read the scale. A match goes on the ship, a mismatch on the blue customs truck in lane 2.';
     const card = h(
@@ -655,7 +655,7 @@ export class Screens {
           'div.menu',
           { style: { width: '100%' } },
           h('button.btn.primary', { 'data-sound': 'ui_confirm', onclick: () => app.resume(), html: icon('play') + '<span class="grow">Back to work</span>' }),
-          h('button.btn', { onclick: () => app.retry(), html: icon('retry') + '<span class="grow">Restart shift</span>' }),
+          app.session && app.session.endless ? null : h('button.btn', { onclick: () => app.retry(), html: icon('retry') + '<span class="grow">Restart shift</span>' }),
           h('button.btn', { onclick: () => this.settings('pause'), html: icon('gear') + '<span class="grow">Settings</span>' }),
           h('button.btn.ghost', { 'data-sound': 'ui_back', onclick: () => app.quitToBoard(), html: icon('home') + '<span class="grow">Clock out</span>' })
         ),
@@ -663,10 +663,18 @@ export class Screens {
         h('div', { style: { color: 'var(--dim)', lineHeight: '1.35' } }, help),
         app.level && app.level.checks ? h('div', { style: { color: 'var(--dim)', lineHeight: '1.35', marginTop: '0.5em' } }, tips) : null,
         app.level && app.level.order ? h('div.section-label', 'Foreman’s order') : null,
-        app.level && app.level.order ? h('div', { style: { fontWeight: 700 } }, app.level.order.text) : null
+        app.level && app.level.order ? h('div', { style: { fontWeight: 700 } }, app.level.order.text) : null,
+        this._tomorrow(4)
       )
     );
     return this._mount('pause', h('div.screen.dim', card));
+  }
+
+  /** "Come back tomorrow": what the next visit brings. */
+  _tomorrow(max) {
+    const lines = this.app.tomorrow ? this.app.tomorrow().slice(0, max) : [];
+    if (!lines.length) return null;
+    return h('div.tomorrow', h('b', 'Tomorrow night'), h('ul', ...lines.map((t) => h('li', t))));
   }
 
   // ====================================================================== results
@@ -730,7 +738,8 @@ export class Screens {
       endless ? null : h('div.stars', ...stars),
       !ok && !endless ? h('div', { style: { fontWeight: 700, margin: '0 0 0.4em', lineHeight: '1.25' } }, failText[res.reason] || '') : null,
       h('div.rows', ...rows),
-      h('div.stampzone', meta.newBest && !endless ? h('div.newbest', 'New best') : null, mark)
+      h('div.stampzone', meta.newBest && !endless ? h('div.newbest', 'New best') : null, mark),
+      endless ? this._tomorrow(2) : null
     );
     const actions = h('div.report-actions');
     const add = (cls, label, ic, fn, sound) => actions.appendChild(h('button.btn' + cls, { onclick: fn, 'data-sound': sound || 'ui_click', html: icon(ic) + label }));
