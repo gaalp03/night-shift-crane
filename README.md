@@ -72,6 +72,14 @@ present, so the same build runs on GitHub Pages or locally.
   critical path (~0.9 MB gzipped); sounds stream in afterwards, music only once the first-box sounds
   are in. Music (mono 96 kbps) streams through one `<audio>` element into the mixer, so no track is
   ever decoded into memory.
+- **First 90 seconds:** a new operator sees only the money and one big DROP button; a bobbing arrow
+  and a ghost hand show each gesture with one word at most. The HUD fills in one ship at a time
+  (clock, then goals / upgrades / combo, then everything). The first five boxes are forgiving (wider
+  lock window, calmer swing) and loud (CLANG, freeze, flash, coin shower). Every lock / release
+  punches the screen at any quality; the low preset adds silhouette key + rim lights. After each
+  ship a card says what is next (unlock an upgrade, or the cash to go) with a one-tap "Next ship";
+  after ship 2 of the first session a strip previews tomorrow's streak bonus and the night crew.
+  Portrait phones keep that minimal HUD for good: money + the DROP button, whose ring is the clock.
 - **Controls:** mouse and touch share one scheme (drag moves the spreader, click / tap locks or lets
   go, right-drag orbits the view); keys still do everything. The canvas takes focus so keys work in
   the platform's iframe, and the first boxes show a pulsing nudge when nothing is pressed for 4 s.

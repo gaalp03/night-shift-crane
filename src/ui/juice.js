@@ -79,9 +79,11 @@ export class Juice {
    * Coins spring out of `pos` and fly to the wallet; `onCoin(share)` runs as each one lands.
    * @param target element the coins fly to
    */
-  coins(pos, amount, target, onCoin) {
+  /** @param burst  1 = normal; more = a bigger, wider shower (the first boxes of a career) */
+  coins(pos, amount, target, onCoin, burst = 1) {
     if (!amount) return;
-    const n = Math.max(3, Math.min(12, Math.round(amount / 25)));
+    const n = Math.max(3 * burst, Math.min(12 * burst, Math.round((amount / 25) * burst)));
+    const spread = burst > 1 ? 2.6 : 1;
     const from = pos && pos.screen ? { x: pos.x, y: pos.y } : pos ? this.project(pos) : { x: window.innerWidth / 2, y: window.innerHeight * 0.45 };
     const r = target ? target.getBoundingClientRect() : { left: window.innerWidth - 60, top: 40, width: 0, height: 0 };
     const tx = r.left + r.width * 0.25;
@@ -91,8 +93,8 @@ export class Juice {
       const share = i === n - 1 ? left : Math.round(amount / n);
       left -= share;
       const el = h('div.coin', { html: icon('coin') });
-      const sx = from.x + (Math.random() - 0.5) * 70;
-      const sy = from.y + (Math.random() - 0.5) * 40;
+      const sx = from.x + (Math.random() - 0.5) * 70 * spread;
+      const sy = from.y + (Math.random() - 0.5) * 40 * spread - (spread - 1) * 30;
       el.style.transform = `translate(${from.x}px, ${from.y}px) scale(0.4)`;
       this.bursts.appendChild(el);
       // pop out, hang a beat, then sweep into the wallet
@@ -100,15 +102,16 @@ export class Juice {
         el.style.transition = 'transform 0.22s cubic-bezier(0.2, 1.4, 0.4, 1)';
         el.style.transform = `translate(${sx}px, ${sy - 30}px) scale(1)`;
       }, 16 + i * 18);
+      const gap = burst > 1 ? 28 : 55;
       setTimeout(() => {
         el.style.transition = 'transform 0.5s cubic-bezier(0.55, 0, 0.8, 0.4), opacity 0.5s';
         el.style.transform = `translate(${tx}px, ${ty}px) scale(0.6)`;
-      }, 300 + i * 55);
+      }, 300 + i * gap);
       setTimeout(() => {
         el.remove();
         if (onCoin) onCoin(share, i === n - 1);
-        if (i % 2 === 0) audio.play('ui_coin', { vol: 0.55, rate: 1 + i * 0.03 });
-      }, 800 + i * 55);
+        if (i % 2 === 0) audio.play('ui_coin', { vol: 0.55, rate: 1 + (i % 12) * 0.03 });
+      }, 800 + i * gap);
     }
   }
 

@@ -46,6 +46,7 @@ export const SOUNDS = {
     hydraulic: { files: ['hydraulic.mp3'], vol: 0.35 },
     servo: { files: ['servo.mp3'], vol: 0.4 },
     lock: { files: ['lock.mp3'], vol: 0.95, rateVar: 0.03 },
+    clang: { files: ['clang.mp3'], vol: 1, bus: 'ui', rateVar: 0.04 },
     unlock: { files: ['unlock.mp3'], vol: 0.8, rateVar: 0.03 },
     chain: { files: ['chain.mp3'], vol: 0.45, rateVar: 0.1 },
     air_brake: { files: ['air_brake.mp3'], vol: 0.3, rateVar: 0.06 },

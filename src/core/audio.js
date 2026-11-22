@@ -431,7 +431,7 @@ class AudioEngine {
     if (this._loading) return this._loading;
     // gameplay never waits for this: the sounds the first box needs come first, the long
     // ambience beds (most of the bytes) last
-    const first = ['lock', 'unlock', 'perfect', 'great', 'good', 'ui_coin', 'ui_cash', 'impact_deck', 'impact_light', 'impact_med', 'chain', 'ui_click', 'ui_toast', 'air_brake', 'motor_trolley', 'motor_hoist', 'motor_gantry', 'radio_in', 'radio_out', 'beep', 'hydraulic'];
+    const first = ['clang', 'lock', 'unlock', 'perfect', 'great', 'good', 'ui_coin', 'ui_cash', 'impact_deck', 'impact_light', 'impact_med', 'chain', 'ui_click', 'ui_toast', 'air_brake', 'motor_trolley', 'motor_hoist', 'motor_gantry', 'radio_in', 'radio_out', 'beep', 'hydraulic'];
     const weight = (k) => {
       const i = first.indexOf(k);
       if (i >= 0) return i;

@@ -16,7 +16,8 @@ export function cargoChip(spec, cls = '') {
 }
 
 export class Hud {
-  constructor({ onPause, onCamera, onUpgrade, touch }) {
+  constructor({ onPause, onCamera, onUpgrade, onDrop, touch }) {
+    this.onDrop = onDrop;
     this.root = document.getElementById('hud');
     this.onPause = onPause;
     this.onCamera = onCamera;
@@ -107,6 +108,13 @@ export class Hud {
       h('span', { html: '<span class="kbd">C</span> view' })
     );
     r.appendChild(h('div.hud-bc', e.scale, e.status, e.hints));
+
+    // --- the big DROP button: the whole HUD of the first minute, and of portrait phones (its ring is the ship's clock)
+    e.dropRing = h('i.dring');
+    e.dropLbl = h('span.dlbl', 'DROP');
+    e.dropSub = h('span.dsub', '');
+    e.drop = h('button.dropbtn.hidden', { 'aria-label': 'Drop / grab', onpointerdown: (ev) => ev.stopPropagation(), onclick: (ev) => this.onDrop && this.onDrop(ev) }, e.dropRing, e.dropLbl, e.dropSub);
+    r.appendChild(e.drop);
 
     this.thresholds = null;
     this.update(session.hud(), true);
@@ -251,6 +259,26 @@ export class Hud {
       R.bar.style.width = Math.round(clamp(g.k, 0, 1) * 100) + '%';
       R.el.classList.toggle('done', g.k >= 1);
     });
+  }
+
+  /**
+   * The big DROP button.
+   * @param st { show, label, ready, sub, timeK (0..1 of the ship's clock left) }
+   */
+  setDrop(st) {
+    const e = this.el;
+    if (!e || !e.drop) return;
+    const key = st.show ? `${st.label}|${st.ready}|${st.sub}|${Math.round((st.timeK == null ? 1 : st.timeK) * 60)}` : '';
+    if (this.cache.drop === key) return;
+    this.cache.drop = key;
+    e.drop.classList.toggle('hidden', !st.show);
+    if (!st.show) return;
+    e.dropLbl.textContent = st.label;
+    e.dropSub.innerHTML = st.sub || '';
+    e.drop.classList.toggle('ready', !!st.ready);
+    const k = Math.max(0, Math.min(1, st.timeK == null ? 1 : st.timeK));
+    e.dropRing.style.setProperty('--k', (k * 100).toFixed(1) + '%');
+    e.drop.classList.toggle('late', k < 0.25);
   }
 
   /** Wallet readout; `canBuy` lights the upgrade chip. */

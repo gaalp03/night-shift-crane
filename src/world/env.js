@@ -513,6 +513,14 @@ export class Harbor {
     this.moon = new THREE.DirectionalLight(PAL.moon, 0.42);
     this.moon.position.set(42, 50, -76);
     this.scene.add(this.moon);
+    // low quality has no shadows: a cool key from the camera's side and a warm rim from behind cut
+    // the crane and the boxes out of the night instead of leaving them flat (off on other settings)
+    this.keyLow = new THREE.DirectionalLight(0xcfe2ff, 1.3);
+    this.keyLow.position.set(-60, 55, 70);
+    this.rimLow = new THREE.DirectionalLight(0xffb36a, 1.7);
+    this.rimLow.position.set(55, 38, -90);
+    this.keyLow.visible = this.rimLow.visible = false;
+    this.scene.add(this.keyLow, this.rimLow);
     // Real point lights only where the action is.
     const mk = (lamp, intensity, dist) => {
       const l = new THREE.PointLight(lamp.color, intensity, dist, 1.2);
@@ -525,6 +533,14 @@ export class Harbor {
     const ids = [1, 2, 3];
     for (const i of ids) mk(this.mainLamps[i], this.mobile ? 82 : 70, 72);
     if (!this.mobile) mk(this.mainLamps[4], 60, 66);
+  }
+
+  /** Silhouette lighting for the low preset (toggled only when the preset changes). */
+  setSilhouette(on) {
+    on = !!on;
+    if (this._silhouette === on) return;
+    this._silhouette = on;
+    this.keyLow.visible = this.rimLow.visible = on;
   }
 
   // ---------------------------------------------------------------- container yard

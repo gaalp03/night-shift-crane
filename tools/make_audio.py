@@ -347,6 +347,13 @@ def build():
     for i, n in enumerate(["01", "02", "03"]):
         shot(f"whoosh_{i + 1}", repitch(load("oc", f"WHSH_WhooshMedium_OS_{n}.ogg"), 0.6))
 
+    # a heavy steel CLANG with a bell-like ring: twist-locks biting home on the first boxes
+    shot("clang", mix(
+        peak_norm(load("impact", "impact_metal_heavy_003.ogg")),
+        0.8 * peak_norm(repitch(load("impact", "impact_bell_heavy_001.ogg"), 0.8)),
+        0.45 * peak_norm(repitch(load("impact", "impact_metal_heavy_001.ogg"), 0.6)),
+    ), fout=0.9, peak=-1.5)
+
     # ------------------------------------------------------------------ water
     waves = load("oc", "WATRWave_OceanWaves_LOOP_01.ogg")
     t0 = loudest_window(waves, 2.6)

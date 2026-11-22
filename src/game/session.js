@@ -182,6 +182,11 @@ export class Session extends Emitter {
   /** Upgrades bought mid-run take effect at once. */
   refreshMods() {
     this.mods = upgradeMods(this.ctx.save.data.upgrades);
+    // a brand-new operator's first few boxes: wider lock window, calmer swing, stronger centring
+    if (this.rookieLeft > 0) {
+      const m = this.mods;
+      this.mods = { ...m, tolMul: m.tolMul * 1.7, grabMul: m.grabMul * 1.5, swayMul: m.swayMul * 2.4, assist: m.assist * 1.7 };
+    }
     this.lockTol = TUNE.lockTol * this.mods.tolMul;
     Object.assign(this.rig.mods, { trolley: this.mods.trolley, gantry: this.mods.gantry, hoist: this.mods.hoist, sway: TUNE.swayDamp * this.mods.swayMul });
     this.ctx.crane.setFlippers(this.mods.spreader);
@@ -1613,6 +1618,7 @@ export class Session extends Emitter {
   _beginSwap(o = {}) {
     this.phase = 'swap';
     this.swapT = 0;
+    this.swapRate = 1;
     this.swapStage = 0;
     this.stats.ships++;
     const quota = this.manifest.filter((m) => !m.black).length;
@@ -1662,8 +1668,13 @@ export class Session extends Emitter {
     this.guides.setGhosts(null, []);
   }
 
+  /** The player is ready: bring the next ship in fast. */
+  hurrySwap() {
+    if (this.phase === 'swap') this.swapRate = 3.2;
+  }
+
   _updateSwap(dt) {
-    this.swapT += dt;
+    this.swapT += dt * (this.swapRate || 1);
     const ship = this.ship;
     if (this.swapStage === 0) {
       // sail out ahead (+Z)
@@ -1808,6 +1819,7 @@ export class Session extends Emitter {
 
     // --- target ghosts
     const cells = [];
+    this.guideSlot = null;
     if (playing && rig.carry && !rig.carry.discharge && rig.carry.weighed !== 'mismatch') {
       const c = rig.carry;
       const lb = ship.worldToLocal(bottom, _v3);
@@ -1830,7 +1842,10 @@ export class Session extends Emitter {
           }
         }
       }
-      if (best) best.best = true;
+      if (best) {
+        best.best = true;
+        this.guideSlot = ship.localToWorld(best.pos, this._guideV || (this._guideV = new THREE.Vector3()));
+      }
     }
     g.setGhosts(cells.length ? ship.group : null, cells);
 

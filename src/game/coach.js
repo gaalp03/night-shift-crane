@@ -1,24 +1,37 @@
-// In-play coaching: one control per box, shown as a single icon-first prompt (a few words at most)
-// — no cards, no chain of steps. It also decides what the crane does by itself while a control has
-// not been taught yet.
+// In-play coaching without reading: a big bobbing arrow on the thing that matters, a ghost hand that
+// shows the gesture, and one or two words at most. It also decides what the crane does by itself while
+// a control has not been taught yet.
+import * as THREE from 'three';
 import { h } from '../core/util.js';
 import { icon } from '../ui/icons.js';
 
 const K = (...keys) => keys.map((k) => `<span class="kbd">${k}</span>`).join('');
-const I = (name) => icon(name);
 const ARROWS = K('←', '→', '↑', '↓');
+const _a = new THREE.Vector3();
+const _b = new THREE.Vector3();
 
 export class Coach {
   /**
-   * @param save    save store (flags.coach = how many lessons are done)
-   * @param scheme  () => 'touch' | 'mouse' | 'keys': how the player is steering right now
+   * @param save     save store (flags.coach = how many lessons are done)
+   * @param scheme   () => 'touch' | 'mouse' | 'keys': how the player is steering right now
+   * @param project  (Vector3) => { x, y, behind }: world to screen
+   * @param dropRect () => DOMRect of the big DROP button, or null when it is not on screen
    */
-  constructor(save, scheme) {
+  constructor(save, scheme, project, dropRect) {
     this.save = save;
     this.scheme = scheme;
+    this.project = project || null;
+    this.dropRect = dropRect || (() => null);
     this.root = document.getElementById('coach');
     this.key = '';
-    this.prompt = null;
+    // the guide layer: arrow + ghost hand, positioned every frame
+    this.layer = h('div#guide');
+    this.arrow = h('div.garrow', { html: '<svg viewBox="0 0 48 48"><path d="M24 44L4 20h12V4h16v16h12z"/></svg>' });
+    this.hand = h('div.ghand', h('i.ripple'), h('span', { html: icon('hand') }));
+    this.layer.append(this.arrow, this.hand);
+    const ui = document.getElementById('ui');
+    if (ui) ui.appendChild(this.layer);
+    this._pos = { ax: -1, ay: -1, fx: -1, fy: -1, tx: -1, ty: -1 };
   }
 
   get step() {
@@ -40,49 +53,55 @@ export class Coach {
     return { hoist: st < 2, lock: !!s.mods.autoLock, release: false };
   }
 
+  _truckBox(s) {
+    // the parked truck's box; failing that, the one rolling in
+    let any = null;
+    for (const l of s.lanes) {
+      const t = l.truck;
+      if (!t || !t.cargo || !t.cargo.mesh || t.cargo.discharge) continue;
+      if (t.parked) return t.cargo.mesh.getWorldPosition(_b);
+      any = any || t;
+    }
+    return any ? any.cargo.mesh.getWorldPosition(_b) : null;
+  }
+
   /**
-   * Called every frame in play; picks at most one prompt.
+   * Called every frame in play; picks at most one lesson.
    * @param idle  seconds since the player last touched anything
    */
   update(s, idle = 0) {
     if (!s || s.phase !== 'play') return this._show(null);
     s.auto = this.automation(s);
     const sc = this.scheme();
-    const touch = sc === 'touch';
     const one = sc !== 'keys'; // one-touch: drag to steer, tap / click to lock or let go
-    const pointer = touch ? I('hand') : I('mouse');
     const st = this.step;
     const rig = s.rig;
     const g = s.wantedGrab();
     const seat = s.seat;
+    const spr = rig.sprPos;
     let p = null;
     if (st === 0) {
-      // the very first box hangs over its slot: one action and it pays
-      if (rig.carry) p = touch ? { html: I('hand'), text: 'Tap to drop' } : { html: K('SPACE') + I('mouse'), text: 'Drop the box' };
-    } else if (st === 1) {
+      // the very first box hangs over its slot: one action and it pays (the DROP button is the prompt)
+      if (rig.carry) p = { word: '', arrow: s.guideSlot || spr, hand: { mode: 'tap', to: 'drop' } };
+    } else if (st === 1 || (st === 2 && !one)) {
       if (!rig.carry) {
-        if (g && g.ready && !one) p = { html: K('SPACE'), text: 'Lock on' };
-        else p = { html: one ? pointer : ARROWS, text: one ? 'Drag to the truck' : 'Drive to the truck' };
-      } else if (seat && seat.seated && seat.valid && !one) p = { html: K('SPACE'), text: 'Release' };
-      else p = { html: one ? pointer : ARROWS, text: one ? 'Drag over a slot' : 'Over a glowing slot' };
-    } else if (st === 2 && !one) {
-      if (!rig.carry) {
-        if (g && g.ready) p = { html: K('SPACE'), text: 'Lock on' };
-        else if (g && Math.hypot(g.lx, g.lz) < 0.8) p = { html: K('Q'), text: 'Lower onto it' };
-        else p = { html: K('E'), text: 'Hoist, then drive' };
-      } else if (seat && seat.seated && seat.valid) p = { html: K('SPACE'), text: 'Release' };
-      else if (seat && seat.err < 0.8) p = { html: K('Q'), text: 'Lower it in' };
-      else if (s.altitude < 3) p = { html: K('E'), text: 'Hoist it clear' };
+        const box = this._truckBox(s);
+        if (g && g.ready && !one) p = { word: 'GRAB', keys: K('SPACE'), arrow: g.cargo.mesh.getWorldPosition(_b) };
+        else if (st === 2 && g && Math.hypot(g.lx, g.lz) < 0.8) p = { word: 'LOWER', keys: K('Q'), arrow: g.cargo.mesh.getWorldPosition(_b) };
+        else if (st === 2) p = { word: 'LIFT', keys: K('E'), arrow: box };
+        else p = { word: one ? 'DRAG' : 'MOVE', keys: one ? '' : ARROWS, arrow: box, hand: one && box ? { mode: 'drag', from: spr, to: box } : null };
+      } else {
+        const slot = s.guideSlot;
+        if (seat && seat.seated && seat.valid && !one) p = { word: 'DROP', keys: K('SPACE'), arrow: slot };
+        else if (st === 2 && seat && seat.err < 0.8) p = { word: 'LOWER', keys: K('Q'), arrow: slot };
+        else if (st === 2 && s.altitude < 3) p = { word: 'LIFT', keys: K('E'), arrow: slot };
+        else p = { word: one ? 'DRAG' : 'MOVE', keys: one ? '' : ARROWS, arrow: slot, hand: one && slot ? { mode: 'drag', from: spr, to: slot } : null };
+      }
     } else if (st === 3) {
-      p = this._comboT == null || this._comboT > 0 ? { html: I('star') + (one ? '' : K('C')), text: one ? 'Chain PERFECTs' : 'Cab view · chain PERFECTs' } : null;
+      p = this._comboT == null || this._comboT > 0 ? { word: 'COMBO', keys: icon('star') } : null;
     }
-    // nothing pressed for a while on the first boxes: a pulsing nudge with the controls themselves
-    let nudge = false;
-    if (st <= 1 && idle > 4) {
-      nudge = true;
-      if (st === 0 && rig.carry) p = touch ? { html: I('hand'), text: 'Tap' } : { html: I('mouse'), text: 'Click or <SPACE>' };
-      else if (st === 1) p = touch ? { html: I('hand') + I('move'), text: 'Drag' } : { html: I('mouse') + I('move'), text: 'Drag or ' + '<ARROWS>' };
-    }
+    // nothing pressed for a while on the first boxes: everything pulses harder
+    const nudge = !!p && st <= 1 && idle > 4;
     this._show(p, nudge);
   }
 
@@ -99,18 +118,54 @@ export class Coach {
     if (st < 3) this.advance(this.scheme() !== 'keys' && st >= 1 ? 3 : st + 1);
   }
 
+  _screen(v) {
+    if (!v || !this.project) return null;
+    if (v === 'drop') {
+      const r = this.dropRect();
+      return r ? { x: r.left + r.width / 2, y: r.top + r.height / 2 } : null;
+    }
+    const q = this.project(_a.copy(v));
+    return q.behind ? null : q;
+  }
+
   _show(p, nudge = false) {
-    const key = p ? p.html + p.text + nudge : '';
-    if (key === this.key) return;
-    this.key = key;
-    this.root.innerHTML = '';
-    this.root.classList.toggle('on', !!p);
-    if (!p) return;
-    const txt = h('span.txt');
-    // (the arrow keys are drawn as key caps inside the text)
-    if (/<(ARROWS|SPACE)>/.test(p.text)) txt.innerHTML = p.text.replace('<ARROWS>', ARROWS).replace('<SPACE>', K('SPACE'));
-    else txt.textContent = p.text;
-    this.root.appendChild(h('div.coachpill' + (nudge ? '.nudge' : ''), h('span.keys', { html: p.html }), txt));
+    // the word pill (rebuilt only when it changes)
+    const key = p ? (p.word || '') + (p.keys || '') + nudge : '';
+    if (key !== this.key) {
+      this.key = key;
+      this.root.innerHTML = '';
+      const on = !!(p && (p.word || p.keys));
+      this.root.classList.toggle('on', on);
+      if (on) this.root.appendChild(h('div.coachpill.gword' + (nudge ? '.nudge' : ''), p.keys ? h('span.keys', { html: p.keys }) : null, p.word ? h('span.txt', p.word) : null));
+    }
+    this.layer.classList.toggle('nudge', nudge);
+    document.body.classList.toggle('coach-nudge', nudge);
+    // the arrow sits on its target and bobs
+    const a = p && this._screen(p.arrow);
+    this.arrow.classList.toggle('on', !!a);
+    if (a) this._move('a', a.x, a.y, this.arrow, '--x', '--y');
+    // the ghost hand taps the DROP button or drags from the spreader to the target
+    const hd = p && p.hand;
+    const from = hd && hd.mode === 'drag' ? this._screen(hd.from) : null;
+    const to = hd ? this._screen(hd.to) : null;
+    const showHand = !!(to && (hd.mode === 'tap' || from));
+    this.hand.classList.toggle('on', showHand);
+    this.hand.classList.toggle('tap', showHand && hd.mode === 'tap');
+    this.hand.classList.toggle('drag', showHand && hd.mode === 'drag');
+    if (showHand) {
+      this._move('t', to.x, to.y, this.hand, '--tx', '--ty');
+      if (from) this._move('f', from.x, from.y, this.hand, '--fx', '--fy');
+    }
+  }
+
+  /** Style variables only change when the point has really moved (no layout churn). */
+  _move(k, x, y, el, vx, vy) {
+    const P = this._pos;
+    if (Math.abs(P[k + 'x'] - x) < 1.5 && Math.abs(P[k + 'y'] - y) < 1.5) return;
+    P[k + 'x'] = x;
+    P[k + 'y'] = y;
+    el.style.setProperty(vx, Math.round(x) + 'px');
+    el.style.setProperty(vy, Math.round(y) + 'px');
   }
 
   hide() {

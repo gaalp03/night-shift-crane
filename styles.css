@@ -3611,3 +3611,364 @@ body.touch.goals-on .hud-bl {
   height: 1em;
   fill: currentColor;
 }
+
+/* ------------------------------------------------------------------ first-minute HUD: money + DROP, then more after each ship */
+body.hud0 .hud-tl,
+body.hud0 .hud-tc,
+body.hud0 .scoreplate,
+body.hud0 .hud-tr .upgrade,
+body.hud0 .hud-tr .combo,
+body.hud0 .hud-bl,
+body.hud0 .hud-bc,
+body.hud0 .hud-btns .btn:first-child,
+body.hud1 .hud-tl .goals,
+body.hud1 .hud-tl .queue,
+body.hud1 .hud-tr .upgrade,
+body.hud1 .hud-tr .combo,
+body.hud1 .hud-bl,
+body.hud1 .hud-bc,
+body.hud1 .hud-btns .btn:first-child,
+body.hud2 .hud-tl .queue,
+body.hud2 .hud-bl,
+body.hud2 .controls-hint,
+body.hud2 .hud-btns .btn:first-child {
+  display: none !important;
+}
+/* portrait phones: money + the DROP button (its ring is the ship's clock), nothing else */
+body.touch.portrait .hud-tl,
+body.touch.portrait .hud-tc,
+body.touch.portrait .scoreplate,
+body.touch.portrait .hud-tr .upgrade,
+body.touch.portrait .hud-tr .combo,
+body.touch.portrait .hud-bl,
+body.touch.portrait .hud-bc,
+body.touch.portrait .hud-btns .btn:first-child {
+  display: none !important;
+}
+body.touch.portrait #coach {
+  padding-bottom: calc(10.2em + var(--sb));
+}
+
+.dropbtn {
+  position: absolute;
+  left: 50%;
+  bottom: calc(1.3em + var(--sb));
+  width: 6.4em;
+  height: 6.4em;
+  margin-left: -3.2em;
+  border: 0;
+  border-radius: 50%;
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.15em;
+  color: #1b1206;
+  background: radial-gradient(circle at 35% 30%, #ffd38a, #ffb347 55%, #e08a1e);
+  box-shadow: 0 0 0 0.22em rgba(8, 14, 20, 0.85), 0 0.5em 1.6em rgba(0, 0, 0, 0.55);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+.dropbtn:not(.ready) {
+  background: radial-gradient(circle at 35% 30%, #4c5862, #2b333a 60%, #1a1f24);
+  color: #f3efe6;
+}
+.dropbtn.ready {
+  animation: dropPulse 0.8s ease-in-out infinite alternate;
+}
+@keyframes dropPulse {
+  to {
+    box-shadow: 0 0 0 0.22em rgba(8, 14, 20, 0.85), 0 0 0 0.6em rgba(255, 179, 71, 0.35), 0 0 2.4em rgba(255, 179, 71, 0.6);
+  }
+}
+.dropbtn:active {
+  transform: scale(0.93);
+}
+.dropbtn .dring {
+  position: absolute;
+  inset: -0.5em;
+  border-radius: 50%;
+  background: conic-gradient(#7ee08a var(--k, 100%), rgba(255, 255, 255, 0.14) 0);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 0.32em), #000 calc(100% - 0.28em));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 0.32em), #000 calc(100% - 0.28em));
+  pointer-events: none;
+}
+.dropbtn.late .dring {
+  background: conic-gradient(#ff6b4a var(--k, 100%), rgba(255, 255, 255, 0.14) 0);
+}
+.dropbtn .dlbl {
+  font-family: var(--font-stencil);
+  font-size: 1.55em;
+  letter-spacing: 0.08em;
+  line-height: 1;
+}
+.dropbtn .dsub:empty {
+  display: none;
+}
+.dropbtn .dsub .kbd {
+  font-size: 0.8em;
+}
+
+/* the guide: a bobbing arrow on the target and a ghost hand showing the gesture */
+#guide {
+  z-index: 16;
+  pointer-events: none;
+}
+.garrow,
+.ghand {
+  position: absolute;
+  left: 0;
+  top: 0;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  pointer-events: none;
+}
+.garrow {
+  --x: -200px;
+  --y: -200px;
+  width: 3.6em;
+  height: 3.6em;
+  transform: translate(calc(var(--x) - 50%), calc(var(--y) - 100% - 0.8em));
+}
+.garrow.on {
+  opacity: 1;
+}
+.garrow svg {
+  width: 100%;
+  height: 100%;
+  fill: #ffb347;
+  filter: drop-shadow(0 0 0.45em rgba(255, 179, 71, 0.85)) drop-shadow(0 0.15em 0.15em rgba(0, 0, 0, 0.7));
+  animation: gBob 0.75s ease-in-out infinite alternate;
+}
+@keyframes gBob {
+  to {
+    transform: translateY(0.7em);
+  }
+}
+.ghand {
+  --tx: -200px;
+  --ty: -200px;
+  --fx: -200px;
+  --fy: -200px;
+  width: 4.4em;
+  height: 4.4em;
+}
+.ghand span svg {
+  width: 100%;
+  height: 100%;
+  fill: #fff;
+  opacity: 0.93;
+  filter: drop-shadow(0 0 0.12em #000) drop-shadow(0 0.3em 0.4em rgba(0, 0, 0, 0.6));
+}
+.ghand i.ripple {
+  position: absolute;
+  left: 40%;
+  top: 8%;
+  width: 2.6em;
+  height: 2.6em;
+  margin: -1.3em 0 0 -1.3em;
+  border-radius: 50%;
+  border: 0.22em solid rgba(255, 255, 255, 0.85);
+  opacity: 0;
+}
+.ghand.on.tap {
+  opacity: 1;
+  animation: ghTap 1.1s ease-in-out infinite;
+}
+.ghand.on.tap i.ripple {
+  animation: ghRipple 1.1s ease-out infinite;
+}
+@keyframes ghTap {
+  0%,
+  100% {
+    transform: translate(calc(var(--tx) - 40%), calc(var(--ty) - 8% + 1em)) scale(1);
+  }
+  45% {
+    transform: translate(calc(var(--tx) - 40%), calc(var(--ty) - 8%)) scale(0.86);
+  }
+}
+@keyframes ghRipple {
+  0%,
+  40% {
+    opacity: 0;
+    transform: scale(0.3);
+  }
+  50% {
+    opacity: 0.9;
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.7);
+  }
+}
+.ghand.on.drag {
+  animation: ghDrag 1.7s ease-in-out infinite;
+}
+@keyframes ghDrag {
+  0% {
+    opacity: 0;
+    transform: translate(calc(var(--fx) - 40%), calc(var(--fy) - 8%)) scale(1.1);
+  }
+  12% {
+    opacity: 0.95;
+    transform: translate(calc(var(--fx) - 40%), calc(var(--fy) - 8%)) scale(0.9);
+  }
+  70% {
+    opacity: 0.95;
+    transform: translate(calc(var(--tx) - 40%), calc(var(--ty) - 8%)) scale(0.9);
+  }
+  84% {
+    opacity: 0.95;
+    transform: translate(calc(var(--tx) - 40%), calc(var(--ty) - 8%)) scale(1.1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(calc(var(--tx) - 40%), calc(var(--ty) - 8%)) scale(1.1);
+  }
+}
+#guide.nudge .garrow svg {
+  animation-duration: 0.4s;
+}
+#guide.nudge .ghand span svg {
+  filter: drop-shadow(0 0 0.5em #ffb347) drop-shadow(0 0.3em 0.4em rgba(0, 0, 0, 0.6));
+}
+.coachpill.gword {
+  font-family: var(--font-stencil);
+  font-weight: 400;
+  font-size: 2em;
+  letter-spacing: 0.12em;
+  padding: 0.3em 0.9em 0.32em;
+  gap: 0.45em;
+}
+.coachpill.gword .keys .kbd {
+  font-size: 0.5em;
+}
+.coachpill.gword .keys svg.ico {
+  width: 0.9em;
+  height: 0.9em;
+  fill: #ffd25e;
+}
+body.touch .coachpill.gword {
+  font-size: 1.8em;
+}
+
+/* after each ship: what it paid, what is next, one tap */
+#shipcard {
+  z-index: 22;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: calc(5.2em + var(--st));
+  pointer-events: none;
+}
+.shipcard {
+  pointer-events: auto;
+  text-align: center;
+  width: min(92vw, 25em);
+  padding: 0.85em 1.2em 1em;
+  border-radius: 0.6em;
+  background: rgba(8, 14, 20, 0.93);
+  box-shadow: inset 0 0 0 0.14em rgba(255, 179, 71, 0.55), 0 1em 3em rgba(0, 0, 0, 0.6);
+  animation: shipCardIn 0.45s cubic-bezier(0.2, 1.3, 0.3, 1) both;
+}
+.shipcard.good {
+  box-shadow: inset 0 0 0 0.16em rgba(126, 224, 138, 0.7), 0 1em 3em rgba(0, 0, 0, 0.6);
+}
+.shipcard.out {
+  animation: toastOut 0.3s ease forwards;
+}
+@keyframes shipCardIn {
+  from {
+    opacity: 0;
+    transform: translateY(-1em) scale(0.9);
+  }
+}
+.shipcard .t1 {
+  font-family: var(--font-stencil);
+  font-size: 2em;
+  letter-spacing: 0.08em;
+  color: #ffb347;
+  line-height: 1.05;
+}
+.shipcard.good .t1 {
+  color: #7ee08a;
+}
+.shipcard .t2 {
+  margin-top: 0.15em;
+  font-size: 1.5em;
+  font-weight: 700;
+  color: #ffd25e;
+}
+.shipcard .t3 {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45em;
+  margin-top: 0.45em;
+  font-size: 1.05em;
+  font-weight: 700;
+}
+.shipcard .t3 svg.ico {
+  width: 1.15em;
+  height: 1.15em;
+  flex: none;
+  fill: #ffb347;
+}
+.shipcard .acts {
+  display: flex;
+  justify-content: center;
+  gap: 0.6em;
+  margin-top: 0.75em;
+}
+.shipcard .acts .btn {
+  flex: 1 1 0;
+  justify-content: center;
+}
+
+/* every lock / release: a jolt you can feel, whatever the quality setting */
+#game.punch {
+  animation: gamePunch 0.16s ease-out;
+}
+@keyframes gamePunch {
+  from {
+    transform: scale(1.016);
+  }
+  to {
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  #game.punch {
+    animation: none;
+  }
+}
+
+/* readability floor: no HUD label below 11 px on small screens */
+.goal .lbl,
+.scoreplate .lbl,
+.queue .lbl,
+.windplate small,
+.windplate .val small,
+.shiftplate .ship,
+.coachpill .keys .kbd,
+.dropbtn .dsub .kbd {
+  font-size: max(11px, 0.78em);
+}
+.shipcard .acts .btn {
+  min-width: 0;
+  padding-left: 0.6em;
+  padding-right: 0.6em;
+  font-size: 1.05em;
+}
+body.portrait #shipcard {
+  padding-top: calc(7.2em + var(--st));
+}
+body.coach-nudge .dropbtn.ready {
+  animation-duration: 0.35s;
+}
+.controls-hint .kbd,
+.status .kbd {
+  font-size: max(11px, 0.78em);
+}

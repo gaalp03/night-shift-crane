@@ -97,7 +97,7 @@ const app = {
     if (app.touchMode === v) return;
     app.touchMode = v;
     document.body.classList.toggle('touch', v);
-    if (app.touch) app.touch.show(v && app.mode === 'play');
+    if (app.touch) app.touch.show(false); // (one-touch play: the old stick and buttons never come back)
     if (app.tutorial) app.tutorial.setTouch(v);
     if (!v) input.touch.x = input.touch.z = input.touch.hoist = 0;
   },
@@ -119,6 +119,7 @@ const app = {
       app._quality = st.quality;
       gfx.applyQuality(st.quality, st.autoLevel || 0);
       document.body.classList.toggle('post', gfx.usePost);
+      syncSilhouette();
     }
   },
   applyPaint() {
@@ -439,6 +440,12 @@ async function beginRun(level, opts = {}) {
     app.session = s;
     bindSession(s);
     app.hud.build(level, s);
+    applyHudStage();
+    // a brand-new operator's first five boxes are forgiving (and loud)
+    const f = save.data.flags;
+    if (f.rookie == null) f.rookie = f.played ? 5 : 0;
+    s.rookieLeft = Math.max(0, 5 - f.rookie);
+    if (s.rookieLeft) s.refreshMods();
     showHud(false);
     app.mode = 'intro';
     app.cams.yaw = 0;
@@ -532,6 +539,108 @@ async function runIntro(level, s, opts = {}) {
   sdk.gameplayStart();
 }
 
+/** The big DROP button: the only control on screen in the first minute and on portrait phones. */
+function updateDrop(s) {
+  const portrait = app.touchMode && document.body.classList.contains('portrait');
+  const stage = app.level && app.level.endless ? app.hudStage : 3;
+  const carry = !!s.rig.carry;
+  const show = !s.attract && s.phase === 'play' && (portrait || (stage === 0 && carry));
+  if (!show) return app.hud.setDrop({ show: false });
+  const g = s.wantedGrab();
+  const seat = s.seat;
+  const quota = s.endless ? s.level.manifest.filter((m) => !m.black).length : s.quota;
+  const done = s.endless ? s.delivered - (s.shipBase || 0) : s.delivered;
+  const label = carry ? 'DROP' : g && g.ready ? 'GRAB' : `${Math.max(0, done)}/${quota}`;
+  const ready = carry ? stage === 0 || !!(seat && seat.seated && seat.valid) : !!(g && g.ready);
+  app.hud.setDrop({ show: true, label, ready, sub: app.touchMode ? '' : '<span class="kbd">SPACE</span>', timeK: s.timeTotal ? s.time / s.timeTotal : 1 });
+}
+
+/** How much of the HUD a new operator sees: 0 = money + DROP only, then more after each ship, 3 = all. */
+app.applyHudStage = () => applyHudStage();
+function applyHudStage() {
+  const f = save.data.flags;
+  if (f.hud == null) f.hud = f.played ? 3 : 0;
+  app.hudStage = f.hud;
+  const st = app.level && !app.level.endless ? 3 : f.hud;
+  for (let i = 0; i <= 3; i++) document.body.classList.toggle('hud' + i, st === i);
+}
+
+/** After a ship: what it paid, and the very next thing to play for — one tap brings the next vessel in. */
+function showShipCard(s, e, cash) {
+  const root = $('shipcard');
+  root.innerHTML = '';
+  const d = save.data;
+  // the cheapest upgrade still to buy
+  let up = null;
+  for (const u of UPGRADES) {
+    const l = d.upgrades[u.id] || 0;
+    if (l < u.costs.length && (!up || u.costs[l] < up.cost)) up = { u, l, cost: u.costs[l] };
+  }
+  const afford = up && d.money >= up.cost;
+  const title = e.complete ? 'SHIP LOADED' : 'SHIP SAILED';
+  const sub = e.complete ? (cash ? `+$${fmtNum(cash)}` : 'Full ship') : `${e.placed}/${e.quota} aboard`;
+  const next = afford ? `Next ship: unlock ${up.u.name}` : up ? `Next ship: ${up.u.name} · $${fmtNum(up.cost - d.money)} to go` : 'Next ship: big cash';
+  let done = false;
+  const close = (hurry) => {
+    if (done) return;
+    done = true;
+    if (hurry && app.session === s) s.hurrySwap();
+    card.classList.add('out');
+    setTimeout(() => card.remove(), 300);
+  };
+  const buy = () => {
+    if (!afford || done) return;
+    const l = d.upgrades[up.u.id] || 0;
+    if (d.money < up.u.costs[l]) return;
+    d.money -= up.u.costs[l];
+    d.upgrades[up.u.id] = l + 1;
+    save.flush();
+    audio.play('ui_buy');
+    audio.play('sting_levelup', { vol: 0.7 });
+    sdk.happytime();
+    app.upgradesChanged({ id: up.u.id, level: l + 1, cost: up.u.costs[l] });
+    app._walletShown = d.money;
+    app.hud.setMoney(d.money, app.canUpgrade());
+    app.juice.burst({ text: 'UNLOCKED', sub: up.u.name, kind: 'good', big: true });
+    close(true);
+  };
+  const acts = h('div.acts');
+  if (afford) acts.appendChild(h('button.btn.teal.big', { onclick: buy, html: icon(up.u.icon || 'wrench') + '<span>Unlock</span>' }));
+  acts.appendChild(h('button.btn.primary.big', { onclick: () => close(true), html: icon('next') + '<span>Next ship</span>' }));
+  const card = h('div.shipcard' + (e.complete ? '.good' : ''), h('div.t1', title), h('div.t2', sub), h('div.t3', { html: icon(afford ? 'wrench' : up ? 'coin' : 'coin') + `<span>${next}</span>` }), acts);
+  root.appendChild(card);
+  // it never blocks: the card goes by itself when the next ship is alongside
+  const watch = setInterval(() => {
+    if (app.session !== s || s.phase === 'play' || app.mode === 'results') {
+      clearInterval(watch);
+      close(false);
+    }
+  }, 250);
+}
+
+/** First session, after ship 2: what coming back tomorrow is worth (streak + the night crew). */
+function showReturnPreview() {
+  const root = $('strip');
+  if (root.firstChild) return;
+  const l = app.harbor.portLevel || 0;
+  const boxes = Math.floor(8 * (6 + 4 * l));
+  const crew = boxes * (12 + 5 * l);
+  const card = h(
+    'div.strip.preview',
+    h('div.row', { html: `<b style="font-family:var(--font-stencil);letter-spacing:.12em;color:var(--amber)">TOMORROW</b>` }),
+    h('div.row', { html: icon('gift') + `<span>Day 2 bonus<small>streak · day 7 pays +$${fmtNum(loginReward(7))}</small></span><span class="amt">+$${fmtNum(loginReward(2))}</span>` }),
+    h('div.row', { html: icon('truck') + `<span>Night crew<small>works while you are away</small></span><span class="amt">up to +$${fmtNum(crew)}</span>` }),
+    h('div.acts', h('button.btn.small.primary', { onclick: () => out(), html: icon('check') + 'OK' }))
+  );
+  const out = () => {
+    card.classList.add('out');
+    setTimeout(() => card.remove(), 320);
+  };
+  root.appendChild(card);
+  audio.play('ui_open');
+  setTimeout(out, 9000);
+}
+
 /** Around every ad: silence, freeze (the tick checks sdk.adActive) and tell the platform gameplay stopped. */
 function adHooks() {
   return {
@@ -545,6 +654,24 @@ function adHooks() {
       if (app.mode === 'play') sdk.gameplayStart();
     },
   };
+}
+
+/** No shadows (the low preset, or auto stepped all the way down): silhouette lights on. */
+function syncSilhouette() {
+  if (app.harbor && app.harbor.setSilhouette) app.harbor.setSilhouette(!gfx.shadows);
+}
+
+/** Screen punch for every lock / release, at every quality setting (camera kick + a CSS jolt + a snap). */
+function punch(k) {
+  if (app.cams) {
+    app.cams.punch(0, -0.18 * k, 0);
+    if (app.cams.shakeEnabled) app.cams.shake(0.12 * k);
+  }
+  const c = $('game');
+  c.classList.remove('punch');
+  void c.offsetWidth;
+  c.classList.add('punch');
+  audio.play('ui_click', { vol: 0.35 + 0.3 * k, rate: 0.7 });
 }
 
 /** Short vibration on phones that support it (Android); silently ignored elsewhere. */
@@ -626,7 +753,7 @@ function updateGoals(s) {
 }
 
 /** Money in: coins fly from `pos` to the wallet, which counts up as they land. */
-function earn(amount, pos) {
+function earn(amount, pos, burst = 1) {
   const d = save.data;
   d.money += amount;
   d.stats.earned += amount;
@@ -634,10 +761,16 @@ function earn(amount, pos) {
   analytics.trackOnce('first_reward', { amount, ms: Math.round(performance.now()) });
   let shown = app._walletShown == null ? d.money - amount : app._walletShown;
   app._walletShown = shown;
-  app.juice.coins(pos, amount, app.hud.el.wallet, (share, last) => {
-    app._walletShown = last ? save.data.money : Math.min(save.data.money, app._walletShown + share);
-    app.hud.setMoney(app._walletShown, app.canUpgrade());
-  });
+  app.juice.coins(
+    pos,
+    amount,
+    app.hud.el.wallet,
+    (share, last) => {
+      app._walletShown = last ? save.data.money : Math.min(save.data.money, app._walletShown + share);
+      app.hud.setMoney(app._walletShown, app.canUpgrade());
+    },
+    burst
+  );
   updatePort(true);
 }
 
@@ -683,8 +816,14 @@ function recordEpisode(s, key, outcome) {
 
 function bindSession(s) {
   const j = app.juice;
-  s.on('grab', () => buzz(18));
-  s.on('release', () => buzz(10));
+  s.on('grab', () => {
+    buzz(18);
+    punch(0.55);
+  });
+  s.on('release', () => {
+    buzz(10);
+    punch(0.4);
+  });
   s.on('burst', (b) => j.burst(b));
   s.on('points', (p) => j.points(p));
   s.on('toast', (t) => j.toast(t));
@@ -708,11 +847,15 @@ function bindSession(s) {
   });
   s.on('shipDone', (e) => {
     const cash = Math.round(e.bonus * 0.3);
-    if (e.complete) {
-      j.banner('SHIP LOADED', cash ? `+$${cash} full-ship bonus · next vessel inbound` : 'next vessel inbound', 2600);
-      sdk.happytime();
-    } else j.banner('SHIP SAILED', `${e.placed} of ${e.quota} aboard · next vessel inbound`, 2600);
+    if (e.complete) sdk.happytime();
     if (cash) earn(cash, s.ship.group.position);
+    showShipCard(s, e, cash);
+    // a new operator's HUD fills in one ship at a time
+    if (s.endless && save.data.flags.hud < 3) {
+      save.data.flags.hud = Math.min(3, e.n);
+      save.commit();
+      applyHudStage();
+    }
     if (e.complete && e.streak >= 2) app.after(1.4, () => j.toast({ text: `${e.streak} full ships in a row · ship bonus x${e.streakMul.toFixed(2)}`, kind: 'good', key: 'streak' + e.streak, dur: 3000 }), s);
     analytics.track('round_complete', { ship: e.n, complete: e.complete ? 1 : 0, placed: e.placed, quota: e.quota, time_left: Math.round(e.timeLeft || 0), streak: e.streak || 0 });
     // every fifth ship: a milestone worth celebrating
@@ -730,7 +873,6 @@ function bindSession(s) {
       save.data.flags.played = true;
       save.commit();
       app.after(3.2, () => {
-        j.banner('NIGHT SHIFT CRANE', 'Pier Seven', 2600);
         // day one of the login streak, and the promise of day two
         app.after(5, () => {
           const pay = loginReward(1);
@@ -753,6 +895,12 @@ function bindSession(s) {
     j.toast({ text: `${e.def.ship.name} inbound`, kind: 'info', dur: 3200 });
   });
   s.on('shipDocked', (e) => {
+    // first session: after the second ship, show what tomorrow is worth
+    if (e.n === 3 && app.newcomer && !save.data.flags.previewSeen) {
+      save.data.flags.previewSeen = true;
+      save.commit();
+      app.after(1.5, showReturnPreview, s);
+    }
     j.banner(e.def.ship.name, `Ship ${e.n} · ${e.def.manifest.filter((m) => !m.black).length} boxes · ${Math.round(s.timeTotal)}s on the clock`, 2400);
   });
   s.on('finish', (res) => onFinish(s, res));
@@ -815,10 +963,22 @@ function bindSession(s) {
     if (Math.random() < 0.4) audio.play('vox_laugh', { delay: 0.6, vol: 0.5 });
   });
   s.on('placed', (e) => {
+    // the first five boxes of a career: a CLANG, a freeze, a flash and a shower of coins
+    const rookie = s.rookieLeft > 0 && e.pts > 0;
+    if (rookie) {
+      s.rookieLeft--;
+      save.data.flags.rookie = 5 - s.rookieLeft;
+      save.commit();
+      audio.play('clang', { vol: 1 });
+      app.hitStop = Math.max(app.hitStop, 0.22);
+      if (save.data.settings.flashes !== false) j.flash();
+      app.cams.shake(0.35);
+      if (!s.rookieLeft) s.refreshMods();
+    }
     // the main shift pays per box, straight into the wallet
     if (s.endless && e.pts > 0) {
       e.cargo.mesh.getWorldPosition(_tmp);
-      earn(Math.round(e.pts * 0.25), _tmp.clone());
+      earn(Math.round(e.pts * 0.25) + (rookie ? 50 : 0), _tmp.clone(), rookie ? 3 : 1);
     }
     app.coach.onPlaced();
     const beat = SHIFT_BEATS[s.level.id];
@@ -1116,15 +1276,19 @@ async function boot() {
     save.data.settings.autoLevel = lvl;
     save.commit();
     document.body.classList.toggle('post', gfx.usePost);
+    syncSilhouette();
   };
   gfx.onClimb = (q) => {
     save.data.settings.autoQ = q;
     save.commit();
     document.body.classList.toggle('post', gfx.usePost);
+    syncSilhouette();
   };
+  syncSilhouette();
   document.body.classList.toggle('post', gfx.usePost);
 
   app.harbor = new Harbor(scene, { mobile, aniso: Math.min(8, gfx.maxAniso) });
+  syncSilhouette();
   await wait(0);
   app.water = new Water(scene, { mobile });
   app.weather = new Weather(scene, { count: gfx.rainCount, mobile });
@@ -1141,8 +1305,21 @@ async function boot() {
   app.tug = new Tug(scene);
   app.gulls = new Gulls(scene, mobile ? 4 : 7);
   app.wet = new WetShine(scene, { y: DIM.QUAY_Y, bounds: { minX: -90, maxX: -0.3, halfZ: 160 }, count: mobile ? 12 : 22 });
-  app.hud = new Hud({ onPause: () => app.pause(), onCamera: toggleCamera, onUpgrade: () => app.openWorkshopInPlay(), touch: app.touchMode });
-  app.coach = new Coach(save, () => (app.touchMode ? 'touch' : app.mouseMode ? 'mouse' : 'keys'));
+  app.hud = new Hud({ onPause: () => app.pause(), onCamera: toggleCamera, onUpgrade: () => app.openWorkshopInPlay(), onDrop: (ev) => {
+    app.lastInput = performance.now();
+    // a mouse on the big button is a mouse player: steer like a finger from here on
+    if (ev && ev.pointerType !== 'touch' && !app.touchMode && ev.detail > 0) app.setMouseMode(true);
+    input.fire('lock');
+  }, touch: app.touchMode });
+  app.coach = new Coach(
+    save,
+    () => (app.touchMode ? 'touch' : app.mouseMode ? 'mouse' : 'keys'),
+    (v) => app.juice.project(v),
+    () => {
+      const d = app.hud.el && app.hud.el.drop;
+      return d && !d.classList.contains('hidden') ? d.getBoundingClientRect() : null;
+    }
+  );
   app.screens = new Screens(app);
   app.ctx = { scene, harbor: app.harbor, water: app.water, weather: app.weather, fx: app.fx, crane: app.crane, cams: app.cams, save, mobile };
 
@@ -1834,6 +2011,7 @@ function tick(raw) {
   if (app.mode === 'play' && s) {
     const hs = s.hud();
     app.hud.update(hs);
+    updateDrop(s);
     applyCabGhost(app.cams.mode === 'cab' ? s.rig.carry : null);
   }
   if (app.mode === 'play' && s && !s.attract && s.endless) updateGoals(s);
