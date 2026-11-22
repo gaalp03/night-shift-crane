@@ -39,6 +39,47 @@ export const sdk = {
   get adActive() {
     return state.adActive;
   },
+  /**
+   * Ads are only treated as real once one has actually filled in this visit (Basic Launch keeps the
+   * SDK on the page but serves no ads). Until then rewarded features are given for free instead.
+   */
+  get adsEnabled() {
+    return this.available && !!state.adsFilled;
+  },
+  /** 'desktop' | 'mobile' | 'tablet' from the platform, or null without the SDK. */
+  get deviceType() {
+    if (!state.ready || !state.sdk) return null;
+    const cg = state.sdk;
+    let info = null;
+    info = call(() => cg.user && cg.user.systemInfo) || call(() => cg.user && typeof cg.user.getSystemInfo === 'function' && cg.user.getSystemInfo()) || call(() => typeof cg.getSystemInfo === 'function' && cg.getSystemInfo());
+    const t = info && info.device && info.device.type;
+    return t === 'desktop' || t === 'mobile' || t === 'tablet' ? t : null;
+  },
+  /** The signed-in CrazyGames player ({ username }) or null (guest, no SDK, no account system). */
+  async getUser() {
+    if (!state.ready || !state.sdk || !state.sdk.user) return null;
+    const u = state.sdk.user;
+    try {
+      if (u.isUserAccountAvailable === false) return null;
+      if (typeof u.getUser !== 'function') return null;
+      const r = await withTimeout(Promise.resolve(u.getUser()), 3000);
+      return r && r !== 'timeout' && typeof r.username === 'string' && r.username ? { username: r.username } : null;
+    } catch (e) {
+      return null;
+    }
+  },
+  /** A platform leaderboard, only if this SDK build actually offers one. */
+  get hasLeaderboard() {
+    const cg = state.ready && state.sdk;
+    return !!(cg && cg.leaderboard && typeof cg.leaderboard.submitScore === 'function');
+  },
+  submitScore(score) {
+    if (!this.hasLeaderboard) return;
+    call(() => {
+      const p = state.sdk.leaderboard.submitScore({ score });
+      if (p && p.catch) p.catch(() => {});
+    });
+  },
 
   /** Resolves quickly even if the script is blocked or we are not on CrazyGames. */
   async init() {
@@ -155,6 +196,7 @@ export const sdk = {
         state.sdk.ad.requestAd(type, {
           adStarted: () => {
             started = true;
+            state.adsFilled = true;
             if (hooks.pause) call(hooks.pause);
           },
           adFinished: () => {

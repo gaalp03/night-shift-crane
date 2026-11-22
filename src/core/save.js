@@ -13,6 +13,7 @@ const defaults = () => ({
   flags: { introSeen: false, tutorialDone: false, endlessSeen: false, checkSeen: false },
   story: { boxes: {}, opened: {}, ending: null },
   login: { last: '', streak: 0, best: 0 }, // daily login streak (local calendar days)
+  week: { key: '', best: 0, ships: 0 }, // this week's port record (Monday to Sunday, local)
   install: '', // first day played (YYYY-MM-DD), for return-day analytics // what became of each unlisted box (shift id -> outcome)
   paint: 'yellow',
   awards: {},

@@ -742,7 +742,7 @@ export class Session extends Emitter {
       audio.play('ui_error', { vol: 0.7 });
       this.ctx.crane.setLed('error');
       this._ledT = 0.35;
-      this.emit('toast', { text: g && Math.hypot(g.lx, g.lz) < 2.5 ? 'Line the spreader up on the container, then lower onto it' : 'Lower the spreader onto a container first', kind: 'hint', key: 'grabfail' });
+      this.emit('toast', { text: g && Math.hypot(g.lx, g.lz) < 2.5 ? 'Line up, then lower' : 'Lower onto a box first', kind: 'hint', key: 'grabfail' });
       return false;
     }
     const c = g.cargo;
@@ -804,14 +804,14 @@ export class Session extends Emitter {
     } else {
       this._makeLoose(c, pose);
       if (seat && seat.seated && seat.kind === 'ship') {
-        if (seat.problem === 'heavy') this.emit('toast', { text: 'Too heavy for that stack — the twist-locks will not hold', kind: 'warn' });
-        else if (seat.problem === 'uneven') this.emit('toast', { text: 'A forty-footer needs both columns at the same height', kind: 'warn' });
-        else if (seat.problem === 'full') this.emit('toast', { text: 'That stack is at its limit', kind: 'warn' });
-        else if (seat.err > 1) this.emit('toast', { text: 'Not on the lock points — it is sitting loose', kind: 'warn', key: 'loose' });
+        if (seat.problem === 'heavy') this.emit('toast', { text: 'Too heavy for that stack', kind: 'warn' });
+        else if (seat.problem === 'uneven') this.emit('toast', { text: '40 ft: both columns level', kind: 'warn' });
+        else if (seat.problem === 'full') this.emit('toast', { text: 'Stack is full', kind: 'warn' });
+        else if (seat.err > 1) this.emit('toast', { text: 'Off the lock points', kind: 'warn', key: 'loose' });
       } else if (seat && seat.kind === 'truck' && seat.problem === 'notout') {
-        this.emit('toast', { text: 'That box is not on the discharge list', kind: 'hint' });
+        this.emit('toast', { text: 'Not on the list', kind: 'hint' });
       } else if (seat && seat.kind === 'truck' && seat.problem === 'notcustoms') {
-        this.emit('toast', { text: 'Customs only take sealed or unlisted boxes', kind: 'hint' });
+        this.emit('toast', { text: 'Customs: sealed boxes only', kind: 'hint' });
       } else if (seat && seat.gap > 0.6) {
         this.emit('drop', c);
       }
@@ -899,7 +899,7 @@ export class Session extends Emitter {
     if (c.discharge) {
       c.misplaced = true;
       this.emit('burst', { text: 'GOES ASHORE!', pos: wp.clone(), kind: 'bad' });
-      this.emit('toast', { text: 'This box is leaving the ship — set it on a truck in Lane 2', kind: 'warn' });
+      this.emit('toast', { text: 'Outbound box → lane 2', kind: 'warn' });
       return;
     }
     if (c.misplaced) {
@@ -1411,7 +1411,7 @@ export class Session extends Emitter {
       this.stats.rough++;
       this.score += SCORE.rough;
       this.emit('points', { pts: SCORE.rough, pos: pos.clone(), rough: true });
-      this.emit('toast', { text: 'Rough handling — easy on the cargo', kind: 'warn', key: 'rough' });
+      this.emit('toast', { text: 'Easy — rough handling', kind: 'warn', key: 'rough' });
     }
     if ((kind === 'truck' || kind === 'truckcab') && dv > 2.5 && this.cool.honk < 0) {
       this.cool.honk = 2.5;
@@ -1421,7 +1421,7 @@ export class Session extends Emitter {
     }
     if (kind === 'bridge' && dv > 2 && this.cool.bridge < 0) {
       this.cool.bridge = 3;
-      this.emit('toast', { text: 'Mind the wheelhouse! The captain is not amused', kind: 'warn' });
+      this.emit('toast', { text: 'Mind the wheelhouse!', kind: 'warn' });
     }
     this.emit('impact', { dv, pos, kind });
   }
@@ -1497,7 +1497,7 @@ export class Session extends Emitter {
       c.temp = Math.max(0, c.temp - dt / 75);
       if (c.temp <= 0 && !c.spoiled) {
         c.spoiled = true;
-        this.emit('toast', { text: 'A reefer has thawed — bonus lost', kind: 'warn' });
+        this.emit('toast', { text: 'Reefer thawed · bonus lost', kind: 'warn' });
       }
     }
   }
@@ -1587,7 +1587,7 @@ export class Session extends Emitter {
       if (this.time <= 30 && !this._warn30 && this.timeTotal > 60) {
         this._warn30 = true;
         audio.play('ui_warn');
-        this.emit('toast', { text: '30 seconds to departure!', kind: 'warn' });
+        this.emit('toast', { text: '30 s to departure!', kind: 'warn' });
       }
       if (this.time > 32) this._warn30 = false;
     }

@@ -3,10 +3,20 @@
 //   - any function assigned to window.NSC_ANALYTICS(name, params)
 //   - sinks added with analytics.addSink(fn)
 // Events are also kept in a small ring buffer (analytics.log) for local inspection / QA.
+// A player who opts out on privacy.html (localStorage 'nsc.analytics' = 'off') sends nothing.
 
 const sinks = new Set();
 const once = new Set();
 const t0 = typeof performance !== 'undefined' ? performance.now() : 0;
+const OPT_KEY = 'nsc.analytics';
+
+function optedOut() {
+  try {
+    return localStorage.getItem(OPT_KEY) === 'off';
+  } catch (e) {
+    return false;
+  }
+}
 
 function toByteBrew(params) {
   // ByteBrew custom event parameters: "key=value;key=value"
@@ -22,11 +32,21 @@ export const analytics = {
     sinks.add(fn);
   },
 
+  /** Is anything beyond the platform SDK listening? (decides whether the privacy note is shown) */
+  external() {
+    try {
+      return !!((window.ByteBrew && typeof window.ByteBrew.NewCustomEvent === 'function') || typeof window.NSC_ANALYTICS === 'function' || sinks.size > 0);
+    } catch (e) {
+      return false;
+    }
+  },
+
   /** Record an event. `params` should stay flat (strings / numbers). */
   track(name, params = {}) {
     const p = { ...params, t: Math.round((performance.now() - t0) / 100) / 10 };
     this.log.push({ name, p });
     if (this.log.length > 200) this.log.shift();
+    if (optedOut()) return;
     try {
       const bb = window.ByteBrew;
       if (bb && typeof bb.NewCustomEvent === 'function') {

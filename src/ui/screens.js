@@ -120,7 +120,8 @@ export class Screens {
       h(
         'div.menu',
         // the night shift itself (endless, ship after ship) is the game; everything else hangs off it
-        h('button.btn.primary.big', { 'data-sound': 'ui_confirm', onclick: () => app.startEndless(), html: icon('play') + `<span class="grow">Clock in</span><span class="badge">${d.endless.best ? 'Best ' + fmtNum(d.endless.best) : 'Pier Seven'}</span>` }),
+        h('button.btn.primary.big.cta', { 'data-sound': 'ui_confirm', onclick: () => app.startEndless(), html: icon('play') + `<span class="grow">${d.flags.played ? 'Continue shift' : 'Clock in'}</span><span class="badge">${d.endless.best ? 'Best ' + fmtNum(d.endless.best) : 'Pier Seven'}</span>` }),
+        h('div.weekline', { html: icon('trophy') + `<span>${app.weekLine()}</span>` }),
         episode ? h('div.episode', { html: icon('eye') + `<span><b>Tonight</b> · episode ${BLACK_ORDER.indexOf(episode) + 1} of the Pier Seven file is on its way</span>` }) : null,
         h(
           'div.menu-row.duo',
@@ -129,7 +130,7 @@ export class Screens {
             onclick: () => app.openDailyBriefing(),
             html:
               icon(dailyOpen ? 'moon' : 'lock') +
-              `<span class="grow"><b>Daily shift</b><small>${!dailyOpen ? 'After your first ship' : today.stars ? '★'.repeat(today.stars) + (today.streak > 1 ? ` · ${today.streak} nights` : '') : today.streak ? `${today.streak} night${today.streak === 1 ? '' : 's'} · new shift` : 'New every day'}</small></span>`,
+              `<span class="grow"><b>Daily ship</b><small>${!dailyOpen ? 'After your first ship' : today.best ? 'Best today ' + fmtNum(today.best) : 'Same for all today'}</small></span>`,
           }),
           h('button.btn', {
             onclick: () => app.openBoard(),
@@ -150,29 +151,6 @@ export class Screens {
     const foot = h('div.title-foot', h('div', { html: icon('music') + ' ' }, this.trackEl), h('div', `v${GAME_VERSION}`));
     this._setTrack(app.nowPlaying);
     return this._mount('title', h('div.screen.shade', col, foot));
-  }
-
-  /** Back after a while: what the night crew moved, and what is waiting tonight. */
-  welcome(idle) {
-    const app = this.app;
-    const hrs = idle.hrs >= 1 ? `${Math.floor(idle.hrs)} hour${Math.floor(idle.hrs) === 1 ? '' : 's'}` : `${Math.round(idle.hrs * 60)} minutes`;
-    const card = h(
-      'div.card.welcome',
-      h('div.card-head', h('h2', 'Welcome back')),
-      h(
-        'div.card-body',
-        h('div.crew', h('div.big', { html: icon('truck') }), h('div', h('b', `Your night crew moved ${idle.boxes} box${idle.boxes === 1 ? '' : 'es'}`), h('span', `while you were away (${hrs})`))),
-        h('div.crewpay', { html: icon('coin') + ` +$${fmtNum(idle.cash)}` }),
-        idle.episode ? h('div.episode', { html: icon('eye') + '<span><b>Tonight</b> · a new box of the Pier Seven file is on its way</span>' }) : null
-      ),
-      h(
-        'div.card-foot',
-        app.adsAvailable() ? h('button.btn.teal', { 'data-sound': 'ui_confirm', onclick: () => app.collectIdle(idle, true), html: icon('ad') + 'Collect ×2' }) : null,
-        h('div.spacer'),
-        h('button.btn.primary', { 'data-sound': 'ui_confirm', onclick: () => app.collectIdle(idle, false), html: icon('coin') + 'Collect' })
-      )
-    );
-    return this._mount('welcome', h('div.screen.dim', card));
   }
 
   _setTrack(t) {
@@ -644,7 +622,7 @@ export class Screens {
     const touch = app.touchMode;
     const help = touch
       ? 'Drag: move the crane · let go over a slot: it lands · tap: lock on / release · the hoist works by itself'
-      : 'A/D trolley · W/S gantry · E/Q hoist · SPACE lock / release · C cab view · H horn · drag to look around';
+      : 'Mouse: drag to move · click to lock / release · right-drag to look · Keys: A/D W/S (or arrows) move · E/Q hoist · SPACE lock / release · C cab view';
     const tips = 'Amber-sealed boxes: lift, hold steady and read the scale. A match goes on the ship, a mismatch on the blue customs truck in lane 2.';
     const card = h(
       'div.card',
@@ -700,6 +678,7 @@ export class Screens {
       R('Boxes placed', String(st.placed));
       R('Perfect drops', String(st.perfect));
       R('Best combo', 'x' + res.bestCombo);
+      if (meta.week) R(meta.week.label, fmtNum(meta.week.best), meta.week.fresh ? '.good' : '');
       if (st.lost) R('Boxes lost', String(st.lost), '.neg');
       if (st.busted || st.smuggled) R('Customs · caught / slipped through', `${st.busted} / ${st.smuggled}`, st.smuggled ? '.neg' : '');
     } else {
@@ -739,7 +718,7 @@ export class Screens {
       !ok && !endless ? h('div', { style: { fontWeight: 700, margin: '0 0 0.4em', lineHeight: '1.25' } }, failText[res.reason] || '') : null,
       h('div.rows', ...rows),
       h('div.stampzone', meta.newBest && !endless ? h('div.newbest', 'New best') : null, mark),
-      endless ? this._tomorrow(2) : null
+      endless ? this._tomorrow(3) : null
     );
     const actions = h('div.report-actions');
     const add = (cls, label, ic, fn, sound) => actions.appendChild(h('button.btn' + cls, { onclick: fn, 'data-sound': sound || 'ui_click', html: icon(ic) + label }));
@@ -781,8 +760,9 @@ export class Screens {
       add('.ghost.icon', '', 'home', () => app.quitToBoard(), 'ui_back');
     } else {
       if (res.canContinue) {
-        const lbl = res.reason === 'time' ? 'Second chance +50s' : 'Second chance';
-        actions.appendChild(h('button.btn.teal', { onclick: () => app.rewardedContinue(), 'data-sound': 'ui_confirm', html: icon(app.adsAvailable() ? 'ad' : 'play') + lbl }));
+        const ads = app.adsAvailable();
+        const lbl = (res.reason === 'time' ? 'Second chance +50s' : 'Second chance') + (ads ? '' : ' · free');
+        actions.appendChild(h('button.btn.teal', { onclick: () => app.rewardedContinue(), 'data-sound': 'ui_confirm', html: icon(ads ? 'ad' : 'play') + lbl }));
       }
       add('.primary', 'Retry', 'retry', () => app.retry(), 'ui_confirm');
       add('', 'Workshop', 'wrench', () => app.openWorkshop('results'));

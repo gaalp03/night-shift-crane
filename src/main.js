@@ -19,7 +19,7 @@ import { Crew } from './world/crew.js';
 import { CameraRig } from './game/cameras.js';
 import { Session } from './game/session.js';
 import { Tutorial } from './game/tutorial.js';
-import { SHIFTS, UPGRADES, endlessShip, upgradeMods, dailyShift, todayKey, dayBefore, portLevel, PORT_STEPS } from './game/levels.js';
+import { SHIFTS, UPGRADES, endlessShip, upgradeMods, dailyShift, todayKey, dayBefore, weekKey, weekDaysLeft, portLevel, PORT_STEPS } from './game/levels.js';
 import { Coach } from './game/coach.js';
 import { analytics } from './core/analytics.js';
 import { icon } from './ui/icons.js';
@@ -66,7 +66,7 @@ const app = {
 
   // ---------------------------------------------------------------- queries used by the UI
   mods: () => upgradeMods(save.data.upgrades),
-  adsAvailable: () => sdk.available,
+  adsAvailable: () => sdk.adsEnabled,
   shiftUnlocked(i) {
     if (i === 0) return true;
     const prev = SHIFTS[i - 1];
@@ -90,14 +90,21 @@ const app = {
   },
 
   /** Touch controls follow the device actually in use: a finger shows them, a key press hides them. */
-  setTouchMode(v) {
+  setTouchMode(v, force = false) {
     v = !!v;
+    // (when the platform has said what this device is, that answer stands)
+    if (app.deviceLocked && !force) return;
     if (app.touchMode === v) return;
     app.touchMode = v;
     document.body.classList.toggle('touch', v);
     if (app.touch) app.touch.show(v && app.mode === 'play');
     if (app.tutorial) app.tutorial.setTouch(v);
     if (!v) input.touch.x = input.touch.z = input.touch.hoist = 0;
+  },
+
+  /** The mouse steers like a finger (drag + click) once it is used on the game. */
+  setMouseMode(v) {
+    app.mouseMode = !!v && !app.touchMode;
   },
 
   // ---------------------------------------------------------------- settings
@@ -232,14 +239,11 @@ const app = {
   async rewardedContinue() {
     if (app.busy || !app.session || !app.lastResult) return;
     app.busy = true;
-    let ok = true;
-    if (sdk.available) {
-      const r = await sdk.rewarded(adHooks());
-      ok = r.rewarded;
-      if (!ok) app.juice.toast({ text: 'No ad available right now — try again in a moment', kind: 'warn' });
-    }
+    // real ads: a rewarded video first. Without them (Basic Launch, no SDK) — or if the ad does not
+    // come — the second chance is simply free, once per run: the button never does nothing.
+    if (sdk.adsEnabled) await sdk.rewarded(adHooks());
     app.busy = false;
-    if (!ok) return;
+    if (!app.session || !app.lastResult) return;
     app.screens.hide();
     app.lastResult = null;
     app.session.continueRun();
@@ -326,6 +330,20 @@ function setCab(on, silent) {
   if (!on) applyCabGhost(null);
 }
 
+/** The cab's name plate (and the cab-view frame) carry the operator's name. */
+function setOperator(name) {
+  const n = String(name || '').trim().slice(0, 18) || 'Guest';
+  app.operator = n;
+  if (app.crane && app.crane.setOperator) app.crane.setOperator(n);
+  const ov = $('cab-overlay');
+  let tag = ov.querySelector('.nameplate');
+  if (!tag) {
+    tag = h('div.nameplate');
+    ov.appendChild(tag);
+  }
+  tag.textContent = `Crane 07 · ${n}`;
+}
+
 /** Quay mains on / off. The trolley lamp keeps burning on its battery. */
 function setPower(on, silent) {
   if (app.blackout === !on) return;
@@ -403,8 +421,9 @@ async function beginRun(level, opts = {}) {
   if (app.busy) return;
   app.busy = true;
   sdk.gameplayStop();
-  // ad break between shifts (never before the first one of a visit)
-  if (app.shiftsStarted > 0 && sdk.available && !opts.first) {
+  // title -> new run is a natural break (never the very first run of a visit, never from results:
+  // the slip already had its break, and a failed one offers the rewarded second chance instead)
+  if (app.mode === 'menu' && app.shiftsStarted > 0 && sdk.available && !opts.first && !opts.boot) {
     await sdk.midgame(adHooks());
   }
   app.shiftsStarted++;
@@ -637,7 +656,7 @@ function updatePort(announce) {
 
 /** Tonight's black box joins the second ship of the night, once per calendar day. */
 function injectEpisode(def, n) {
-  if (n !== 1) return def;
+  if (n !== (app.newcomer ? 3 : 1)) return def;
   const key = episodeFor(save.data.story, todayKey());
   if (!key) return def;
   const m = def.manifest.slice();
@@ -711,23 +730,27 @@ function bindSession(s) {
       save.data.flags.played = true;
       save.commit();
       app.after(3.2, () => {
-        j.banner('NIGHT SHIFT CRANE', 'Pier Seven · your shift has begun', 3200);
+        j.banner('NIGHT SHIFT CRANE', 'Pier Seven', 2600);
         // day one of the login streak, and the promise of day two
         app.after(5, () => {
           const pay = loginReward(1);
           earn(pay, null);
-          j.toast({ text: `Daily bonus · day 1 +$${pay} — come back tomorrow for +$${loginReward(2)}`, kind: 'good', key: 'login1', dur: 6000 });
+          j.toast({ text: `Day 1 bonus +$${pay} · tomorrow +$${loginReward(2)}`, kind: 'good', key: 'login1', dur: 5000 });
           analytics.track('daily_reward_claim', { day: 1, amount: pay });
         }, s);
-        app.radio.say([{ who: 'dispatch', text: 'Nice work, Seven. Ships keep coming all night — fill each one before its clock runs out.' }, { who: 'dispatch', text: 'Every box pays. Spend it in the workshop. And keep your radio on.' }]);
+        app.radio.say([{ who: 'dispatch', text: 'Nice work, Seven.' }]);
       }, s);
     }
-    // a natural break for an ad, now and then
-    if (sdk.available && e.n % 5 === 0) app.after(4.5, () => sdk.midgame(adHooks()), s);
+    // the longer welcome from the tower waits until the controls are second nature
+    if (e.n === 3 && !save.data.flags.towerHello) {
+      save.data.flags.towerHello = true;
+      save.commit();
+      app.after(4, () => app.radio.say([{ who: 'dispatch', text: 'Ships keep coming all night, Seven — fill each one before its clock runs out.' }, { who: 'dispatch', text: 'Every box pays. Spend it in the workshop. And keep your radio on.' }]), s);
+    }
   });
   s.on('shipIncoming', (e) => {
     app.hud.build(s.level, s);
-    j.toast({ text: `${e.def.ship.name} is coming alongside`, kind: 'info', dur: 4200 });
+    j.toast({ text: `${e.def.ship.name} inbound`, kind: 'info', dur: 3200 });
   });
   s.on('shipDocked', (e) => {
     j.banner(e.def.ship.name, `Ship ${e.n} · ${e.def.manifest.filter((m) => !m.black).length} boxes · ${Math.round(s.timeTotal)}s on the clock`, 2400);
@@ -832,6 +855,7 @@ async function onFinish(s, res) {
   const endless = !!level.endless;
   const d = save.data;
   let payout = 0;
+  let week = null;
   let newBest = false;
   let newStars = 0;
   if (endless) {
@@ -842,6 +866,14 @@ async function onFinish(s, res) {
       newBest = true;
     }
     d.endless.bestShips = Math.max(d.endless.bestShips || 0, res.ships);
+    // this week's port record (Monday to Sunday); the platform leaderboard too, if it has one
+    const wk = weekKey();
+    if (!d.week || d.week.key !== wk) d.week = { key: wk, best: 0, ships: 0 };
+    const fresh = res.score > d.week.best;
+    if (fresh) d.week.best = res.score;
+    d.week.ships = Math.max(d.week.ships || 0, res.ships);
+    sdk.submitScore(res.score);
+    week = { label: sdk.hasLeaderboard ? 'Weekly tournament · your best' : 'This week’s port record', best: d.week.best, fresh: fresh && res.score > 0 };
   } else if (level.daily) {
     const dd = d.daily;
     if (dd.date !== level.date) Object.assign(dd, { date: level.date, best: 0, stars: 0 });
@@ -908,7 +940,7 @@ async function onFinish(s, res) {
   const fresh = checkAwards(d, res, level);
   save.commit(true);
   const idx = SHIFTS.indexOf(level);
-  const meta = { level, payout, newStars, newBest, endless, hush, ending, order, nextLevel: !endless && res.success && idx >= 0 && idx < SHIFTS.length - 1 ? SHIFTS[idx + 1] : null };
+  const meta = { level, payout, newStars, newBest, endless, hush, ending, order, week, nextLevel: !endless && res.success && idx >= 0 && idx < SHIFTS.length - 1 ? SHIFTS[idx + 1] : null };
   app.lastResult = { res, meta };
   showHud(false);
   setCab(false, true);
@@ -942,6 +974,11 @@ async function onFinish(s, res) {
     await wait(3600);
     app.juice.letterbox(false);
     await wait(500);
+    if (app.session !== s || app.mode !== 'results') return;
+  }
+  // run end: the platform may show an ad before the slip, unless the slip offers the rewarded second chance
+  if (!res.canContinue && sdk.available) {
+    await sdk.midgame(adHooks());
     if (app.session !== s || app.mode !== 'results') return;
   }
   audio.play('ui_open');
@@ -987,6 +1024,23 @@ async function warmShaders() {
   }
 }
 
+/** The GPU did not come back: save everything, then reload the page on a tap. */
+function showReloadCard() {
+  if ($('lostcard')) return;
+  save.data.lastSeen = Date.now();
+  save.flush();
+  const reload = () => {
+    save.flush();
+    location.reload();
+  };
+  const card = h(
+    'div.screen.dim#lostcard',
+    { style: { zIndex: 60 }, onclick: reload },
+    h('div.card', h('div.card-head', h('h2', 'Graphics paused')), h('div.card-body', h('button.btn.primary.big', { onclick: reload, html: icon('retry') + '<span class="grow">Tap to reload the shift</span>' })))
+  );
+  $('ui').appendChild(card);
+}
+
 /** Boot timeline marks (read them in the browser's performance panel). */
 function mark(name) {
   try {
@@ -1014,10 +1068,12 @@ async function boot() {
     sdk.onSettings(apply);
   });
 
-  if (!gfx.init($('game'))) {
+  if (!gfx.init($('game'), { quality: save.data.settings.quality })) {
     fail('This device could not start WebGL. Try another browser.');
     return;
   }
+  // (a modest machine resumes from the preset it had earned last time)
+  gfx._startQ = save.data.settings.autoQ;
   audio.init(SOUNDS);
   audio.onTrack = (t) => {
     app.nowPlaying = t;
@@ -1061,6 +1117,11 @@ async function boot() {
     save.commit();
     document.body.classList.toggle('post', gfx.usePost);
   };
+  gfx.onClimb = (q) => {
+    save.data.settings.autoQ = q;
+    save.commit();
+    document.body.classList.toggle('post', gfx.usePost);
+  };
   document.body.classList.toggle('post', gfx.usePost);
 
   app.harbor = new Harbor(scene, { mobile, aniso: Math.min(8, gfx.maxAniso) });
@@ -1081,14 +1142,27 @@ async function boot() {
   app.gulls = new Gulls(scene, mobile ? 4 : 7);
   app.wet = new WetShine(scene, { y: DIM.QUAY_Y, bounds: { minX: -90, maxX: -0.3, halfZ: 160 }, count: mobile ? 12 : 22 });
   app.hud = new Hud({ onPause: () => app.pause(), onCamera: toggleCamera, onUpgrade: () => app.openWorkshopInPlay(), touch: app.touchMode });
-  app.coach = new Coach(save, () => app.touchMode);
+  app.coach = new Coach(save, () => (app.touchMode ? 'touch' : app.mouseMode ? 'mouse' : 'keys'));
   app.screens = new Screens(app);
   app.ctx = { scene, harbor: app.harbor, water: app.water, weather: app.weather, fx: app.fx, crane: app.crane, cams: app.cams, save, mobile };
 
+  // a lost GPU context: pause, and if the browser does not give it back quickly, offer a clean reload
+  gfx.onContextLost = () => {
+    if (app.mode === 'play') app.pause();
+    clearTimeout(app._lostTimer);
+    app._lostTimer = setTimeout(() => {
+      if (gfx.contextLost) showReloadCard();
+    }, 3000);
+  };
+  gfx.onContextRestored = () => {
+    clearTimeout(app._lostTimer);
+    const card = $('lostcard');
+    if (card) card.remove();
+  };
   app.weather.onThunder = (delay) => audio.play('thunder', { delay, vol: 1 });
   app.weather.onGustWarn = () => {
     if (app.mode === 'play') {
-      app.juice.toast({ text: 'Gust incoming — brace the load!', kind: 'warn', key: 'gust' + Math.floor(app.time / 4), dur: 2000, silent: true });
+      app.juice.toast({ text: 'Gust incoming!', kind: 'warn', key: 'gust' + Math.floor(app.time / 4), dur: 2000, silent: true });
       audio.play('ui_warn', { vol: 0.5 });
     }
   };
@@ -1100,6 +1174,14 @@ async function boot() {
   bindGlobalInput();
   // the platform gets a moment to answer; sounds stream in after the first frame
   await Promise.race([sdkReady.catch(() => {}), wait(1500)]);
+  // the platform knows the device better than a user-agent guess does
+  const device = sdk.deviceType;
+  if (device) {
+    app.setTouchMode(device !== 'desktop', true);
+    app.deviceLocked = true;
+  }
+  // a signed-in CrazyGames player's name goes on the cab's name plate (guests get the default)
+  sdk.getUser().then((u) => setOperator(u && u.username));
   // signed-in CrazyGames players carry their progress between devices
   if (save.attachCloud(sdk.data)) {
     app.applySettings();
@@ -1114,12 +1196,14 @@ async function boot() {
   startAmbience();
   requestAnimationFrame(frame);
   const first = !save.data.flags.played && !(save.data.stats.placed > 0);
+  app.newcomer = first;
   const login = dailyLogin(first);
   const today = todayKey();
   if (!save.data.install) save.data.install = today;
   const returnDay = daysBetween(save.data.install, today);
   // nobody waits behind a menu: new and returning players alike start at the controls
   app.mode = 'menu';
+  app.lastInput = performance.now();
   await app.startEndless(first, true);
   mark('nsc-session');
   // every shader the first frame needs (the night's ship and cargo included), compiled in parallel
@@ -1142,6 +1226,8 @@ async function boot() {
     if (!first && returnDay > 0) analytics.trackOnce('return_day_' + returnDay, { day: returnDay });
   });
   if (!first && (idle || login)) setTimeout(() => showWelcomeStrip(idle, login), 1500);
+  // outside analytics on the page (beyond the platform SDK): new players get a small, non-blocking note
+  if (first && analytics.external()) setTimeout(showPrivacyNote, 2500);
 }
 
 /** Whole calendar days from one 'YYYY-MM-DD' to another. */
@@ -1183,7 +1269,7 @@ function showWelcomeStrip(idle, login) {
     if (done) return;
     done = true;
     clearTimeout(timer);
-    if (double && sdk.available) {
+    if (double && sdk.adsEnabled) {
       const r = await sdk.rewarded(adHooks());
       if (!r.rewarded) double = false;
     }
@@ -1200,7 +1286,7 @@ function showWelcomeStrip(idle, login) {
   if (idle) rows.push(h('div.row', { html: icon('truck') + `<span>Your night crew moved ${idle.boxes} box${idle.boxes === 1 ? '' : 'es'}<small>while you were away</small></span><span class="amt">+$${fmtNum(idle.cash)}</span>` }));
   if (login) rows.push(h('div.row', { html: icon('star') + `<span>Day ${login.day} in a row${login.day >= 7 ? ' — jackpot!' : ''}<small>Daily bonus · tomorrow: +$${fmtNum(loginReward(login.day + 1))}</small></span><span class="amt">+$${fmtNum(login.cash)}</span>` }));
   const acts = h('div.acts');
-  if (sdk.available) acts.appendChild(h('button.btn.small.teal', { onclick: () => collect(true), html: icon('ad') + 'Collect ×2' }));
+  if (sdk.adsEnabled) acts.appendChild(h('button.btn.small.teal', { onclick: () => collect(true), html: icon('ad') + 'Collect ×2' }));
   acts.appendChild(h('button.btn.small.primary', { onclick: () => collect(false), html: icon('coin') + 'Collect' }));
   const card = h('div.strip', h('div.row', { html: `<b style="font-family:var(--font-stencil);letter-spacing:.12em;color:var(--amber)">WELCOME BACK</b>` }), ...rows, acts);
   root.appendChild(card);
@@ -1209,16 +1295,39 @@ function showWelcomeStrip(idle, login) {
   const timer = setTimeout(() => collect(false), 9000);
 }
 
-/** What tomorrow brings — for the pause card and the end-of-shift report. */
+/** "Anonymous stats · Privacy": a corner note that never blocks play and goes away by itself. */
+function showPrivacyNote() {
+  if ($('privacynote')) return;
+  const note = h(
+    'div.privacynote#privacynote',
+    h('span', 'Anonymous gameplay stats'),
+    h('a', { href: 'privacy.html', target: '_blank', rel: 'noopener' }, 'Privacy'),
+    h('button', { 'aria-label': 'Close', onclick: () => note.remove(), html: icon('x') })
+  );
+  $('ui').appendChild(note);
+  setTimeout(() => note.remove(), 14000);
+}
+
+/** What tomorrow brings — for the pause card and the end-of-shift report. Only things that exist. */
 app.tomorrow = () => {
   const L = save.data.login || { streak: 0 };
   const lines = [`Day ${(L.streak || 0) + 1} login bonus: +$${fmtNum(loginReward((L.streak || 0) + 1))}`];
+  const weekEnds = weekDaysLeft() === 1;
+  lines.push('A new daily challenge ship' + (weekEnds ? (sdk.hasLeaderboard ? ' · a new weekly tournament' : ' · a fresh weekly port record') : ''));
   const st = save.data.story || {};
   const next = BLACK_ORDER.find((k) => !(st.boxes || {})[k]);
   if (next) lines.push(st.lastEpisode === todayKey() ? `Episode ${BLACK_ORDER.indexOf(next) + 1} of the Pier Seven file` : `Tonight's episode is still waiting — clock in`);
   lines.push('Your night crew keeps working (up to 8 h of earnings)');
-  lines.push('A new Daily shift');
   return lines;
+};
+
+/** The title's line about this week: the local record (or the platform's tournament, if it has one). */
+app.weekLine = () => {
+  const W = save.data.week || {};
+  const best = W.key === weekKey() ? W.best : 0;
+  const left = weekDaysLeft();
+  const reset = left === 1 ? 'resets tomorrow' : `resets in ${left} days`;
+  return `${sdk.hasLeaderboard ? 'Weekly tournament' : 'This week'} · best ${best ? fmtNum(best) : '—'} · ${reset}`;
 };
 
 /** What the night crew got done while the player was away (up to eight hours of it). */
@@ -1232,23 +1341,6 @@ function idleEarnings() {
   const boxes = Math.max(1, Math.floor(hrs * (6 + 4 * l)));
   return { boxes, cash: boxes * (12 + 5 * l), hrs, episode: !!episodeFor(d.story, todayKey()) };
 }
-
-/** Collect the crew's takings (doubled after a rewarded ad when the platform offers one). */
-app.collectIdle = async (idle, double) => {
-  if (double && sdk.available) {
-    const r = await sdk.rewarded(adHooks());
-    if (!r.rewarded) double = false;
-  }
-  const cash = idle.cash * (double ? 2 : 1);
-  const d = save.data;
-  d.money += cash;
-  d.stats.earned += cash;
-  d.stats.crew = (d.stats.crew || 0) + idle.boxes;
-  save.commit(true);
-  audio.play('ui_cash');
-  updatePort(true);
-  app.screens.title();
-};
 
 // ====================================================================== input glue
 
@@ -1270,16 +1362,19 @@ function bindGlobalInput() {
   canvas.addEventListener('pointerdown', (e) => {
     if (app.mode !== 'play') return;
     const s = app.session;
-    // one-touch play: a finger puts the spreader where it points; a tap locks or lets go
-    if (e.pointerType === 'touch' && s && !s.attract) {
-      app.setTouchMode(true);
-      finger = { id: e.pointerId, x: e.clientX, y: e.clientY, moved: false, t: performance.now() };
+    // one-touch play, for a finger and for the mouse alike: the spreader goes where you point
+    // (left button / finger), a click or tap locks on or lets go; the right button orbits the view
+    const mouse = e.pointerType === 'mouse';
+    if ((!mouse || e.button === 0) && s && !s.attract) {
+      if (e.pointerType === 'touch') app.setTouchMode(true);
+      else app.setMouseMode(true);
+      finger = { id: e.pointerId, x: e.clientX, y: e.clientY, moved: false, t: performance.now(), slop: mouse ? 6 : 12 };
       try {
         canvas.setPointerCapture(e.pointerId);
       } catch (err) {}
       return;
     }
-    if (app.cams.mode !== 'chase') return;
+    if (!mouse || e.button !== 2 || app.cams.mode !== 'chase') return;
     drag = { id: e.pointerId, x: e.clientX, y: e.clientY, yaw: app.cams.yaw, pitch: app.cams.pitch };
     try {
       canvas.setPointerCapture(e.pointerId);
@@ -1287,7 +1382,7 @@ function bindGlobalInput() {
   });
   canvas.addEventListener('pointermove', (e) => {
     if (finger && e.pointerId === finger.id) {
-      if (!finger.moved && Math.hypot(e.clientX - finger.x, e.clientY - finger.y) < 12) return;
+      if (!finger.moved && Math.hypot(e.clientX - finger.x, e.clientY - finger.y) < finger.slop) return;
       finger.moved = true;
       const p = pickGround(e.clientX, e.clientY);
       if (p && app.session) app.session.setTarget(p.x, p.z, true);
@@ -1329,6 +1424,24 @@ function bindGlobalInput() {
     { passive: false }
   );
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+  // keys must reach the game inside the platform's iframe: focus the page and the canvas on load
+  // and again on the first press
+  canvas.tabIndex = 0;
+  const focusGame = () => {
+    try {
+      window.focus();
+      canvas.focus({ preventScroll: true });
+    } catch (err) {}
+  };
+  focusGame();
+  window.addEventListener('pointerdown', (e) => {
+    if (!app._focused && !(e.target.closest && e.target.closest('button, input, a, select'))) focusGame();
+    app._focused = true;
+  }, { capture: true, once: false });
+  // the coach's "nothing pressed for a while" nudge
+  const touched = () => (app.lastInput = performance.now());
+  window.addEventListener('pointerdown', touched, { capture: true, passive: true });
+  window.addEventListener('keydown', touched, { capture: true, passive: true });
   document.addEventListener('visibilitychange', () => {
     if (document.hidden && app.mode === 'play') app.pause();
     if (document.hidden) endSession();
@@ -1355,7 +1468,11 @@ function bindGlobalInput() {
   // whichever device the player actually touches decides which controls are on screen
   window.addEventListener('pointerdown', (e) => e.pointerType === 'touch' && app.setTouchMode(true), true);
   input.anyKeyHandlers.add((e) => {
-    if (!e.ctrlKey && !e.metaKey && !e.altKey && /^(Key[A-Z]|Arrow|Space|Shift|Enter|Page)/.test(e.code)) app.setTouchMode(false);
+    if (!e.ctrlKey && !e.metaKey && !e.altKey && /^(Key[A-Z]|Arrow|Space|Shift|Enter|Page)/.test(e.code)) {
+      app.setTouchMode(false);
+      // steering with the keys hands the crane back to the full keyboard scheme
+      if (/^(Key[WASDEQ]|Arrow)/.test(e.code)) app.setMouseMode(false);
+    }
     if (app.mode === 'intro' && app._skipTour && (e.code === 'Space' || e.code === 'Enter' || e.code === 'Escape')) app._skipTour();
     // Enter = the highlighted action, Esc = back, on any open menu
     const scr = app.screens && app.screens.current;
@@ -1722,7 +1839,7 @@ function tick(raw) {
   if (app.mode === 'play' && s && !s.attract && s.endless) updateGoals(s);
   // coaching (one prompt at a time) and the automatic helpers it hands out
   if (app.mode === 'play' && s && !s.attract && !app.tutorial) {
-    app.coach.update(s);
+    app.coach.update(s, (performance.now() - (app.lastInput || 0)) / 1000);
     app.coach.tick(dt);
   } else app.coach.hide();
   // a heartbeat for the night crew's clock

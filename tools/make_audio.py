@@ -226,8 +226,8 @@ def shot(name, x, peak=-1.5, fout=0.03, q=5, keep_head=False):
 
 
 def bed(name, pack, src, start, dur, level, xf_pad=1.4, lp=None, hp=None, q=6):
-    """Stereo ambience segment; the engine crossfades it into itself at runtime."""
-    x = load(pack, src, mono=False)
+    """Mono ambience segment (it is spatialised/mixed at runtime); the engine crossfades it into itself."""
+    x = load(pack, src, mono=True)
     x = seg(x, start, dur + xf_pad)
     if lp:
         x = lowpass(x, lp)
@@ -254,12 +254,12 @@ def motor(name, pack, src, start, dur, level, lp=None, hp=None, ratio=1.0, sr=22
     done.append((name + ".wav", len(x) / SR))
 
 
-def music(name, src, start, dur, fin=0.05, fout=5.0, lufs=-18.5, bitrate="64k"):
+def music(name, src, start, dur, fin=0.05, fout=5.0, lufs=-18.5, bitrate="96k"):
     f = path("music", src)
     af = f"afade=t=in:st=0:d={fin},afade=t=out:st={dur - fout}:d={fout},loudnorm=I={lufs}:TP=-1.5:LRA=11,lowpass=f=15500"
     os.makedirs(OUT, exist_ok=True)
     p = subprocess.run(
-        ["ffmpeg", "-v", "error", "-y", "-ss", str(start), "-t", str(dur), "-i", f, "-af", af, "-ar", "44100", "-ac", "2",
+        ["ffmpeg", "-v", "error", "-y", "-ss", str(start), "-t", str(dur), "-i", f, "-af", af, "-ar", "44100", "-ac", "1", "-vn",
          "-codec:a", "libmp3lame", "-b:a", bitrate, "-map_metadata", "-1", os.path.join(OUT, name + ".mp3")],
         capture_output=True)
     if p.returncode != 0:
@@ -383,7 +383,7 @@ def build():
     shot("vox_yell", load("oc", "VOXScrm_MaleScream_OS_01.ogg"), peak=-6)
     shot("car_door", load("oc", "VEHDoor_CarDoorClose_OS_01.ogg"), peak=-5)
 
-    # ------------------------------------------------------------------ music (CC0)
+    # ------------------------------------------------------------------ music (CC0): mono 96 kbps, streamed
     music("music_menu", "fpd__3 am West End.mp3", 0, 188)
     music("music_shift_a", "hol__Night Life.mp3", 0, 206)
     music("music_shift_b", "hol__City Lights.mp3", 0, 204)

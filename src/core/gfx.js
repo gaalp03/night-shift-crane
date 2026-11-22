@@ -164,12 +164,23 @@ class Gfx {
     pass(V, B, null, 0, (2.2 * k) / h);
   }
 
-  init(canvas) {
+  /**
+   * @param opts.quality  the saved quality setting ('auto' | 'low' | 'medium' | 'high')
+   */
+  init(canvas, opts = {}) {
     let renderer;
+    // modest machines (Chromebooks, <= 4 GB, <= 4 threads) start the automatic mode at 'low'
+    const ua = navigator.userAgent || '';
+    this.lowEnd = /CrOS/.test(ua) || (navigator.deviceMemory && navigator.deviceMemory <= 4) || (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4);
+    this.lowEnd = !!this.lowEnd;
+    const q = opts.quality || 'auto';
+    // MSAA is wasted on dense screens and too dear on low settings (fixed for the context's life)
+    const dpr = window.devicePixelRatio || 1;
+    this.antialias = !(q === 'low' || (q === 'auto' && this.lowEnd) || dpr > 1.5);
     try {
       renderer = new THREE.WebGLRenderer({
         canvas,
-        antialias: true,
+        antialias: this.antialias,
         alpha: false,
         powerPreference: 'high-performance',
         stencil: false,
@@ -190,14 +201,48 @@ class Gfx {
     canvas.addEventListener('webglcontextlost', (e) => {
       e.preventDefault();
       this.contextLost = true;
+      if (this.onContextLost) this.onContextLost();
     });
     canvas.addEventListener('webglcontextrestored', () => {
       this.contextLost = false;
+      this._restore();
+      if (this.onContextRestored) this.onContextRestored();
     });
     window.addEventListener('resize', () => this.resize());
     window.addEventListener('orientationchange', () => setTimeout(() => this.resize(), 250));
     if (window.visualViewport) window.visualViewport.addEventListener('resize', () => this.resize());
     return true;
+  }
+
+  /** After a context loss: fresh render targets / post chain, every texture and shadow map uploaded again. */
+  _restore() {
+    try {
+      this._softA = this._softB = null;
+      if (this.scene) {
+        const seen = new Set();
+        const touch = (t) => {
+          if (t && t.isTexture && !t.isRenderTargetTexture && !seen.has(t)) {
+            seen.add(t);
+            if (t.image) t.needsUpdate = true;
+          }
+        };
+        this.scene.traverse((o) => {
+          if (o.isLight && o.shadow && o.shadow.map) {
+            o.shadow.map.dispose();
+            o.shadow.map = null;
+          }
+          const ms = Array.isArray(o.material) ? o.material : o.material ? [o.material] : [];
+          for (const m of ms) {
+            for (const k in m) touch(m[k]);
+            if (m.uniforms) for (const k in m.uniforms) touch(m.uniforms[k] && m.uniforms[k].value);
+            m.needsUpdate = true;
+          }
+        });
+        touch(this.scene.background);
+        touch(this.scene.environment);
+      }
+      this._configure();
+    } catch (e) {}
   }
 
   /** scene/camera are needed to build the post chain. */
@@ -214,8 +259,12 @@ class Gfx {
    */
   applyQuality(q, startLevel = 0) {
     this.auto = q === 'auto';
-    if (this.auto) q = this.mobile ? 'medium' : 'high';
+    // auto: a capable machine starts high and steps down; a modest one starts low and earns its way up
+    this._climb = this.auto && this.lowEnd;
+    this._climbTop = this.mobile ? 'medium' : 'high';
+    if (this.auto) q = this._climb ? this._startQ || 'low' : this.mobile ? 'medium' : 'high';
     this.quality = q;
+    this._climbStep = 0;
     this._adaptLevel = this.auto ? clamp(startLevel | 0, 0, 6) : 0;
     this._goodWindows = 0;
     this._recovered = false;
@@ -350,6 +399,33 @@ class Gfx {
     const avg = ft[Math.floor(ft.length * 0.7)];
     this._ft = [];
     this._adaptT = 0;
+    // modest machines: step the preset up only after a long stretch of clean frames (~25 s), and if the
+    // step proves too much, go back and stay there
+    if (this._climb && !this._climbDone) {
+      if (avg < 1 / 57 && this._adaptLevel === 0) {
+        if (++this._goodWindows >= 10 && this.quality !== this._climbTop) {
+          this._goodWindows = 0;
+          this._climbFrom = this.quality;
+          this.quality = this.quality === 'low' ? 'medium' : 'high';
+          this._climbProbe = 4; // the next few windows decide whether it holds
+          this._configure();
+          this._adaptT = -1.5;
+          if (this.onClimb) this.onClimb(this.quality);
+        }
+        if (this._climbProbe) this._climbProbe--;
+        return;
+      }
+      if (avg > 1 / 45 && this._climbProbe && this._climbFrom) {
+        this.quality = this._climbFrom;
+        this._climbDone = true;
+        this._climbProbe = 0;
+        this._configure();
+        this._adaptT = -1.5;
+        if (this.onClimb) this.onClimb(this.quality);
+        return;
+      }
+      if (avg >= 1 / 57) this._goodWindows = 0;
+    }
     if (avg > 1 / 45 && this._adaptLevel < 6) {
       this._adaptLevel++;
       this._goodWindows = 0;

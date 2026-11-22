@@ -1,5 +1,5 @@
 // Web Audio engine: decoded sample playback only (no synthesis), buses, seamless loops,
-// a lazy-decoding music player with crossfades, and iOS/Safari unlock handling.
+// a streamed music player (one <audio> element into the mixer) with fades, and iOS/Safari unlock handling.
 import { clamp, clamp01, randPick, rand } from './util.js';
 
 const AC = window.AudioContext || window.webkitAudioContext;
@@ -157,46 +157,60 @@ class XLoop {
   }
 }
 
+// Music streams through ONE <audio> element routed into the mixer (MediaElementSource): nothing is
+// decoded up front, so a four-minute track costs a few hundred KB of buffer instead of ~90 MB of PCM.
 class Music {
   constructor(engine) {
     this.e = engine;
     this.tracks = {};
-    this.cache = new Map(); // id -> AudioBuffer (at most two kept)
-    this.loading = new Map();
-    this.cur = null; // { id, src, gain, endAt }
+    this.el = null;
+    this.node = null;
+    this.gain = null;
+    this.cur = null; // { id, title, artist, vol }
     this.playlist = [];
     this.index = 0;
     this.wanted = null;
-    this.fadeOut = 2.5;
     this.token = 0;
+    this.held = false; // paused while the tab is hidden or an ad runs
+    this.blocked = false; // play() refused until the next user gesture
+    this._ending = false;
   }
-  async _buffer(id) {
-    if (this.cache.has(id)) return this.cache.get(id);
-    if (this.loading.has(id)) return this.loading.get(id);
-    const def = this.tracks[id];
-    if (!def || !this.e.ctx) return null;
-    const p = (async () => {
-      try {
-        // music (the biggest files) never competes with the first seconds of play
-        await this.e.musicGate;
-        const res = await fetch(this.e.base + def.file);
-        const arr = await res.arrayBuffer();
-        const buf = await this.e.decode(arr);
-        this.cache.set(id, buf);
-        // keep memory bounded: only the current track and the newest decode stay cached
-        for (const k of [...this.cache.keys()]) {
-          if (this.cache.size <= 2) break;
-          if (k !== id && (!this.cur || this.cur.id !== k)) this.cache.delete(k);
+  _ensure() {
+    if (this.el) return true;
+    const ctx = this.e.ctx;
+    if (!ctx || typeof Audio === 'undefined') return false;
+    try {
+      const el = new Audio();
+      el.preload = 'auto';
+      el.loop = false;
+      el.setAttribute('playsinline', '');
+      this.node = ctx.createMediaElementSource(el);
+      this.gain = ctx.createGain();
+      this.gain.gain.value = 0;
+      this.node.connect(this.gain);
+      this.gain.connect(this.e.buses.music);
+      el.addEventListener('ended', () => {
+        if (this._ending) return;
+        this._ending = true;
+        this.index = (this.index + 1) % Math.max(1, this.playlist.length);
+        this._playIndex(0.6);
+      });
+      el.addEventListener('error', () => {
+        // a broken or missing track: skip it, without a tight loop
+        const token = this.token;
+        if (this.playlist.length > 1) {
+          setTimeout(() => {
+            if (token !== this.token) return;
+            this.index = (this.index + 1) % this.playlist.length;
+            this._playIndex(1);
+          }, 4000);
         }
-        return buf;
-      } catch (e) {
-        return null;
-      } finally {
-        this.loading.delete(id);
-      }
-    })();
-    this.loading.set(id, p);
-    return p;
+      });
+      this.el = el;
+      return true;
+    } catch (e) {
+      return false;
+    }
   }
   /** Start (or switch to) a playlist. Same playlist => no-op. */
   setPlaylist(ids, { shuffle = false, fade = 2.5 } = {}) {
@@ -216,66 +230,82 @@ class Music {
   async _playIndex(fade) {
     const token = ++this.token;
     if (!this.playlist.length) {
-      this._fadeCurrent(fade);
+      this._fadeOut(fade);
       return;
     }
     const id = this.playlist[this.index % this.playlist.length];
-    const buf = await this._buffer(id);
-    if (token !== this.token) return;
-    if (!buf) {
-      // skip broken track but avoid a tight loop
-      this.index++;
-      if (this.playlist.length > 1) setTimeout(() => token === this.token && this._playIndex(fade), 4000);
-      return;
+    const def = this.tracks[id];
+    if (!def || !this.e.ctx) return;
+    // the biggest files never compete with the first seconds of play
+    await this.e.musicGate;
+    if (token !== this.token || !this._ensure()) return;
+    // one element: fade what is playing out, then swap the source in
+    if (this.cur && !this.el.paused) {
+      const out = Math.min(fade, 2.5);
+      this._fadeOut(out);
+      await new Promise((r) => setTimeout(r, out * 1000 + 60));
+      if (token !== this.token) return;
     }
     const ctx = this.e.ctx;
-    const t = ctx.currentTime + 0.05;
-    this._fadeCurrent(fade);
-    const def = this.tracks[id];
-    const gain = ctx.createGain();
-    gain.gain.setValueAtTime(0, t);
-    gain.gain.linearRampToValueAtTime(def.vol == null ? 1 : def.vol, t + Math.max(0.05, fade * 0.6));
-    gain.connect(this.e.buses.music);
-    const src = ctx.createBufferSource();
-    src.buffer = buf;
-    src.connect(gain);
-    src.start(t);
-    this.cur = { id, src, gain, endAt: t + buf.duration, title: def.title, artist: def.artist };
-    if (this.e.onTrack) this.e.onTrack(this.cur);
-    // warm the next track's decode well before the crossfade
-    const nextId = this.playlist[(this.index + 1) % this.playlist.length];
-    if (nextId !== id) setTimeout(() => token === this.token && this._buffer(nextId), Math.max(1000, (buf.duration - 30) * 1000));
-  }
-  _fadeCurrent(fade) {
-    const cur = this.cur;
-    if (!cur) return;
-    this.cur = null;
-    const ctx = this.e.ctx;
+    this._ending = false;
+    this.cur = { id, title: def.title, artist: def.artist, vol: def.vol == null ? 1 : def.vol };
+    this.el.src = this.e.base + def.file;
     const t = ctx.currentTime;
-    cur.gain.gain.cancelScheduledValues(t);
-    cur.gain.gain.setTargetAtTime(0, t, Math.max(0.02, fade / 3));
-    try {
-      cur.src.stop(t + fade + 0.1);
-    } catch (e) {}
-    setTimeout(() => {
-      try {
-        cur.gain.disconnect();
-      } catch (e) {}
-    }, (fade + 0.4) * 1000);
+    const g = this.gain.gain;
+    g.cancelScheduledValues(t);
+    g.setValueAtTime(0, t);
+    g.linearRampToValueAtTime(this.cur.vol, t + Math.max(0.05, fade * 0.6));
+    this._play();
+    if (this.e.onTrack) this.e.onTrack(this.cur);
+  }
+  _play() {
+    if (this.held || !this.el || !this.cur) return;
+    const p = this.el.play();
+    if (p && p.catch) {
+      p.then(
+        () => (this.blocked = false),
+        () => (this.blocked = true)
+      );
+    }
+  }
+  _fadeOut(fade) {
+    if (!this.gain || !this.e.ctx) return;
+    const t = this.e.ctx.currentTime;
+    const g = this.gain.gain;
+    g.cancelScheduledValues(t);
+    g.setValueAtTime(g.value, t);
+    g.setTargetAtTime(0, t, Math.max(0.02, fade / 3));
+  }
+  /** A user gesture happened: retry a play() the browser refused. */
+  kick() {
+    if (this.blocked) this._play();
+  }
+  /** Pause / resume the stream (tab hidden, ads). */
+  hold(on) {
+    this.held = !!on;
+    if (!this.el) return;
+    if (on) this.el.pause();
+    else if (this.cur && this.wanted) this._play();
   }
   tick() {
-    const cur = this.cur;
-    if (!cur || !this.e.ctx) return;
-    if (this.e.ctx.currentTime > cur.endAt - 3.5) {
+    const el = this.el;
+    if (!this.cur || !el || el.paused || this._ending) return;
+    const d = el.duration;
+    // start the next track (with a fade) a moment before this one ends
+    if (d && isFinite(d) && el.currentTime > d - 3.5) {
+      this._ending = true;
       this.index = (this.index + 1) % Math.max(1, this.playlist.length);
       this._playIndex(3.5);
     }
   }
   stop(fade = 1.5) {
     this.wanted = null;
-    this.token++;
+    const token = ++this.token;
     this.playlist = [];
-    this._fadeCurrent(fade);
+    this._fadeOut(fade);
+    setTimeout(() => {
+      if (token === this.token && this.el) this.el.pause();
+    }, fade * 1000 + 300);
   }
 }
 
@@ -371,6 +401,7 @@ class AudioEngine {
       const p = ctx.resume();
       if (p && p.catch) p.catch(() => {});
     }
+    this.music.kick();
     if (!this.unlocked) {
       try {
         const b = ctx.createBuffer(1, 1, 22050);
@@ -590,6 +621,7 @@ class AudioEngine {
     const hard = this.muteReasons.has('hidden') || this.muteReasons.has('ad');
     const any = this.muteReasons.size > 0;
     this.master.gain.setTargetAtTime(any ? 0 : 1, this.ctx.currentTime, 0.03);
+    this.music.hold(hard);
     if (hard) {
       if (this.ctx.state === 'running') this.ctx.suspend().catch(() => {});
     } else if (this.ctx.state !== 'running' && this.unlocked) {

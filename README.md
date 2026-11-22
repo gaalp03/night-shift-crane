@@ -64,20 +64,36 @@ recording. See [CREDITS.md](CREDITS.md) for all third-party audio, music, fonts 
 ## Platform
 
 The game integrates the CrazyGames HTML5 SDK v3 (loading, gameplay start/stop, happytime, midgame
-ads between shifts, rewarded "second chance"). Every SDK call is a safe no-op when the SDK is not
+ads at natural breaks, rewarded "second chance"). Every SDK call is a safe no-op when the SDK is not
 present, so the same build runs on GitHub Pages or locally.
 
 - **Straight into play.** No title, menu or tutorial before the first box: the page boots into the
   night shift with a container on the hook. Only the code, physics (Rapier wasm) and fonts are on the
   critical path (~0.9 MB gzipped); sounds stream in afterwards, music only once the first-box sounds
-  are in.
+  are in. Music (mono 96 kbps) streams through one `<audio>` element into the mixer, so no track is
+  ever decoded into memory.
+- **Controls:** mouse and touch share one scheme (drag moves the spreader, click / tap locks or lets
+  go, right-drag orbits the view); keys still do everything. The canvas takes focus so keys work in
+  the platform's iframe, and the first boxes show a pulsing nudge when nothing is pressed for 4 s.
+- **Devices:** the platform's device type (desktop / mobile / tablet) decides the touch UI when the
+  SDK provides it. Automatic quality starts at *low* on Chromebooks and machines with ≤ 4 GB or
+  ≤ 4 threads and only steps up after sustained clean frames; no MSAA on low or above 1.5× DPR.
+  A lost WebGL context pauses the game; if it is not back within 3 s a card offers a saved reload.
 - **Saves** go to `localStorage` and, when the platform offers it, the CrazyGames data module (the
   newer copy wins). Every reward is written at once; the tab going hidden flushes too.
-- **Coming back:** daily login streak (7-day ladder), the night crew's idle earnings, one Pier Seven
-  episode per day with a cliffhanger, and a "tomorrow night" teaser on the pause card and the slip.
+- **Coming back:** daily login streak (7-day ladder), the night crew's idle earnings (a non-blocking
+  strip on the way in), one Pier Seven episode per day with a cliffhanger, this week's port record
+  (resets Monday; the platform leaderboard is used only if the SDK has one), the daily challenge ship
+  (same seed for everyone), and a "tomorrow night" teaser on the pause card and the slip. The title
+  has one big *Continue shift* button; signed-in players see their name on the cab's plate.
 - **SDK:** loading start/stop, gameplay start/stop around pause, menus, results and ads, happytime on
-  full ships, goals and milestones, platform mute, midgame ads every fifth ship, rewarded doubling.
+  full ships, goals and milestones, platform mute. Midgame ads only at a run's end (before the slip,
+  never when it offers the second chance) and on title → new run. Rewarded features count as ads only
+  after an ad has really filled in this visit; until then the second chance is free (once per run)
+  and the idle-earnings doubling is not offered.
 - **Analytics:** `src/core/analytics.js` sends `game_loaded`, `first_input`, `first_reward`,
   `round_complete`, `upgrade_bought`, `daily_reward_claim`, `idle_collect`, `return_day_N` and
   `session_end` (with `duration_s`) to ByteBrew when its web SDK is on the page, to
   `window.NSC_ANALYTICS(name, params)` if defined, or to sinks added with `nscAnalytics.addSink(fn)`.
+  When any of these is present, new players get a small corner note linking `privacy.html`, which
+  also has an opt-out switch.

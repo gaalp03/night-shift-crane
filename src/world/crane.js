@@ -289,6 +289,20 @@ export class CraneView {
     g.box(-0.5, -3.75, cz + 0.95, 0.5, 0.08, 0.2, 0x7ee08a, null, 0.7);
     g.box(0.4, -3.75, cz + 0.95, 0.3, 0.08, 0.2, 0xff7a3c, null, 0.7);
     this.cabLocal = new THREE.Vector3(0, -3.0, cz);
+    // name plate under the cab roof, front and back: CRANE 07 and whoever is driving it
+    if (this._plateTex) this._plateTex.dispose();
+    this._plateCanvas = makeCanvas(512, 88);
+    this._plateTex = canvasTexture(this._plateCanvas, { aniso: 4 });
+    const plateMat = new THREE.MeshBasicMaterial({ map: this._plateTex, toneMapped: false });
+    const plateGeo = new THREE.PlaneGeometry(2.3, 0.4);
+    for (const side of [1, -1]) {
+      const plate = new THREE.Mesh(plateGeo, plateMat);
+      plate.position.set(0, -2.33, cz + side * 1.37);
+      if (side < 0) plate.rotation.y = Math.PI;
+      this.trolley.add(plate);
+      this.extraDisposables.push(plate);
+    }
+    this.setOperator(this._operator || 'Guest');
 
     this.trolleyMesh = v.mesh(MAT.vox);
     this.trolley.add(this.trolleyMesh);
@@ -490,6 +504,32 @@ export class CraneView {
     this.workLight.intensity = 27 * batt;
     this.workCone.material.uniforms.uOpacity.value = 0.07 * batt;
     this.workHalo.material.opacity = 0.9 * batt;
+  }
+
+  /** Paint the operator's name onto the cab plate. */
+  setOperator(name) {
+    this._operator = name;
+    const c = this._plateCanvas;
+    if (!c) return;
+    const g = c.getContext('2d');
+    g.fillStyle = '#14191d';
+    g.fillRect(0, 0, c.width, c.height);
+    g.strokeStyle = '#ffb347';
+    g.lineWidth = 5;
+    g.strokeRect(5, 5, c.width - 10, c.height - 10);
+    g.textBaseline = 'middle';
+    g.fillStyle = '#ffb347';
+    g.font = '400 34px "Saira Stencil One", "Barlow Condensed", sans-serif';
+    g.fillText('07', 22, c.height / 2 + 2);
+    g.fillStyle = '#f3efe6';
+    let size = 42;
+    const label = String(name || 'Guest').toUpperCase();
+    do {
+      g.font = `700 ${size}px "Barlow Condensed", sans-serif`;
+      size -= 2;
+    } while (g.measureText(label).width > c.width - 110 && size > 18);
+    g.fillText(label, 84, c.height / 2 + 2);
+    this._plateTex.needsUpdate = true;
   }
 
   /** The portal number plates would hang right under the cab camera: hide them in that view. */

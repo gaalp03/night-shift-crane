@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Night Shift Crane · Privacy</title>
+<style>body{margin:0;background:#04080f;color:#f3efe6;font:16px/1.5 system-ui,sans-serif}main{max-width:640px;margin:0 auto;padding:24px 18px}h1{color:#ffb347}b{color:#ffb347}button{font:inherit;font-weight:700;color:#04080f;background:#ffb347;border:0;border-radius:6px;padding:8px 16px;cursor:pointer}</style></head>
+<body><main><h1>Privacy</h1>
+<p><b>Night Shift Crane</b> can send <b>anonymous gameplay statistics</b> to an analytics service (such as ByteBrew, a CrazyGames analytics partner) when one is enabled on the page you play on, so we can see where the game is too hard or confusing and make it better.</p>
+<p><b>What is sent:</b> game events such as the game loading, the first input, a ship completed, an upgrade bought, a daily bonus collected, and how long a session lasted, with numbers like time played, ships, score and in-game money, plus the game version.</p>
+<p><b>What is never sent:</b> your name, email, CrazyGames account or user ID, chat, or anything you type.</p>
+<p><b>Device ID:</b> an analytics service may keep a random anonymous ID in your browser so sessions from the same device can be counted together. It is not linked to who you are.</p>
+<p><b>Your progress</b> (money, upgrades, records) is saved in your browser and, if you are signed in to CrazyGames, in your CrazyGames account so it follows you between devices.</p>
+<p><b>Opting out:</b> <button id="opt">Analytics: On</button> — the choice is saved in this browser and nothing more is sent. Clearing your browser data resets it.</p>
+<p>Questions: contact us through the game's CrazyGames page.</p>
+</main>
+<script>
+(function () {
+  var K = 'nsc.analytics', b = document.getElementById('opt');
+  function get() { try { return localStorage.getItem(K) === 'off'; } catch (e) { return false; } }
+  function show() { b.textContent = get() ? 'Analytics: Off' : 'Analytics: On'; }
+  b.onclick = function () { try { if (get()) localStorage.removeItem(K); else localStorage.setItem(K, 'off'); } catch (e) {} show(); };
+  show();
+})();
+</script>
+</body></html>

@@ -357,6 +357,17 @@ export function todayKey(d = new Date()) {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
+/** This week's key: the local date of its Monday. */
+export function weekKey(d = new Date()) {
+  const m = new Date(d.getFullYear(), d.getMonth(), d.getDate() - ((d.getDay() + 6) % 7));
+  return todayKey(m);
+}
+
+/** Whole days left in this week, today included (Monday = 7, Sunday = 1). */
+export function weekDaysLeft(d = new Date()) {
+  return 7 - ((d.getDay() + 6) % 7);
+}
+
 export function dayBefore(key) {
   const [y, m, d] = key.split('-').map(Number);
   return todayKey(new Date(y, m - 1, d - 1));
