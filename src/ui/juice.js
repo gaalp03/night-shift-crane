@@ -82,7 +82,8 @@ export class Juice {
   /** @param burst  1 = normal; more = a bigger, wider shower (the first boxes of a career) */
   coins(pos, amount, target, onCoin, burst = 1) {
     if (!amount) return;
-    const n = Math.max(3 * burst, Math.min(12 * burst, Math.round((amount / 25) * burst)));
+    let n = Math.max(3 * burst, Math.min(12 * burst, Math.round((amount / 25) * burst)));
+    if (this.lite) n = Math.min(n, burst > 1 ? 12 : 6);
     const spread = burst > 1 ? 2.6 : 1;
     const from = pos && pos.screen ? { x: pos.x, y: pos.y } : pos ? this.project(pos) : { x: window.innerWidth / 2, y: window.innerHeight * 0.45 };
     const r = target ? target.getBoundingClientRect() : { left: window.innerWidth - 60, top: 40, width: 0, height: 0 };

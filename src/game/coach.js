@@ -72,6 +72,17 @@ export class Coach {
   update(s, idle = 0) {
     if (!s || s.phase !== 'play') return this._show(null);
     s.auto = this.automation(s);
+    // a box in the wrong place: point at it, then at where it belongs (any time, not just in lessons)
+    const fx = this.fix;
+    if (fx && fx.cargo) {
+      const c = fx.cargo;
+      if (c.counted || c.lost || c.state === 'gone' || fx.t-- <= 0) this.fix = null;
+      else {
+        const carried = s.rig.carry === c;
+        const at = carried ? s.guideSlot : c.mesh.getWorldPosition(_b);
+        return this._show({ word: carried ? 'HERE' : 'MOVE', keys: icon(carried ? 'check' : 'retry'), arrow: at }, false);
+      }
+    }
     const sc = this.scheme();
     const one = sc !== 'keys'; // one-touch: drag to steer, tap / click to lock or let go
     const st = this.step;

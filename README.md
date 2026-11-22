@@ -80,8 +80,28 @@ present, so the same build runs on GitHub Pages or locally.
   ship a card says what is next (unlock an upgrade, or the cash to go) with a one-tap "Next ship";
   after ship 2 of the first session a strip previews tomorrow's streak bonus and the night crew.
   Portrait phones keep that minimal HUD for good: money + the DROP button, whose ring is the clock.
+- **Core feel:** physics runs on a fixed 1/60 s step with an accumulator; what is drawn is
+  interpolated between the last two steps, so the same input lands the same way at 30, 60 or 144 Hz.
+  A release decides the result at once (a seated box locks; a short drop over a cell locks as
+  "dropped"). Under the load: a dark drop shadow and the reticle; a bad spot shows an X (ghost cells
+  too), not just a red tint, and an edge arrow points to the target when it is off screen.
+- **Fail forward:** a wrong bay pays a little, the valid cells pulse and an arrow walks you to the
+  box and then to its slot; a box lost overboard is replaced on a later truck. No ship resets.
+- **Ship flow:** the next ship is built while the current one is worked; after a ship the crane
+  answers again within ~1 s and the next ship's first truck is already rolling. The card auto-
+  continues. Ships 2-4 each bring a new decision (heavy + failing spot check, fragile + an outbound
+  box to unload first, a forty-footer among blocked slots). After ship 2 the player picks a crane
+  setup, STEADY (less swing, slower) or FAST (quicker, more swing), switchable in the workshop.
+- **Save safety:** version 2 saves with a backup copy written at every checkpoint (each ship, each
+  purchase: pay and save in one step). A corrupt main copy falls back to the backup, old saves are
+  migrated and sanitised, blocked storage leaves the game playable in memory, and the CrazyGames data
+  module is used when present (the newer copy wins).
+- **Low-end:** shadow casters match the preset before shaders compile and every program is linked
+  behind the loading bar (no mid-play compile); quality steps that would recompile wait for a break;
+  the hull's shared container geometry/atlases are no longer freed on swap; pulses are compositor-only.
 - **Controls:** mouse and touch share one scheme (drag moves the spreader, click / tap locks or lets
-  go, right-drag orbits the view); keys still do everything. The canvas takes focus so keys work in
+  go, right-drag orbits the view); keys still do everything. Pause: on-screen button, P or Esc;
+  sound: an always-visible mute button (or M). The canvas takes focus so keys work in
   the platform's iframe, and the first boxes show a pulsing nudge when nothing is pressed for 4 s.
 - **Devices:** the platform's device type (desktop / mobile / tablet) decides the touch UI when the
   SDK provides it. Automatic quality starts at *low* on Chromebooks and machines with ≤ 4 GB or

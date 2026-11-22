@@ -79,6 +79,26 @@ export class Guides {
     const cz = new THREE.Mesh(bar, this.reticleMat);
     cz.scale.set(0.08, 1, 0.7);
     this.reticle.add(cx, cz);
+    this.cross = [cx, cz];
+    // a bad spot is a different SHAPE, not just a different colour: a big X instead of the plus
+    const xa = new THREE.Mesh(bar, this.reticleMat);
+    xa.scale.set(1.9, 1, 0.16);
+    xa.rotation.y = Math.PI / 4;
+    const xb = new THREE.Mesh(bar, this.reticleMat);
+    xb.scale.set(1.9, 1, 0.16);
+    xb.rotation.y = -Math.PI / 4;
+    this.xMark = new THREE.Group();
+    this.xMark.add(xa, xb);
+    this.xMark.visible = false;
+    this.reticle.add(this.xMark);
+    // high-contrast drop shadow: a dark footprint under the load, readable on any deck or quay
+    this.shadowMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.42, depthWrite: false, fog: false });
+    const shadow = new THREE.Mesh(new THREE.PlaneGeometry(DIM.CONT_W + 0.5, DIM.CONT_L + 0.5), this.shadowMat);
+    shadow.rotation.x = -Math.PI / 2;
+    shadow.position.y = -0.02;
+    shadow.renderOrder = 5;
+    this.reticle.add(shadow);
+    this.reticleShadow = shadow;
     this.reticle.renderOrder = 6;
     this.reticle.visible = false;
     this.group.add(this.reticle);
@@ -114,6 +134,11 @@ export class Guides {
       const fill = new THREE.Mesh(this.ghostFillGeo, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.08, depthWrite: false, fog: false }));
       line.add(fill);
       line.userData.fill = fill;
+      const xg = new THREE.LineSegments(this._xGeo || (this._xGeo = xGeometry()), line.material);
+      xg.position.y = DIM.CONT_H / 2 - 0.03;
+      xg.visible = false;
+      line.add(xg);
+      line.userData.x = xg;
       line.renderOrder = 4;
       line.visible = false;
       this.ghosts.push(line);
@@ -143,6 +168,7 @@ export class Guides {
       g.position.copy(c.pos);
       g.scale.z = c.long ? DIM.L40 / DIM.CONT_L : 1;
       g.material.color.setHex(c.ok ? c.color : 0xff4d3d);
+      g.userData.x.visible = !c.ok;
       g.userData.fill.material.color.copy(g.material.color);
       g.userData.best = c.best;
       g.userData.phase = i * 0.7;
@@ -208,7 +234,14 @@ export class Guides {
       c.position.z *= lz;
     }
     this.reticleFill.scale.y = lz;
-    this.fillMat.opacity = o.state === 'good' ? 0.22 + Math.sin(this.t * 9) * 0.06 : 0.08;
+    this.reticleShadow.scale.y = lz;
+    const bad = o.state === 'bad';
+    this.xMark.visible = bad;
+    this.xMark.scale.z = lz;
+    for (const m of this.cross) m.visible = !bad;
+    // the shadow tightens and darkens as the load comes down
+    this.shadowMat.opacity = clamp(0.62 - o.height * 0.03, 0.3, 0.62);
+    this.fillMat.opacity = o.state === 'good' ? 0.32 + Math.sin(this.t * 9) * 0.08 : bad ? 0.16 : 0.08;
     this.reticleMat.opacity = clamp(0.55 + o.height * 0.05, 0.55, 0.95);
     // four plumb lines from the load's lower corners
     let k = 0;
@@ -227,12 +260,15 @@ export class Guides {
   }
 
   update(dt) {
+    // after a wrong drop the valid cells pulse hard for a few seconds (alert counts down)
+    if (this.alert > 0) this.alert -= dt;
+    const loud = this.alert > 0;
     for (const g of this.ghosts) {
       if (!g.visible) continue;
       const best = g.userData.best;
-      const p = 0.5 + 0.5 * Math.sin(this.t * 4.2 + g.userData.phase);
-      g.material.opacity = best ? 0.75 + p * 0.25 : 0.2 + p * 0.12;
-      g.userData.fill.material.opacity = best ? 0.1 + p * 0.1 : 0.025;
+      const p = 0.5 + 0.5 * Math.sin(this.t * (loud ? 11 : 4.2) + g.userData.phase);
+      g.material.opacity = best || loud ? 0.75 + p * 0.25 : 0.2 + p * 0.12;
+      g.userData.fill.material.opacity = best ? 0.1 + p * 0.1 : loud ? 0.06 + p * 0.12 : 0.025;
     }
   }
 
@@ -251,6 +287,7 @@ export class Guides {
     }
     this.ghostGeo.dispose();
     this.ghostFillGeo.dispose();
+    if (this._xGeo) this._xGeo.dispose();
     const seen = new Set();
     this.group.traverse((o) => {
       if (o.geometry && !seen.has(o.geometry)) {
@@ -265,6 +302,15 @@ export class Guides {
     for (const k in this.tagTex) this.tagTex[k].dispose();
     this.scene.remove(this.group);
   }
+}
+
+/** Two diagonals across a container's top face (marks a cell that will not take this box). */
+function xGeometry() {
+  const hw = DIM.CONT_W / 2 - 0.1;
+  const hl = DIM.CONT_L / 2 - 0.1;
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute([-hw, 0, -hl, hw, 0, hl, hw, 0, -hl, -hw, 0, hl], 3));
+  return g;
 }
 
 export const zoneColor = (id) => (ZONES[id] || ZONES.ANY).color;

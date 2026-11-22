@@ -16,7 +16,9 @@ export function cargoChip(spec, cls = '') {
 }
 
 export class Hud {
-  constructor({ onPause, onCamera, onUpgrade, onDrop, touch }) {
+  constructor({ onPause, onCamera, onUpgrade, onDrop, onMute, isMuted, touch }) {
+    this.onMute = onMute;
+    this.isMuted = isMuted || (() => false);
     this.onDrop = onDrop;
     this.root = document.getElementById('hud');
     this.onPause = onPause;
@@ -79,7 +81,8 @@ export class Hud {
     e.walletVal = h('span', '0');
     e.wallet = h('div.wallet.plate', { html: icon('coin') }, e.walletVal);
     e.upgrade = h('button.btn.small.upgrade.hidden', { onclick: () => this.onUpgrade && this.onUpgrade(), html: icon('wrench') + 'Upgrade' });
-    r.appendChild(h('div.hud-tr', h('div.hud-btns', e.camBtn, e.pauseBtn), scoreplate, e.wallet, e.upgrade, e.combo));
+    e.muteBtn = h('button.btn.icon.ghost.mutebtn', { title: 'Sound (M)', html: icon(this.isMuted() ? 'mute' : 'speaker'), onclick: () => this.onMute && this.onMute() });
+    r.appendChild(h('div.hud-tr', h('div.hud-btns', e.camBtn, e.muteBtn, e.pauseBtn), scoreplate, e.wallet, e.upgrade, e.combo));
 
     // --- bottom left: wind, reefers
     e.windNeedle = h('i');
@@ -271,6 +274,7 @@ export class Hud {
     const key = st.show ? `${st.label}|${st.ready}|${st.sub}|${Math.round((st.timeK == null ? 1 : st.timeK) * 60)}` : '';
     if (this.cache.drop === key) return;
     this.cache.drop = key;
+    if (e.drop.classList.contains('hidden') === !!st.show) this._dropRect = null;
     e.drop.classList.toggle('hidden', !st.show);
     if (!st.show) return;
     e.dropLbl.textContent = st.label;
@@ -279,6 +283,22 @@ export class Hud {
     const k = Math.max(0, Math.min(1, st.timeK == null ? 1 : st.timeK));
     e.dropRing.style.setProperty('--k', (k * 100).toFixed(1) + '%');
     e.drop.classList.toggle('late', k < 0.25);
+  }
+
+  /** Where the DROP button is (cached: no forced layout every frame). */
+  dropRect() {
+    const d = this.el && this.el.drop;
+    if (!d || d.classList.contains('hidden')) return null;
+    if (!this._dropRect || this._dropRectW !== window.innerWidth || this._dropRectH !== window.innerHeight) {
+      this._dropRect = d.getBoundingClientRect();
+      this._dropRectW = window.innerWidth;
+      this._dropRectH = window.innerHeight;
+    }
+    return this._dropRect;
+  }
+
+  setMuted(m) {
+    if (this.el && this.el.muteBtn) this.el.muteBtn.innerHTML = icon(m ? 'mute' : 'speaker');
   }
 
   /** Wallet readout; `canBuy` lights the upgrade chip. */

@@ -599,6 +599,9 @@ export class Ship {
 
   dispose() {
     this.phys.removeBody(this.body);
+    // containers share one geometry and a handful of atlas textures: take them out before freeing
+    // the hull, or the next ship would upload them all again (a hitch on low-end devices)
+    if (this.cargoGroup && this.cargoGroup.parent) this.cargoGroup.parent.remove(this.cargoGroup);
     this.group.traverse((o) => {
       if (o.geometry) o.geometry.dispose();
       if (o.material && o.material.map && o.material !== MAT.vox) o.material.map.dispose();

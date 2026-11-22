@@ -65,7 +65,7 @@ const app = {
   },
 
   // ---------------------------------------------------------------- queries used by the UI
-  mods: () => upgradeMods(save.data.upgrades),
+  mods: () => upgradeMods(save.data.upgrades, save.data.rigSetup),
   adsAvailable: () => sdk.adsEnabled,
   shiftUnlocked(i) {
     if (i === 0) return true;
@@ -84,9 +84,7 @@ const app = {
     const dd = save.data.daily;
     const today = todayKey();
     const fresh = dd.date === today;
-    // a streak survives until a whole day is missed
-    const alive = dd.last === today || dd.last === dayBefore(today);
-    return { date: today, best: fresh ? dd.best : 0, stars: fresh ? dd.stars : 0, order: dd.order === today, streak: alive ? dd.streak : 0, bestStreak: dd.bestStreak || 0, plays: dd.plays || 0 };
+    return { date: today, best: fresh ? dd.best : 0, stars: fresh ? dd.stars : 0, order: dd.order === today, streak: dd.streak || 0, bestStreak: dd.bestStreak || 0, plays: dd.plays || 0 };
   },
 
   /** Touch controls follow the device actually in use: a finger shows them, a key press hides them. */
@@ -100,6 +98,17 @@ const app = {
     if (app.touch) app.touch.show(false); // (one-touch play: the old stick and buttons never come back)
     if (app.tutorial) app.tutorial.setTouch(v);
     if (!v) input.touch.x = input.touch.z = input.touch.hoist = 0;
+  },
+
+  /** Sound on / off (remembered; the platform's own mute is separate and always wins). */
+  toggleMute(v) {
+    const st = save.data.settings;
+    st.muted = v == null ? !st.muted : !!v;
+    save.commit();
+    audio.setMuted(st.muted, 'user');
+    app.hud.setMuted(st.muted);
+    const b = $('mutebtn');
+    if (b) b.innerHTML = icon(st.muted ? 'mute' : 'speaker');
   },
 
   /** The mouse steers like a finger (drag + click) once it is used on the game. */
@@ -187,8 +196,8 @@ const app = {
   startDaily(level) {
     return beginRun(level || dailyShift(todayKey()));
   },
-  startEndless(first = false, boot = false) {
-    const seed = Math.floor(Math.random() * 1e9);
+  startEndless(first = false, boot = false, seedIn = null) {
+    const seed = seedIn == null ? Math.floor(Math.random() * 1e9) : seedIn;
     return beginRun(endlessShip(0, seed), { seed, first: first === true, boot });
   },
   retry() {
@@ -318,6 +327,7 @@ function makeAttract() {
 
 function showHud(v) {
   app.hud.show(v);
+  document.body.classList.toggle('hud-on', !!v);
   // (one-touch play: the old stick and hoist buttons stay hidden; see bindGlobalInput)
   app.touch.show(false);
 }
@@ -555,6 +565,37 @@ function updateDrop(s) {
   app.hud.setDrop({ show: true, label, ready, sub: app.touchMode ? '' : '<span class="kbd">SPACE</span>', timeK: s.timeTotal ? s.time / s.timeTotal : 1 });
 }
 
+/** The landing target is never lost: off screen, an arrow on the screen edge points to it. */
+function updateOffscreen(s) {
+  let el = app._off;
+  if (!el) {
+    el = app._off = h('div#offarrow', { html: icon('next') });
+    $('ui').appendChild(el);
+  }
+  const t = s.rig.carry && s.phase === 'play' && !s.attract ? s.guideSlot : null;
+  let show = false;
+  if (t) {
+    const p = app.juice.project(t);
+    const W = window.innerWidth;
+    const H = window.innerHeight;
+    const m = 44;
+    let x = p.x;
+    let y = p.y;
+    if (p.behind) {
+      x = W - x;
+      y = H - y;
+    }
+    if (p.behind || x < m || x > W - m || y < m || y > H - m) {
+      const dx = x - W / 2 || 1e-3;
+      const dy = y - H / 2 || 1e-3;
+      const k = Math.min((W / 2 - m) / Math.abs(dx), (H / 2 - m) / Math.abs(dy));
+      el.style.transform = `translate(${(W / 2 + dx * k).toFixed(0)}px, ${(H / 2 + dy * k).toFixed(0)}px) rotate(${Math.atan2(dy, dx).toFixed(2)}rad)`;
+      show = true;
+    }
+  }
+  el.classList.toggle('on', show);
+}
+
 /** How much of the HUD a new operator sees: 0 = money + DROP only, then more after each ship, 3 = all. */
 app.applyHudStage = () => applyHudStage();
 function applyHudStage() {
@@ -565,21 +606,21 @@ function applyHudStage() {
   for (let i = 0; i <= 3; i++) document.body.classList.toggle('hud' + i, st === i);
 }
 
-/** After a ship: what it paid, and the very next thing to play for — one tap brings the next vessel in. */
+/** Small helpers for icon-first cards. */
+function bar(k, cls = '') {
+  return `<span class="pbar${cls}"><i style="width:${Math.round(clamp(k, 0, 1) * 100)}%"></i></span>`;
+}
+function ladder(day) {
+  let out = '<span class="ladder">';
+  for (let i = 1; i <= 7; i++) out += `<i class="${i < day ? 'done' : i === day ? 'now' : ''}${i === 7 ? ' jack' : ''}"></i>`;
+  return out + '</span>';
+}
+
+/** After a ship: what it paid, and the very next thing to play for — it never blocks (auto-continues). */
 function showShipCard(s, e, cash) {
   const root = $('shipcard');
   root.innerHTML = '';
   const d = save.data;
-  // the cheapest upgrade still to buy
-  let up = null;
-  for (const u of UPGRADES) {
-    const l = d.upgrades[u.id] || 0;
-    if (l < u.costs.length && (!up || u.costs[l] < up.cost)) up = { u, l, cost: u.costs[l] };
-  }
-  const afford = up && d.money >= up.cost;
-  const title = e.complete ? 'SHIP LOADED' : 'SHIP SAILED';
-  const sub = e.complete ? (cash ? `+$${fmtNum(cash)}` : 'Full ship') : `${e.placed}/${e.quota} aboard`;
-  const next = afford ? `Next ship: unlock ${up.u.name}` : up ? `Next ship: ${up.u.name} · $${fmtNum(up.cost - d.money)} to go` : 'Next ship: big cash';
   let done = false;
   const close = (hurry) => {
     if (done) return;
@@ -588,26 +629,62 @@ function showShipCard(s, e, cash) {
     card.classList.add('out');
     setTimeout(() => card.remove(), 300);
   };
-  const buy = () => {
-    if (!afford || done) return;
-    const l = d.upgrades[up.u.id] || 0;
-    if (d.money < up.u.costs[l]) return;
-    d.money -= up.u.costs[l];
-    d.upgrades[up.u.id] = l + 1;
-    save.flush();
-    audio.play('ui_buy');
-    audio.play('sting_levelup', { vol: 0.7 });
-    sdk.happytime();
-    app.upgradesChanged({ id: up.u.id, level: l + 1, cost: up.u.costs[l] });
-    app._walletShown = d.money;
-    app.hud.setMoney(d.money, app.canUpgrade());
-    app.juice.burst({ text: 'UNLOCKED', sub: up.u.name, kind: 'good', big: true });
-    close(true);
-  };
+  const head = h('div.t1', { html: icon(e.complete ? 'check' : 'box') + `<span>${e.complete ? 'SHIP ' + e.n : e.placed + '/' + e.quota}</span>` });
+  const pay = h('div.t2', cash ? `+$${fmtNum(cash)}` : '');
   const acts = h('div.acts');
-  if (afford) acts.appendChild(h('button.btn.teal.big', { onclick: buy, html: icon(up.u.icon || 'wrench') + '<span>Unlock</span>' }));
-  acts.appendChild(h('button.btn.primary.big', { onclick: () => close(true), html: icon('next') + '<span>Next ship</span>' }));
-  const card = h('div.shipcard' + (e.complete ? '.good' : ''), h('div.t1', title), h('div.t2', sub), h('div.t3', { html: icon(afford ? 'wrench' : up ? 'coin' : 'coin') + `<span>${next}</span>` }), acts);
+  let body;
+  if (s.endless && !d.rigSetup && e.n >= 2) {
+    // one felt choice, early: a steadier crane or a faster one (try it on the very next ship)
+    const opt = (id, ic, word, speed, swing) =>
+      h('button.btn.rigopt', {
+        onclick: () => {
+          if (done) return;
+          d.rigSetup = id;
+          save.checkpoint();
+          if (app.session === s) s.refreshMods();
+          audio.play('ui_buy');
+          app.juice.burst({ text: word, sub: 'NEXT SHIP', kind: 'good', big: true });
+          analytics.track('rig_setup', { setup: id, ship: e.n });
+          close(true);
+        },
+        html: icon(ic) + `<b>${word}</b><span class="row">${icon('motor')}${bar(speed)}</span><span class="row">${icon('sway')}${bar(swing, ' warn')}</span>`,
+      });
+    body = h('div.rigpick', h('div.t3', { html: icon('wrench') + '<span>CRANE SETUP</span>' }), h('div.opts', opt('steady', 'shield', 'STEADY', 0.4, 0.25), opt('fast', 'bolt', 'FAST', 0.9, 0.8)));
+  } else {
+    // the cheapest upgrade still to buy: buy it now, or see how close it is
+    let up = null;
+    for (const u of UPGRADES) {
+      const l = d.upgrades[u.id] || 0;
+      if (l < u.costs.length && (!up || u.costs[l] < up.cost)) up = { u, l, cost: u.costs[l] };
+    }
+    const afford = up && d.money >= up.cost;
+    if (up) body = h('div.t3', { html: icon(up.u.icon || 'wrench') + bar(d.money / up.cost, afford ? ' ok' : '') + `<span>$${fmtNum(Math.min(d.money, up.cost))}/${fmtNum(up.cost)}</span>` });
+    if (afford) {
+      acts.appendChild(
+        h('button.btn.teal.big', {
+          onclick: () => {
+            if (done) return;
+            const l = d.upgrades[up.u.id] || 0;
+            if (d.money < up.u.costs[l]) return;
+            d.money -= up.u.costs[l];
+            d.upgrades[up.u.id] = l + 1;
+            save.checkpoint();
+            audio.play('ui_buy');
+            audio.play('sting_levelup', { vol: 0.7 });
+            sdk.happytime();
+            app.upgradesChanged({ id: up.u.id, level: l + 1, cost: up.u.costs[l] });
+            app._walletShown = d.money;
+            app.hud.setMoney(d.money, app.canUpgrade());
+            app.juice.burst({ text: 'UNLOCKED', sub: up.u.name.toUpperCase(), kind: 'good', big: true });
+            close(true);
+          },
+          html: icon(up.u.icon || 'wrench') + '<span>Unlock</span>',
+        })
+      );
+    }
+  }
+  acts.appendChild(h('button.btn.primary.big', { onclick: () => close(true), html: icon('next') + '<span>Next</span>' }));
+  const card = h('div.shipcard' + (e.complete ? '.good' : ''), head, pay, body || null, acts);
   root.appendChild(card);
   // it never blocks: the card goes by itself when the next ship is alongside
   const watch = setInterval(() => {
@@ -627,9 +704,9 @@ function showReturnPreview() {
   const crew = boxes * (12 + 5 * l);
   const card = h(
     'div.strip.preview',
-    h('div.row', { html: `<b style="font-family:var(--font-stencil);letter-spacing:.12em;color:var(--amber)">TOMORROW</b>` }),
-    h('div.row', { html: icon('gift') + `<span>Day 2 bonus<small>streak · day 7 pays +$${fmtNum(loginReward(7))}</small></span><span class="amt">+$${fmtNum(loginReward(2))}</span>` }),
-    h('div.row', { html: icon('truck') + `<span>Night crew<small>works while you are away</small></span><span class="amt">up to +$${fmtNum(crew)}</span>` }),
+    h('div.row', { html: `<b class="sthead">TOMORROW</b>` }),
+    h('div.row', { html: icon('gift') + `<span class="w">DAY 2</span>${ladder(2)}<span class="amt">+$${fmtNum(loginReward(2))}</span>` }),
+    h('div.row', { html: icon('truck') + `<span class="w">AWAY</span>${bar(1)}<span class="amt">+$${fmtNum(crew)}</span>` }),
     h('div.acts', h('button.btn.small.primary', { onclick: () => out(), html: icon('check') + 'OK' }))
   );
   const out = () => {
@@ -835,8 +912,9 @@ function bindSession(s) {
   });
   s.on('strike', (e) => {
     const left = e.max - e.strikes;
+    // the main shift never ends on a lost box: another one is sent, the ship can still be filled
     j.toast({
-      text: left > 0 ? `Container lost — ${left} strike${left === 1 ? '' : 's'} left` : 'Third strike!',
+      text: e.again ? 'Lost · new box coming' : s.endless ? 'Box lost' : left > 0 ? `Box lost · ${left} left` : 'Third strike!',
       kind: 'warn',
       key: 'strike' + e.strikes,
       silent: true,
@@ -845,10 +923,20 @@ function bindSession(s) {
     if (save.data.settings.flashes !== false) j.flash('red');
     buzz([60, 50, 90]);
   });
+  // wrong bay: a little pay now, the zone pulses and an arrow shows the right spot
+  s.on('misplaced', (e) => {
+    if (s.endless && e.pts > 0) earn(Math.round(e.pts * 0.25), e.pos);
+    app.coach.fix = { cargo: e.cargo, t: 60 * 20 };
+    if (s.guides) s.guides.alert = 3;
+    buzz([40, 40, 40]);
+  });
   s.on('shipDone', (e) => {
     const cash = Math.round(e.bonus * 0.3);
     if (e.complete) sdk.happytime();
     if (cash) earn(cash, s.ship.group.position);
+    // every ship is a checkpoint: the pay and the save land together
+    save.data.stats.ships = (save.data.stats.ships || 0) + 1;
+    save.checkpoint();
     showShipCard(s, e, cash);
     // a new operator's HUD fills in one ship at a time
     if (s.endless && save.data.flags.hud < 3) {
@@ -856,7 +944,7 @@ function bindSession(s) {
       save.commit();
       applyHudStage();
     }
-    if (e.complete && e.streak >= 2) app.after(1.4, () => j.toast({ text: `${e.streak} full ships in a row · ship bonus x${e.streakMul.toFixed(2)}`, kind: 'good', key: 'streak' + e.streak, dur: 3000 }), s);
+    if (e.complete && e.streak >= 2) app.after(1.4, () => j.toast({ text: `STREAK ${e.streak} · x${e.streakMul.toFixed(2)}`, kind: 'good', key: 'streak' + e.streak, dur: 3000 }), s);
     analytics.track('round_complete', { ship: e.n, complete: e.complete ? 1 : 0, placed: e.placed, quota: e.quota, time_left: Math.round(e.timeLeft || 0), streak: e.streak || 0 });
     // every fifth ship: a milestone worth celebrating
     if (s.endless && e.n % 5 === 0) {
@@ -1045,7 +1133,7 @@ async function onFinish(s, res) {
       dd.stars = Math.max(dd.stars, res.stars);
       // a completed shift on a new date extends (or restarts) the run of nights
       if (dd.last !== level.date) {
-        dd.streak = dd.last === dayBefore(level.date) ? (dd.streak || 0) + 1 : 1;
+        dd.streak = (dd.streak || 0) + 1; // nights worked: a missed day costs nothing
         dd.last = level.date;
         dd.bestStreak = Math.max(dd.bestStreak || 0, dd.streak);
       }
@@ -1098,7 +1186,7 @@ async function onFinish(s, res) {
   d.stats.earned += payout;
   d.stats.bestCombo = Math.max(d.stats.bestCombo || 0, res.bestCombo);
   const fresh = checkAwards(d, res, level);
-  save.commit(true);
+  save.checkpoint();
   const idx = SHIFTS.indexOf(level);
   const meta = { level, payout, newStars, newBest, endless, hush, ending, order, week, nextLevel: !endless && res.success && idx >= 0 && idx < SHIFTS.length - 1 ? SHIFTS[idx + 1] : null };
   app.lastResult = { res, meta };
@@ -1179,6 +1267,14 @@ async function warmShaders() {
     const p = parallel ? r.compileAsync(app.ctx.scene, app.camera) : (r.compile(app.ctx.scene, app.camera), null);
     r.setRenderTarget(prev);
     if (p) await Promise.race([p, wait(6000)]);
+    // finish every link now, behind the loading bar (a driver may only compile at first use, which
+    // would stall a frame in play), then draw one frame off-screen so the first real one is cheap
+    for (const prog of r.info.programs || []) {
+      try {
+        prog.getUniforms();
+      } catch (e) {}
+    }
+    gfx.render(0, 0);
   } catch (e) {
     r.setRenderTarget(prev);
   }
@@ -1278,6 +1374,8 @@ async function boot() {
     document.body.classList.toggle('post', gfx.usePost);
     syncSilhouette();
   };
+  // a quality step that recompiles shaders waits for a break (between ships, or a menu)
+  gfx.quietMoment = () => app.mode !== 'play' || !!(app.session && app.session.phase === 'swap');
   gfx.onClimb = (q) => {
     save.data.settings.autoQ = q;
     save.commit();
@@ -1299,13 +1397,14 @@ async function boot() {
   app.cams.shakeEnabled = save.data.settings.shake !== false;
   app.tweens = new Tweens();
   app.juice = new Juice(camera);
+  app.juice.lite = gfx.lowEnd; // (fewer DOM coins on modest machines)
   app.touch = new TouchControls();
   app.radio = new Radio();
   app.deep = new DeepLight(scene);
   app.tug = new Tug(scene);
   app.gulls = new Gulls(scene, mobile ? 4 : 7);
   app.wet = new WetShine(scene, { y: DIM.QUAY_Y, bounds: { minX: -90, maxX: -0.3, halfZ: 160 }, count: mobile ? 12 : 22 });
-  app.hud = new Hud({ onPause: () => app.pause(), onCamera: toggleCamera, onUpgrade: () => app.openWorkshopInPlay(), onDrop: (ev) => {
+  app.hud = new Hud({ onPause: () => app.pause(), onCamera: toggleCamera, onUpgrade: () => app.openWorkshopInPlay(), onMute: () => app.toggleMute(), isMuted: () => !!save.data.settings.muted, onDrop: (ev) => {
     app.lastInput = performance.now();
     // a mouse on the big button is a mouse player: steer like a finger from here on
     if (ev && ev.pointerType !== 'touch' && !app.touchMode && ev.detail > 0) app.setMouseMode(true);
@@ -1315,10 +1414,7 @@ async function boot() {
     save,
     () => (app.touchMode ? 'touch' : app.mouseMode ? 'mouse' : 'keys'),
     (v) => app.juice.project(v),
-    () => {
-      const d = app.hud.el && app.hud.el.drop;
-      return d && !d.classList.contains('hidden') ? d.getBoundingClientRect() : null;
-    }
+    () => app.hud.dropRect()
   );
   app.screens = new Screens(app);
   app.ctx = { scene, harbor: app.harbor, water: app.water, weather: app.weather, fx: app.fx, crane: app.crane, cams: app.cams, save, mobile };
@@ -1349,6 +1445,10 @@ async function boot() {
   makeAttract();
   mark('nsc-world');
   bindGlobalInput();
+  // the mute button over every menu (the HUD has its own beside pause)
+  const mb = h('button.btn.icon.ghost#mutebtn', { title: 'Sound (M)', html: icon(save.data.settings.muted ? 'mute' : 'speaker'), onclick: () => app.toggleMute() });
+  $('ui').appendChild(mb);
+  if (save.data.settings.muted) audio.setMuted(true, 'user');
   // the platform gets a moment to answer; sounds stream in after the first frame
   await Promise.race([sdkReady.catch(() => {}), wait(1500)]);
   // the platform knows the device better than a user-agent guess does
@@ -1385,6 +1485,10 @@ async function boot() {
   mark('nsc-session');
   // every shader the first frame needs (the night's ship and cargo included), compiled in parallel
   // while the loading bar is still up, so the first frame does not stall on them one by one
+  // shadow casters match the preset BEFORE anything compiles (a later flip recompiles every lit material)
+  app.ctx.scene.traverse((o) => {
+    if (o.isLight && o.userData.wantShadow) o.castShadow = gfx.shadows;
+  });
   app.warming = true;
   await warmShaders();
   app.warming = false;
@@ -1427,7 +1531,8 @@ function dailyLogin(first) {
   const L = (save.data.login = save.data.login || { last: '', streak: 0, best: 0 });
   const today = todayKey();
   if (L.last === today) return null;
-  L.streak = L.last === dayBefore(today) ? (L.streak || 0) + 1 : 1;
+  // (no missed-day penalty: every day you come back moves you up the ladder)
+  L.streak = (L.streak || 0) + 1;
   L.last = today;
   L.best = Math.max(L.best || 0, L.streak);
   save.flush();
@@ -1460,12 +1565,12 @@ function showWelcomeStrip(idle, login) {
     setTimeout(() => (root.innerHTML = ''), 320);
   };
   const rows = [];
-  if (idle) rows.push(h('div.row', { html: icon('truck') + `<span>Your night crew moved ${idle.boxes} box${idle.boxes === 1 ? '' : 'es'}<small>while you were away</small></span><span class="amt">+$${fmtNum(idle.cash)}</span>` }));
-  if (login) rows.push(h('div.row', { html: icon('star') + `<span>Day ${login.day} in a row${login.day >= 7 ? ' — jackpot!' : ''}<small>Daily bonus · tomorrow: +$${fmtNum(loginReward(login.day + 1))}</small></span><span class="amt">+$${fmtNum(login.cash)}</span>` }));
+  if (idle) rows.push(h('div.row', { html: icon('truck') + `<span class="w">AWAY</span>${bar(idle.hrs / 8)}<span class="amt">+$${fmtNum(idle.cash)}</span>` }));
+  if (login) rows.push(h('div.row', { html: icon(login.day >= 7 ? 'trophy' : 'star') + `<span class="w">DAY ${login.day}</span>${ladder(Math.min(7, login.day))}<span class="amt">+$${fmtNum(login.cash)}</span>` }));
   const acts = h('div.acts');
   if (sdk.adsEnabled) acts.appendChild(h('button.btn.small.teal', { onclick: () => collect(true), html: icon('ad') + 'Collect ×2' }));
   acts.appendChild(h('button.btn.small.primary', { onclick: () => collect(false), html: icon('coin') + 'Collect' }));
-  const card = h('div.strip', h('div.row', { html: `<b style="font-family:var(--font-stencil);letter-spacing:.12em;color:var(--amber)">WELCOME BACK</b>` }), ...rows, acts);
+  const card = h('div.strip', h('div.row', { html: `<b class="sthead">WELCOME BACK</b>` }), ...rows, acts);
   root.appendChild(card);
   audio.play('ui_open');
   // collects itself if ignored: the reward is never lost
@@ -1645,6 +1750,7 @@ function bindGlobalInput() {
   // whichever device the player actually touches decides which controls are on screen
   window.addEventListener('pointerdown', (e) => e.pointerType === 'touch' && app.setTouchMode(true), true);
   input.anyKeyHandlers.add((e) => {
+    if (e.code === 'KeyM' && !e.repeat) app.toggleMute();
     if (!e.ctrlKey && !e.metaKey && !e.altKey && /^(Key[A-Z]|Arrow|Space|Shift|Enter|Page)/.test(e.code)) {
       app.setTouchMode(false);
       // steering with the keys hands the crane back to the full keyboard scheme
@@ -1888,6 +1994,7 @@ function frame(now) {
     last = now;
     return;
   }
+  const t0 = typeof __DEV__ !== 'undefined' && __DEV__ && window.__perf ? performance.now() : 0;
   const raw = Math.min(0.1, Math.max(0, (now - last) / 1000 || 0.016));
   last = now;
   tick(raw);
@@ -1900,6 +2007,8 @@ function frame(now) {
   app.water.setReflection(mirror || (gfx.reflections && gfx.softTarget), raw);
   gfx.render(raw, app.time);
   input.endFrame();
+  // (dev builds: per-frame main-thread cost, for the low-end profile)
+  if (t0) window.__perf.push(performance.now() - t0);
 }
 
 function tick(raw) {
@@ -2012,9 +2121,15 @@ function tick(raw) {
     const hs = s.hud();
     app.hud.update(hs);
     updateDrop(s);
+    updateOffscreen(s);
     applyCabGhost(app.cams.mode === 'cab' ? s.rig.carry : null);
   }
-  if (app.mode === 'play' && s && !s.attract && s.endless) updateGoals(s);
+  // (goal texts are rebuilt five times a second, not every frame: less garbage on slow devices)
+  app._goalT = (app._goalT || 0) - raw;
+  if (app.mode === 'play' && s && !s.attract && s.endless && app._goalT <= 0) {
+    app._goalT = 0.2;
+    updateGoals(s);
+  }
   // coaching (one prompt at a time) and the automatic helpers it hands out
   if (app.mode === 'play' && s && !s.attract && !app.tutorial) {
     app.coach.update(s, (performance.now() - (app.lastInput || 0)) / 1000);

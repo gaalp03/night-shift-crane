@@ -297,6 +297,9 @@ class Gfx {
     // the mirrored sea costs a second (half-size) scene pass: first thing to go when frames run long
     this.reflections = q === 'high' && lvl < 1 && !this.mobile;
     this.shadows = q !== 'low' && lvl < 5;
+    // (materials only need recompiling when shadows actually switch: that is a hitch on slow GPUs)
+    const shadowFlip = this._shadowsWas !== undefined && this._shadowsWas !== this.shadows;
+    this._shadowsWas = this.shadows;
     this.renderer.shadowMap.enabled = this.shadows;
     this.shadowSize = q === 'high' ? 2048 : 1024;
     this.rainCount = q === 'high' ? 2600 : q === 'medium' ? 1500 : 800;
@@ -317,7 +320,7 @@ class Gfx {
             }
           }
         }
-        if (o.material && o.receiveShadow) o.material.needsUpdate = true;
+        if (shadowFlip && o.material && o.receiveShadow) o.material.needsUpdate = true;
       });
     }
   }
@@ -403,7 +406,7 @@ class Gfx {
     // step proves too much, go back and stay there
     if (this._climb && !this._climbDone) {
       if (avg < 1 / 57 && this._adaptLevel === 0) {
-        if (++this._goodWindows >= 10 && this.quality !== this._climbTop) {
+        if (++this._goodWindows >= 10 && this.quality !== this._climbTop && (!this.quietMoment || this.quietMoment())) {
           this._goodWindows = 0;
           this._climbFrom = this.quality;
           this.quality = this.quality === 'low' ? 'medium' : 'high';

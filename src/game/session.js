@@ -1,6 +1,9 @@
 // One running shift: owns the physics world, crane rig, ship, trucks and cargo, and implements
 // the rules (grab / place / lock, scoring, strikes, hazards, time, endless ship rotation).
 import * as THREE from 'three';
+const _iv = new THREE.Vector3();
+const _iq = new THREE.Quaternion();
+const _it = new THREE.Vector3();
 import { DIM, TUNE, SCORE, ZONES } from '../config.js';
 import { Phys, STEP, GROUPS } from './physics.js';
 import { Rig, MASS_UNIT } from './rig.js';
@@ -39,7 +42,7 @@ export class Session extends Emitter {
     this.ctx = ctx;
     this.level = level;
     this.endless = !!level.endless;
-    this.mods = upgradeMods(ctx.save.data.upgrades);
+    this.mods = upgradeMods(ctx.save.data.upgrades, ctx.save.data.rigSetup);
     this.lockTol = TUNE.lockTol * this.mods.tolMul;
     this.phase = 'pre'; // pre | play | swap | over
     this.simT = 0;
@@ -132,10 +135,19 @@ export class Session extends Emitter {
   }
 
   _makeShip(level) {
+    this._makeHull(level);
+    this._populateShip(level);
+  }
+
+  _makeHull(level) {
     const def = { ...level.ship, zoneOf: zoneFn(level.ship.zones), seed: (this.seed % 97) + this.shipIndex * 3.1 };
     this.ship = new Ship(def, this.phys);
     this.ctx.scene.add(this.ship.group);
     this.ship.paintZones();
+    this.ship.setSea(level.weather.sea || 0);
+  }
+
+  _populateShip(level) {
     this.ship.setSea(level.weather.sea || 0);
     let brand = this.shipIndex * 2;
     for (const pre of level.preload || []) {
@@ -181,7 +193,7 @@ export class Session extends Emitter {
 
   /** Upgrades bought mid-run take effect at once. */
   refreshMods() {
-    this.mods = upgradeMods(this.ctx.save.data.upgrades);
+    this.mods = upgradeMods(this.ctx.save.data.upgrades, this.ctx.save.data.rigSetup);
     // a brand-new operator's first few boxes: wider lock window, calmer swing, stronger centring
     if (this.rookieLeft > 0) {
       const m = this.mods;
@@ -225,6 +237,7 @@ export class Session extends Emitter {
     for (let i = 0; i < 30; i++) this._fixedStep(1 / 60, true);
     this.carryT = 0;
     c.pickedAt = this.elapsed;
+    this._resetInterp();
     this._syncVisuals(0);
     this.prehooked = c;
     return c;
@@ -426,14 +439,20 @@ export class Session extends Emitter {
   update(dt) {
     const run = this.phase === 'play' || this.phase === 'swap' || this.phase === 'pre' || this.phase === 'over';
     if (!run) return;
-    // Semi-variable timestep: one physics step per rendered frame (so motion is perfectly smooth at
-    // any refresh rate), split into several when a frame runs long so no step exceeds 1/50 s.
+    // Fixed timestep (1/60 s) with an accumulator: the same input gives the same swing and the same
+    // landing at 30, 60 or 144 Hz. What is drawn is interpolated between the last two steps, so a
+    // high refresh rate stays perfectly smooth.
     const frame = Math.min(dt, 0.1);
-    if (frame > 1e-5) {
-      const n = Math.max(1, Math.ceil(frame / 0.02));
-      const h = frame / n;
-      for (let i = 0; i < n; i++) this._fixedStep(h);
+    this.acc = (this.acc || 0) + frame;
+    let steps = 0;
+    while (this.acc >= STEP - 1e-9 && steps < 8) {
+      this._capturePrev();
+      this._fixedStep(STEP);
+      this.acc -= STEP;
+      steps++;
     }
+    if (steps >= 8) this.acc = 0;
+    this.alpha = clamp(this.acc / STEP, 0, 1);
 
     if (this.phase === 'play') {
       this.elapsed += dt;
@@ -445,7 +464,17 @@ export class Session extends Emitter {
     } else {
       this._updateTrucks(dt);
     }
-    if (this.phase === 'swap') this._updateSwap(dt);
+    if (this.phase === 'swap') {
+      this.swapClock = (this.swapClock || 0) + dt;
+      // the crane answers again a moment after the ship leaves: grab the next box while she comes in
+      if (this.swapClock > 1.2) {
+        this._handleActions();
+        this._autoActions(dt);
+      }
+      this._updateSwap(dt);
+    }
+    // the next ship is built well before she is needed (spreads the cost; the swap stays smooth)
+    if (this.endless && this.phase === 'play' && !this._nextShip && !this.attract && this.elapsed - (this._dockedAt || 0) > 4 && (!this.rig.carry || this.elapsed - (this._dockedAt || 0) > 20)) this._prebuildNext();
     if (this.phase === 'over' && this.result && this.result.success && !this.endless) {
       // the loaded ship eases off the berth behind the results
       this.departT = (this.departT || 0) + dt;
@@ -470,9 +499,44 @@ export class Session extends Emitter {
     this._updateAudio(dt);
   }
 
+  /** Snapshot of everything drawn from physics, taken before each step (for interpolation). */
+  _capturePrev() {
+    const r = this.rig;
+    const P = this._prev || (this._prev = { pos: new THREE.Vector3(), quat: new THREE.Quaternion(), trolley: new THREE.Vector3(), x: 0, z: 0, rope: 0, ok: false });
+    P.x = r.x;
+    P.z = r.z;
+    P.rope = r.rope;
+    P.pos.copy(r.sprPos);
+    P.quat.copy(r.sprQuat);
+    P.trolley.copy(r.trolleyPos);
+    P.ok = true;
+    for (const k of this.cargos) {
+      if (k.state !== 'loose' || !k.body) {
+        k._ip = false;
+        continue;
+      }
+      const t = k.body.translation();
+      const q = k.body.rotation();
+      (k._p0 || (k._p0 = new THREE.Vector3())).set(t.x, t.y, t.z);
+      (k._q0 || (k._q0 = new THREE.Quaternion())).set(q.x, q.y, q.z, q.w);
+      k._ip = true;
+    }
+  }
+
+  /** After a teleport (prehook, grab snap): draw the current state, not a blend from the old one. */
+  _resetInterp() {
+    if (this._prev) this._prev.ok = false;
+  }
+
   _controls() {
-    // while ships change over, the spreader lifts itself clear of the passing wheelhouse
-    if (this.phase === 'swap') return { x: 0, z: 0, hoist: this.rig.rope > 4.6 ? 1 : 0 };
+    // while ships change over the crane is free after a moment (fetch the next box), but over the
+    // water the spreader stays clear of the passing wheelhouse
+    if (this.phase === 'swap') {
+      if (this.swapClock < 1.2 || this.controlsLocked) return { x: 0, z: 0, hoist: this.rig.rope > 4.6 ? 1 : 0 };
+      const ctl = this._playerControls();
+      if (this.rig.x > -1 && this.rig.rope > 4.6) ctl.hoist = Math.max(ctl.hoist, 1);
+      return ctl;
+    }
     // shift done: lift clear so the ship can cast off
     if (this.phase === 'over' && this.result && this.result.success) return { x: 0, z: 0, hoist: this.rig.rope > 6 ? 1 : 0 };
     // menu backdrop: the crane idles through a slow cycle on its own
@@ -482,6 +546,11 @@ export class Session extends Emitter {
       return { x: Math.sin(t * 0.21) * 0.45, z: Math.sin(t * 0.13 + 1) * 0.3, hoist: this.rig.rope > 8.5 ? 0.6 : Math.sin(t * 0.33 + 2) * 0.35 };
     }
     if (this.phase !== 'play' || this.controlsLocked) return { x: 0, z: 0, hoist: 0 };
+    return this._playerControls();
+  }
+
+  /** What the player (or the one-touch helpers) ask of the crane this step. */
+  _playerControls() {
     const ctl = { x: this.allow.x ? input.axisX : 0, z: this.allow.z ? input.axisZ : 0, hoist: 0 };
     // a finger (or any manual axis input, which cancels it) steers the crane to a point
     if (this.target) {
@@ -758,6 +827,7 @@ export class Session extends Emitter {
     this.sprVis.t = 0;
     rig.sprBody.setTranslation({ x: sprTarget.x, y: sprTarget.y, z: sprTarget.z }, true);
     rig.sprBody.setRotation({ x: _q.x, y: _q.y, z: _q.z, w: _q.w }, true);
+    this._resetInterp();
     const from = c.state;
     if (from === 'truck') {
       const tr = c.truck;
@@ -802,8 +872,12 @@ export class Session extends Emitter {
     const soft = this.simT - this.touch.t > 0.05 ? this.touch.dv : this.touch.dv;
     const pose = rig.detach();
     audio.play('unlock', { pos: rig.sprPos });
+    // a short drop straight over a cell is decided now, not by how the box happens to bounce
+    const shortDrop = seat && seat.kind === 'ship' && !seat.seated && seat.err <= 1 && seat.gap < 1.2 && c.type !== 'fragile' && !['full', 'heavy', 'uneven'].includes(seat.problem);
     if (seat && seat.seated && seat.valid && seat.kind === 'ship') {
       this._lockToShip(c, seat, { dropped: false, touchDv: soft });
+    } else if (shortDrop) {
+      this._lockToShip(c, { ...seat, grade: 'good' }, { dropped: true, touchDv: 1.5 + seat.gap * 2 });
     } else if (seat && seat.seated && seat.valid && seat.kind === 'truck' && !seat.problem) {
       this._lockToTruck(c, seat);
     } else {
@@ -910,11 +984,15 @@ export class Session extends Emitter {
     if (c.misplaced) {
       this.combo = 0;
       audio.play('ui_error');
-      this.emit('burst', { text: hazard ? 'TOO CLOSE!' : 'WRONG BAY!', pos: wp.clone(), kind: 'bad' });
-      this.emit('toast', {
-        text: hazard ? 'Hazmat boxes may not touch — move it' : `That bay is for ${(ZONES[ship.zoneOf(seat.r, seat.b)] || ZONES.ANY).name}. Pick it up and move it to ${(ZONES[c.zone] || ZONES.ANY).name}`,
-        kind: 'warn',
-      });
+      // never a silent zero: a little pay now, and the way to the right spot (moving it pays the rest)
+      const part = c.partPaid ? 0 : Math.round(SCORE.sloppy * 1.5);
+      if (part) {
+        c.partPaid = true;
+        this.score += part;
+      }
+      this.emit('burst', { text: hazard ? 'TOO CLOSE!' : 'WRONG BAY!', pos: wp.clone(), kind: 'bad', sub: part ? `+${part} · MOVE IT` : 'MOVE IT' });
+      this.emit('toast', { text: hazard ? 'Hazmat: keep apart' : `Wrong bay → ${(ZONES[c.zone] || ZONES.ANY).name}`, kind: 'warn' });
+      this.emit('misplaced', { cargo: c, pos: wp.clone(), pts: part, hazard });
       return;
     }
     const grade = dropped ? 'good' : seat.grade === 'off' ? 'good' : seat.grade;
@@ -1071,7 +1149,13 @@ export class Session extends Emitter {
     this.strikes++;
     this.score += Math.round(SCORE.lost * this.mods.lossMul);
     audio.play('strike', { delay: 0.25 });
-    this.emit('strike', { cargo: c, reason, pos: pos ? pos.clone() : null, strikes: this.strikes, max: this.maxStrikes });
+    let again = false;
+    if (this.endless && !c.preload && !c.black && !c.discharge && this.phase === 'play' && !c.requeued) {
+      c.requeued = true;
+      this.manifest.push({ zone: c.zone, type: c.type === 'long' ? 'long' : c.type });
+      again = true;
+    }
+    this.emit('strike', { cargo: c, reason, pos: pos ? pos.clone() : null, strikes: this.strikes, max: this.maxStrikes, again });
     // (a lost box costs its bonus and the combo — never the shift)
   }
 
@@ -1615,9 +1699,28 @@ export class Session extends Emitter {
 
   // ====================================================================== endless: ship rotation
 
+  /** Build the next ship's hull now, parked out of sight at sea; the swap only has to bring her in. */
+  _prebuildNext() {
+    let def = endlessShip(this.shipIndex + 1, this.seed);
+    if (this.onShip) def = this.onShip(def, this.shipIndex + 1) || def;
+    const keep = this.ship;
+    this.shipIndex++;
+    this._makeHull(def);
+    const next = this.ship;
+    this.shipIndex--;
+    this.ship = keep;
+    next.offsetZ = -150;
+    next.offsetX = 8;
+    next._applyPose(this.simT);
+    next.snapBody();
+    next.group.visible = false;
+    this._nextShip = { def, ship: next };
+  }
+
   _beginSwap(o = {}) {
     this.phase = 'swap';
     this.swapT = 0;
+    this.swapClock = 0;
     this.swapRate = 1;
     this.swapStage = 0;
     this.stats.ships++;
@@ -1666,6 +1769,14 @@ export class Session extends Emitter {
       }
     }
     this.guides.setGhosts(null, []);
+    // the next ship is already built: her cargo starts rolling in now, so there is a box to fetch
+    // while she comes alongside
+    if (this._nextShip) {
+      this.manifest = this._nextShip.def.manifest.slice();
+      this.manifestIdx = 0;
+      this._manifestEarly = true;
+      this.lanes[0].cool = Math.max(this.lanes[0].cool || 0, 1.5);
+    }
   }
 
   /** The player is ready: bring the next ship in fast. */
@@ -1678,23 +1789,34 @@ export class Session extends Emitter {
     const ship = this.ship;
     if (this.swapStage === 0) {
       // sail out ahead (+Z)
-      const k = clamp(this.swapT / 7.5, 0, 1);
+      const k = clamp(this.swapT / 4.5, 0, 1);
       ship.offsetZ = k * k * 150;
       ship.offsetX = k * k * 10;
       if (k >= 1) {
         for (const c of this.cargos) if (c.state === 'locked' || c.state === 'shipped') c.state = 'gone';
+        // sailed boxes free their own material (their geometry and atlas are shared and stay)
+        for (const c of this.cargos) if (c.state === 'gone') c.dispose();
         this.cargos = this.cargos.filter((c) => c.state !== 'gone');
         ship.dispose();
         this.shipIndex++;
         this.shipBase = this.delivered;
-        let def = endlessShip(this.shipIndex, this.seed);
-        if (this.onShip) def = this.onShip(def, this.shipIndex) || def;
+        const pre = this._nextShip;
+        this._nextShip = null;
+        let def = pre ? pre.def : endlessShip(this.shipIndex, this.seed);
+        if (!pre && this.onShip) def = this.onShip(def, this.shipIndex) || def;
         this.level = def;
-        this.manifest = def.manifest.slice();
-        this.manifestIdx = 0;
+        if (!this._manifestEarly) {
+          this.manifest = def.manifest.slice();
+          this.manifestIdx = 0;
+        }
+        this._manifestEarly = false;
         this.quota += def.quota;
         this.zoned = true;
-        this._makeShip(def);
+        if (pre) {
+          this.ship = pre.ship;
+          this.ship.group.visible = true;
+          this._populateShip(def);
+        } else this._makeShip(def);
         this.ship.offsetZ = -150;
         this.ship.offsetX = 8;
         this.ship._applyPose(this.simT);
@@ -1706,7 +1828,7 @@ export class Session extends Emitter {
         this.emit('shipIncoming', { n: this.shipIndex + 1, def });
       }
     } else {
-      const k = clamp(this.swapT / 8, 0, 1);
+      const k = clamp(this.swapT / 6, 0, 1);
       const e = 1 - Math.pow(1 - k, 3);
       this.ship.offsetZ = (1 - e) * -150;
       this.ship.offsetX = (1 - e) * 8;
@@ -1715,6 +1837,7 @@ export class Session extends Emitter {
         this.ship.offsetX = 0;
         this.time = this.timeTotal = this.level.roundTime * this.mods.timeMul;
         this.phase = 'play';
+        this._dockedAt = this.elapsed;
         this.lanes[0].cool = 0.3;
         audio.play('horn_ship', { pos: this.ship.group.position, vol: 0.7 });
         this.emit('shipDocked', { n: this.shipIndex + 1, def: this.level, bonusTime: this.level.bonusTime });
@@ -1727,22 +1850,32 @@ export class Session extends Emitter {
   _syncVisuals(dt) {
     const rig = this.rig;
     const crane = this.ctx.crane;
-    crane.setPose(rig.z, rig.x);
+    // drawn state = blend of the last two physics steps
+    const PV = this._prev;
+    const a = this.alpha == null ? 1 : this.alpha;
+    const blend = !!(PV && PV.ok && a < 0.999);
+    const ix = blend ? PV.x + (rig.x - PV.x) * a : rig.x;
+    const iz = blend ? PV.z + (rig.z - PV.z) * a : rig.z;
+    const ipos = blend ? _iv.lerpVectors(PV.pos, rig.sprPos, a) : _iv.copy(rig.sprPos);
+    const iquat = blend ? _iq.slerpQuaternions(PV.quat, rig.sprQuat, a) : _iq.copy(rig.sprQuat);
+    const itrolley = blend ? _it.lerpVectors(PV.trolley, rig.trolleyPos, a) : _it.copy(rig.trolleyPos);
+    const irope = blend ? PV.rope + (rig.rope - PV.rope) * a : rig.rope;
+    crane.setPose(iz, ix);
     // spreader (with a short ease after it snaps onto a box)
     const sv = this.sprVis;
-    crane.spreader.position.copy(rig.sprPos);
-    crane.spreader.quaternion.copy(rig.sprQuat);
+    crane.spreader.position.copy(ipos);
+    crane.spreader.quaternion.copy(iquat);
     if (sv.t < 1) {
       sv.t = Math.min(1, sv.t + dt / 0.14);
       const k = 1 - sv.t;
       crane.spreader.position.addScaledVector(sv.pos, k * k);
     }
     crane.spreader.updateMatrixWorld(true);
-    crane.updateRopes(rig.trolleyPos, crane.spreader.matrixWorld, rig.rope);
+    crane.updateRopes(itrolley, crane.spreader.matrixWorld, irope);
     const c = rig.carry;
     if (c) {
       c.mesh.position.set(0, rig.carryOffsetY(), 0).applyMatrix4(crane.spreader.matrixWorld);
-      c.mesh.quaternion.copy(rig.sprQuat);
+      c.mesh.quaternion.copy(iquat);
     }
     for (const k of this.cargos) {
       if (k.state === 'loose' && k.body) {
@@ -1750,6 +1883,10 @@ export class Session extends Emitter {
         const r = k.body.rotation();
         k.mesh.position.set(t.x, t.y, t.z);
         k.mesh.quaternion.set(r.x, r.y, r.z, r.w);
+        if (k._ip && a < 0.999) {
+          k.mesh.position.lerpVectors(k._p0, k.mesh.position, a);
+          k.mesh.quaternion.slerpQuaternions(k._q0, k.mesh.quaternion, a);
+        }
       }
       if (k.snap) {
         k.snap.t = Math.min(1, k.snap.t + dt / 0.16);
@@ -2016,6 +2153,10 @@ export class Session extends Emitter {
     for (const tr of this.trucks) tr.dispose();
     for (const c of this.cargos) c.dispose();
     this.ship.dispose();
+    if (this._nextShip) {
+      this._nextShip.ship.dispose();
+      this._nextShip = null;
+    }
     this.rig.dispose();
     this.phys.dispose();
     this.ctx.harbor.clearPickupMarks();

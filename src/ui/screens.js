@@ -1,7 +1,7 @@
 // Menus and overlays: title, shift board, briefing, workshop, settings, credits, pause, results.
 import { h, fmtNum, fmtTime, clamp } from '../core/util.js';
 import { ZONES, GAME_VERSION } from '../config.js';
-import { SHIFTS, UPGRADES, starThresholds } from '../game/levels.js';
+import { SHIFTS, UPGRADES, RIG_SETUPS, starThresholds } from '../game/levels.js';
 import { PAINTS } from '../world/crane.js';
 import { AWARDS } from '../game/awards.js';
 import { icon } from './icons.js';
@@ -127,7 +127,7 @@ export class Screens {
           'div.menu-row.duo',
           h('button.btn' + (dailyOpen ? '.night' : ''), {
             disabled: !dailyOpen,
-            onclick: () => app.openDailyBriefing(),
+            onclick: () => app.startDaily(),
             html:
               icon(dailyOpen ? 'moon' : 'lock') +
               `<span class="grow"><b>Daily ship</b><small>${!dailyOpen ? 'After your first ship' : today.best ? 'Best today ' + fmtNum(today.best) : 'Same for all today'}</small></span>`,
@@ -197,7 +197,7 @@ export class Screens {
         { onclick: () => dOpen && app.openDailyBriefing() },
         h('div.no', { html: icon('moon') }),
         h('div.nm', 'Tonight'),
-        h('div.meta', dOpen ? (today.streak ? `${today.streak} night${today.streak === 1 ? '' : 's'} in a row` : 'A new shift every day') : 'Clear shift 2 to unlock'),
+        h('div.meta', dOpen ? (today.streak ? `${today.streak} night${today.streak === 1 ? '' : 's'} worked` : 'A new shift every day') : 'Clear shift 2 to unlock'),
         dOpen ? h('div.stars', { html: [0, 1, 2].map((k) => `<span class="${k < today.stars ? 'on' : ''}">${icon('star')}</span>`).join('') }) : null,
         today.best ? h('div.best', fmtNum(today.best)) : null,
         dOpen ? null : h('div.lockico', { html: icon('lock') })
@@ -297,7 +297,7 @@ export class Screens {
         'div.goalrow',
         ...th.map((t, i) => h(`span.goal.pill${i < rec.stars ? '.got' : ''}`, { html: icon('star').repeat(i + 1) + ' ' + fmtNum(t) })),
         rec.best ? h('span.pill', `Best ${fmtNum(rec.best)}`) : null,
-        h('span.pill.streak', { html: icon('moon') + ` ${rec.streak} night${rec.streak === 1 ? '' : 's'} in a row` })
+        h('span.pill.streak', { html: icon('moon') + ` ${rec.streak} night${rec.streak === 1 ? '' : 's'} worked` })
       )
     );
     const card = h(
@@ -351,6 +351,23 @@ export class Screens {
     const render = () => {
       moneyEl.textContent = fmtNum(d.money);
       shop.innerHTML = '';
+      // the crane's setup: a free trade-off, switchable any time (steadier vs faster)
+      const seg = h('div.seg.rigseg');
+      for (const r of Object.values(RIG_SETUPS)) {
+        seg.appendChild(
+          h('button' + (d.rigSetup === r.id ? '.on' : ''), {
+            onclick: () => {
+              d.rigSetup = d.rigSetup === r.id ? '' : r.id;
+              save.checkpoint();
+              audio.play('ui_click');
+              if (app.upgradesChanged) app.upgradesChanged();
+              render();
+            },
+            html: icon(r.id === 'steady' ? 'shield' : 'bolt') + r.name.toUpperCase(),
+          })
+        );
+      }
+      shop.appendChild(h('div.up.rigrow', h('div.glyph', { html: icon('motor') }), h('div.info', h('b', 'Crane setup'), h('span', d.rigSetup === 'steady' ? 'Less swing · slower' : d.rigSetup === 'fast' ? 'Faster · more swing' : 'Standard')), seg));
       for (const u of UPGRADES) {
         const lvl = d.upgrades[u.id] || 0;
         const max = u.costs.length;
@@ -366,7 +383,7 @@ export class Screens {
                 if (d.money < cost) return;
                 d.money -= cost;
                 d.upgrades[u.id] = lvl + 1;
-                save.commit(true);
+                save.checkpoint(); // (paid and saved in one step)
                 audio.play('ui_buy');
                 if (app.upgradesChanged) app.upgradesChanged({ id: u.id, level: lvl + 1, cost });
                 audio.play('ui_coin', { delay: 0.1 });
@@ -696,7 +713,7 @@ export class Screens {
       if (meta.order) R('Foreman’s order', meta.order.done ? (meta.order.cash ? 'Done · +$' + fmtNum(meta.order.cash) : 'Done') : 'Missed', meta.order.done ? '.good' : '.neg');
       if (meta.level.daily && ok) {
         const rec = this.app.dailyRecord();
-        R('Nights in a row', `${rec.streak}${rec.bestStreak > rec.streak ? ` · best ${rec.bestStreak}` : ''}`, '.good');
+        R('Nights worked', String(rec.streak), '.good');
       }
       if (res.black) R('Unlisted box', { ship: 'Sailed with the ship', customs: 'Handed to customs', sea: 'Lost overboard', left: 'Left on the quay' }[res.black] || '—', '.hush');
     }
@@ -734,7 +751,7 @@ export class Screens {
         // a line to paste into a group chat: today's date, stars, score, the run of nights
         const shareBtn = add('', 'Share', 'file', () => {
           const rec = app.dailyRecord();
-          const text = `Night Shift Crane · Tonight ${fmtDay(meta.level.date, { day: 'numeric', month: 'short' })}\n${'★'.repeat(res.stars)}${'☆'.repeat(3 - res.stars)} ${fmtNum(res.score)} · ${meta.level.twists.map((t) => t.name).join(' + ')}${rec.streak > 1 ? ` · ${rec.streak} nights in a row` : ''}`;
+          const text = `Night Shift Crane · Tonight ${fmtDay(meta.level.date, { day: 'numeric', month: 'short' })}\n${'★'.repeat(res.stars)}${'☆'.repeat(3 - res.stars)} ${fmtNum(res.score)} · ${meta.level.twists.map((t) => t.name).join(' + ')}${rec.streak > 1 ? ` · ${rec.streak} nights worked` : ''}`;
           // (toasts sit under the report, so the button itself confirms)
           const done = () => {
             shareBtn.innerHTML = icon('check') + 'Copied';

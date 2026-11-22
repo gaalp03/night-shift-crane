@@ -276,6 +276,24 @@ export function endlessShip(n, seed) {
     }
     manifest.push(spec);
   }
+  // a new kind of decision on each of the first ships, guaranteed (not left to chance):
+  //  ship 2: a heavy box (deck only) and a spot check that fails the scale (ship it, or customs?)
+  //  ship 3: a fragile box, and an outbound box to take off first (unload order)
+  //  ship 4: a forty-footer (needs two level columns) among blocked slots
+  if (n === 1) {
+    if (!manifest.some((m) => m.type === 'heavy')) manifest[0].type = 'heavy';
+    const std = manifest.find((m) => m.type === 'std' && !m.check) || manifest[manifest.length - 1];
+    std.type = 'std';
+    std.check = true;
+    std.contra = true;
+  }
+  if (n === 2 && !manifest.some((m) => m.type === 'fragile')) manifest[manifest.length - 1].type = 'fragile';
+  if (n === 3 && bays >= 2 && !manifest.some((m) => m.type === 'long')) {
+    const m = manifest.find((x) => x.type === 'std' && !x.check) || manifest[0];
+    m.type = 'long';
+    m.zone = 'ANY';
+    m.check = false;
+  }
   // preloads: distinct cells, so level pairs and deck space survive for what is coming
   const preload = [];
   const pre = Math.min(4, Math.floor(n / 2) + (n > 0 ? 1 : 0));
@@ -286,6 +304,16 @@ export function endlessShip(n, seed) {
     if (taken.has(r + ':' + b)) continue;
     taken.add(r + ':' + b);
     preload.push({ r, b, n: 1, zone: zones[b] });
+  }
+  // ship 3: something to take off before loading (it sits on a deck cell the new cargo wants)
+  if (n === 2) {
+    const b = 0;
+    let r = 0;
+    while (r < rows - 1 && taken.has(r + ':' + b)) r++;
+    if (!taken.has(r + ':' + b)) {
+      taken.add(r + ':' + b);
+      preload.push({ r, b, n: 1, zone: zones[b], discharge: true });
+    }
   }
   // forty-footers need level pairs: keep at least two rows free of preloads (one may go to a heavy box)
   if (manifest.some((m) => m.type === 'long')) {
@@ -569,7 +597,27 @@ export const UPGRADES = [
   },
 ];
 
-export function upgradeMods(levels = {}) {
+/**
+ * The crane's setup: one free choice with a real trade-off (no cash multipliers).
+ * STEADY: the load swings much less, the crane travels slower. FAST: quicker travel, livelier swing.
+ */
+export const RIG_SETUPS = {
+  steady: { id: 'steady', name: 'Steady', icon: 'sway', trolley: 0.82, swayMul: 1.7 },
+  fast: { id: 'fast', name: 'Fast', icon: 'motor', trolley: 1.3, swayMul: 0.62 },
+};
+
+export function upgradeMods(levels = {}, setup = '') {
+  const m = baseMods(levels);
+  const r = RIG_SETUPS[setup];
+  if (r) {
+    m.trolley *= r.trolley;
+    m.gantry *= r.trolley;
+    m.swayMul *= r.swayMul;
+  }
+  return m;
+}
+
+function baseMods(levels) {
   const l = (id) => levels[id] || 0;
   const magnet = l('magnet') || l('guide'); // (older saves called it Laser Guides)
   return {

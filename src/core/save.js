@@ -1,8 +1,10 @@
 // localStorage-backed save data with defensive parsing and versioning.
 const KEY = 'night-shift-crane.save.v1';
+const BAK = KEY + '.bak';
+export const SAVE_VERSION = 2;
 
 const defaults = () => ({
-  v: 1,
+  v: SAVE_VERSION,
   money: 0,
   upgrades: {},
   shifts: {}, // id -> { stars, best }
@@ -14,6 +16,7 @@ const defaults = () => ({
   story: { boxes: {}, opened: {}, ending: null },
   login: { last: '', streak: 0, best: 0 }, // daily login streak (local calendar days)
   week: { key: '', best: 0, ships: 0 }, // this week's port record (Monday to Sunday, local)
+  rigSetup: '', // 'steady' | 'fast' | '' (chosen after the second ship, switchable in the workshop)
   install: '', // first day played (YYYY-MM-DD), for return-day analytics // what became of each unlisted box (shift id -> outcome)
   paint: 'yellow',
   awards: {},
@@ -30,26 +33,112 @@ function merge(base, extra) {
   return base;
 }
 
+/** Storage that may be missing or blocked (private mode, sandboxed iframes): null instead of a throw. */
+function localStore() {
+  try {
+    const ls = window.localStorage;
+    const k = '__nsc_probe';
+    ls.setItem(k, '1');
+    ls.removeItem(k);
+    return ls;
+  } catch (e) {
+    return null;
+  }
+}
+
+function parse(raw) {
+  if (!raw || typeof raw !== 'string') return null;
+  try {
+    const d = JSON.parse(raw);
+    return d && typeof d === 'object' && !Array.isArray(d) ? d : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+const num = (v, lo = 0, hi = 1e12, int = true) => {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return lo;
+  const c = Math.min(hi, Math.max(lo, n));
+  return int ? Math.floor(c) : c;
+};
+
+/** Older builds' saves: rename what moved, then make every field the type this build expects. */
+function migrate(d) {
+  // 1.3: the first unlisted box moved from shift 4 to shift 3
+  const b = d.story && d.story.boxes;
+  if (b && b.s04 && !b.s03) {
+    b.s03 = b.s04;
+    delete b.s04;
+  }
+  d.v = SAVE_VERSION;
+}
+
+function sanitize(d) {
+  const D = defaults();
+  for (const k of Object.keys(D)) {
+    const want = D[k];
+    if (want && typeof want === 'object' && !Array.isArray(want) && (!d[k] || typeof d[k] !== 'object' || Array.isArray(d[k]))) d[k] = want;
+  }
+  d.money = num(d.money);
+  const up = {};
+  for (const k of Object.keys(d.upgrades)) up[k] = num(d.upgrades[k], 0, 8);
+  d.upgrades = up;
+  for (const k of Object.keys(d.stats)) d.stats[k] = num(d.stats[k]);
+  d.endless.best = num(d.endless.best);
+  d.endless.bestShips = num(d.endless.bestShips);
+  d.endless.runs = num(d.endless.runs);
+  d.login.streak = num(d.login.streak, 0, 9999);
+  d.login.best = num(d.login.best, 0, 9999);
+  d.week.best = num(d.week.best);
+  const st = d.settings;
+  st.music = num(st.music, 0, 1, false);
+  st.sfx = num(st.sfx, 0, 1, false);
+  if (!['auto', 'low', 'medium', 'high'].includes(st.quality)) st.quality = 'auto';
+  if (!['', 'steady', 'fast'].includes(d.rigSetup)) d.rigSetup = '';
+  if (typeof d.paint !== 'string') d.paint = 'yellow';
+  return d;
+}
+
 class Save {
   constructor() {
     this.data = defaults();
     this._timer = 0;
     this.ok = true;
+    this.ls = null;
+    this.loadedFrom = 'none'; // 'main' | 'backup' | 'cloud' | 'none'
   }
 
+  /**
+   * Main copy first; if it is unreadable, the last checkpoint (backup); else a fresh start.
+   * Storage that cannot be used at all leaves the game in memory (and in the cloud copy, if any).
+   */
   load() {
-    try {
-      const raw = localStorage.getItem(KEY);
-      if (raw) merge(this.data, JSON.parse(raw));
-      // 1.3: the first unlisted box moved from shift 4 to shift 3
-      const b = this.data.story && this.data.story.boxes;
-      if (b && b.s04 && !b.s03) {
-        b.s03 = b.s04;
-        delete b.s04;
+    this.ls = localStore();
+    this.ok = !!this.ls;
+    let src = null;
+    if (this.ls) {
+      try {
+        src = parse(this.ls.getItem(KEY));
+        if (src) this.loadedFrom = 'main';
+        else {
+          src = parse(this.ls.getItem(BAK));
+          if (src) this.loadedFrom = 'backup';
+        }
+      } catch (e) {
+        src = null;
       }
-    } catch (e) {
-      this.ok = false;
     }
+    try {
+      if (src) merge(this.data, src);
+      migrate(this.data);
+      sanitize(this.data);
+    } catch (e) {
+      this.data = defaults();
+      this.loadedFrom = 'none';
+    }
+    // a damaged main copy is replaced by the recovered one at once
+    if (this.loadedFrom === 'backup') this.commit(true);
     return this.data;
   }
 
@@ -62,40 +151,55 @@ class Save {
     if (!store) return false;
     this.cloud = store;
     try {
-      const raw = store.getItem(KEY);
-      const remote = raw ? JSON.parse(raw) : null;
+      const remote = parse(store.getItem(KEY));
       if (remote && (remote.t || 0) > (this.data.t || 0)) {
         const fresh = defaults();
         merge(fresh, remote);
+        migrate(fresh);
+        sanitize(fresh);
         this.data = fresh;
+        this.loadedFrom = 'cloud';
         return true;
       }
     } catch (e) {}
     return false;
   }
 
+  _write(backup) {
+    this.data.t = Date.now();
+    this.data.v = SAVE_VERSION;
+    const json = JSON.stringify(this.data);
+    if (this.ls) {
+      try {
+        this.ls.setItem(KEY, json);
+        if (backup) this.ls.setItem(BAK, json);
+        this.ok = true;
+      } catch (e) {
+        this.ok = false; // (full or revoked storage: the game carries on in memory)
+      }
+    }
+    try {
+      if (this.cloud) this.cloud.setItem(KEY, json);
+    } catch (e) {}
+  }
+
   /** Debounced write so rapid changes (sliders) do not hammer storage. */
   commit(immediate = false) {
     clearTimeout(this._timer);
-    const write = () => {
-      this.data.t = Date.now();
-      const json = JSON.stringify(this.data);
-      try {
-        localStorage.setItem(KEY, json);
-      } catch (e) {
-        this.ok = false;
-      }
-      try {
-        if (this.cloud) this.cloud.setItem(KEY, json);
-      } catch (e) {}
-    };
-    if (immediate) write();
-    else this._timer = setTimeout(write, 250);
+    if (immediate) this._write(false);
+    else this._timer = setTimeout(() => this._write(false), 250);
   }
 
   /** Write now (tab hidden, page closing, rewards). */
   flush() {
-    this.commit(true);
+    clearTimeout(this._timer);
+    this._write(false);
+  }
+
+  /** A checkpoint (every ship, every purchase): written now, and kept as the fallback copy. */
+  checkpoint() {
+    clearTimeout(this._timer);
+    this._write(true);
   }
 
   reset() {
