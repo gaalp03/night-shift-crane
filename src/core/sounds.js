@@ -99,3 +99,38 @@ export const SOUNDS = {
     storm: { file: 'music_storm.mp3', title: 'Bass Meant Jazz', artist: 'Kevin MacLeod', vol: 0.9 },
   },
 };
+
+/**
+ * Progressive loading groups. CORE = the first box (loaded right after the first frame), PLAY = the
+ * first minutes of any shift, the rest only when a ship / shift that uses it is coming up.
+ */
+export const SOUND_GROUPS = {
+  core: ['clang', 'lock', 'unlock', 'perfect', 'great', 'good', 'ui_coin', 'ui_cash', 'impact_deck', 'impact_light', 'impact_med', 'chain', 'ui_click', 'ui_toast', 'air_brake', 'motor_trolley', 'motor_hoist', 'motor_gantry', 'radio_in', 'radio_out', 'beep', 'hydraulic'],
+  // the first minutes of play
+  play: ['sea_loop', 'waves_loop', 'horn_ship', 'sting_win', 'sting_levelup', 'ui_warn', 'ui_error', 'ui_open', 'ui_close', 'ui_confirm', 'ui_back', 'ui_buy', 'ui_tick', 'strike', 'tick_alarm', 'truck_idle', 'servo', 'impact_heavy', 'splash_big', 'splash_small', 'horn_crane', 'horn_truck', 'vox_hey'],
+  // menus, results, flavour: after the first ship (or when a menu opens)
+  later: ['cab_hum', 'ui_hover', 'ui_toggle', 'ui_count', 'ui_star', 'ui_stamp', 'whoosh_ui', 'door_close', 'door_open', 'sting_win3', 'sting_fail', 'sax_start', 'sax_combo', 'boom', 'scrape', 'creak', 'whoosh', 'bubbles', 'crow', 'bell_buoy', 'vox_laugh', 'vox_yell', 'car_door'],
+  fragile: ['glass'],
+  hazmat: ['explosion'],
+  rain: ['rain_loop', 'rain_cab_loop'],
+  wind: ['wind_loop', 'gust'],
+  storm: ['thunder'],
+  mystery: ['thump', 'power_down', 'power_up', 'deep_call', 'box_hum'],
+};
+
+/** The sounds a level (a shift, the daily, or one ship of the night) will use beyond CORE/PLAY. */
+export function soundsForLevel(def) {
+  if (!def) return [];
+  const G = SOUND_GROUPS;
+  const out = [];
+  const types = new Set([...(def.manifest || []).map((m) => m.type), ...(def.preload || []).map((p) => p.type || 'std')]);
+  const black = (def.manifest || []).some((m) => m.black || m.type === 'black');
+  if (types.has('fragile')) out.push(...G.fragile);
+  if (types.has('hazmat')) out.push(...G.hazmat);
+  if (black || (def.events || []).length) out.push(...G.mystery);
+  const w = def.weather || {};
+  if ((w.rain || 0) > 0.12 || w.snow) out.push(...G.rain);
+  if ((w.wind || 0) > 0.45 || (w.gusts || 0) > 0) out.push(...G.wind);
+  if ((w.storm || 0) > 0.3) out.push(...G.storm); // (lightning starts above 0.3)
+  return out;
+}

@@ -1,6 +1,6 @@
 {
   "name": "night-shift-crane",
-  "version": "2.4.0",
+  "version": "2.4.1",
   "private": true,
   "description": "Night Shift Crane - harbor crane stacking physics game",
   "type": "module",
@@ -8,7 +8,8 @@
     "build": "node tools/build.mjs",
     "watch": "node tools/build.mjs --watch",
     "serve": "node tools/serve.mjs",
-    "release": "node tools/release.mjs"
+    "release": "node tools/release.mjs",
+    "test": "node --test --test-concurrency=1 \"test/*.test.mjs\""
   },
   "devDependencies": {
     "@dimforge/rapier3d-compat": "^0.14.0",

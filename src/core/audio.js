@@ -314,7 +314,7 @@ class AudioEngine {
     this.ctx = null;
     // opens once the first-box sounds are in (see load), or after a few seconds whatever happens
     this.musicGate = new Promise((r) => (this._openMusic = r));
-    setTimeout(() => this._openMusic(), 9000);
+    // (the game opens it: soon for a returning player, after the first ship for a new one)
     this.base = 'assets/audio/';
     this.defs = {};
     this.buffers = new Map();
@@ -423,54 +423,81 @@ class AudioEngine {
     });
   }
 
-  async load(onProgress) {
-    if (!this.ctx) {
-      if (onProgress) onProgress(1);
-      return;
-    }
-    if (this._loading) return this._loading;
-    // gameplay never waits for this: the sounds the first box needs come first, the long
-    // ambience beds (most of the bytes) last
-    const first = ['clang', 'lock', 'unlock', 'perfect', 'great', 'good', 'ui_coin', 'ui_cash', 'impact_deck', 'impact_light', 'impact_med', 'chain', 'ui_click', 'ui_toast', 'air_brake', 'motor_trolley', 'motor_hoist', 'motor_gantry', 'radio_in', 'radio_out', 'beep', 'hydraulic'];
-    const weight = (k) => {
-      const i = first.indexOf(k);
-      if (i >= 0) return i;
-      return this.defs[k].bus === 'amb' ? 1000 : 100;
-    };
-    const keys = Object.keys(this.defs).sort((a, b) => weight(a) - weight(b));
-    const files = new Set();
-    for (const k of keys) for (const f of this.defs[k].files) files.add(f);
-    const list = [...files];
-    let done = 0;
-    const firstFiles = new Set();
-    for (const k of first) if (this.defs[k]) for (const f of this.defs[k].files) firstFiles.add(f);
-    let firstLeft = firstFiles.size;
-    const loadOne = async (f) => {
-      try {
-        const res = await fetch(this.base + f);
-        if (!res.ok) throw new Error(res.status);
-        const arr = await res.arrayBuffer();
-        const buf = await this.decode(arr);
-        this.buffers.set(f, buf);
-      } catch (e) {
-        // missing sound: stay silent rather than break the game
+  /**
+   * Progressive loading: fetch + decode just these sounds, in this order, behind whatever is already
+   * queued (or in front of it with { front: true }). Calls only add what is missing; gameplay never
+   * waits — a sound that has not landed yet simply stays silent (loops start themselves on arrival).
+   * Resolves when every requested file is in (or failed).
+   */
+  need(keys, { front = false } = {}) {
+    if (!this.ctx) return Promise.resolve();
+    this._queue = this._queue || [];
+    this._pending = this._pending || new Map(); // file -> promise
+    const wait = [];
+    const add = [];
+    for (const k of keys) {
+      const d = this.defs[k];
+      if (!d) continue;
+      for (const f of d.files) {
+        if (this.buffers.has(f)) continue;
+        if (!this._pending.has(f)) {
+          let done;
+          const p = new Promise((r) => (done = r));
+          p.done = done;
+          this._pending.set(f, p);
+          add.push(f);
+        } else if (front) {
+          // already queued further back: move it up
+          const qi = this._queue.indexOf(f);
+          if (qi > 0) {
+            this._queue.splice(qi, 1);
+            add.push(f);
+          }
+        }
+        wait.push(this._pending.get(f));
       }
-      done++;
-      if (firstFiles.has(f) && --firstLeft <= 0) this._openMusic();
-      if (onProgress) onProgress(done / list.length);
-    };
-    // modest parallelism keeps mobile decoders responsive
-    const queue = list.slice();
-    const workers = [];
-    for (let i = 0; i < 4; i++) {
-      workers.push(
-        (async () => {
-          while (queue.length) await loadOne(queue.shift());
-        })()
-      );
     }
-    this._loading = Promise.all(workers).then(() => this._openMusic());
-    return this._loading;
+    if (front) this._queue.unshift(...add);
+    else this._queue.push(...add);
+    this._pump();
+    return Promise.all(wait);
+  }
+
+  /** Which sound keys have landed (for tests / diagnostics). */
+  loadedKeys() {
+    return Object.keys(this.defs).filter((k) => this.defs[k].files.every((f) => this.buffers.has(f)));
+  }
+
+  _pump() {
+    this._workers = this._workers || 0;
+    // modest parallelism keeps mobile decoders (and the connection) responsive
+    while (this._workers < 3 && this._queue.length) {
+      this._workers++;
+      (async () => {
+        while (this._queue.length) {
+          const f = this._queue.shift();
+          try {
+            const res = await fetch(this.base + f);
+            if (!res.ok) throw new Error(res.status);
+            const arr = await res.arrayBuffer();
+            this.buffers.set(f, await this.decode(arr));
+          } catch (e) {
+            // missing sound: stay silent rather than break the game
+          }
+          this.bytesFiles = (this.bytesFiles || 0) + 1;
+          const p = this._pending.get(f);
+          if (p) p.done();
+        }
+        this._workers--;
+      })();
+    }
+  }
+
+  /** Everything (kept for tools and old callers): the first-box sounds first, ambience beds last. */
+  load() {
+    if (!this.ctx) return Promise.resolve();
+    const keys = Object.keys(this.defs).sort((a, b) => (this.defs[a].bus === 'amb') - (this.defs[b].bus === 'amb'));
+    return this.need(keys).then(() => this._openMusic());
   }
 
   setListener(camera) {

@@ -56,6 +56,8 @@ npm run build      # src/ -> build/game.js
 npm run watch      # rebuilds build/game.dev.js on change (with dev hooks + source maps)
 npm run serve      # local server (gzip, like a CDN) on :8080
 npm run release    # prod build + release/night-shift-crane-crazygames.zip (index.html at the root)
+npm test           # save safety (plain Node) + fixed-step physics, fail-forward, first-crate checks
+                   # (headless Chromium via Playwright; skipped with a hint if it is not installed)
 ```
 
 `tools/make_audio.py` documents how every file in `assets/audio/` was cut from its source
@@ -69,8 +71,11 @@ present, so the same build runs on GitHub Pages or locally.
 
 - **Straight into play.** No title, menu or tutorial before the first box: the page boots into the
   night shift with a container on the hook. Only the code, physics (Rapier wasm) and fonts are on the
-  critical path (~0.9 MB gzipped); sounds stream in afterwards, music only once the first-box sounds
-  are in. Music (mono 96 kbps) streams through one `<audio>` element into the mixer, so no track is
+  critical path (~0.9 MB gzipped). Sounds load progressively: the first box's set right after the
+  first frame, the first-minutes set next, each later mechanic's sounds (fragile, hazmat, rain, wind,
+  storm, the Pier Seven file) only when a ship that uses them is built in the background; menu and
+  flavour sounds, and the music, after a new player's first ship. Nothing waits for them (a sound
+  that has not arrived stays silent). Music (mono 96 kbps) streams through one `<audio>` element into the mixer, so no track is
   ever decoded into memory.
 - **First 90 seconds:** a new operator sees only the money and one big DROP button; a bobbing arrow
   and a ghost hand show each gesture with one word at most. The HUD fills in one ship at a time

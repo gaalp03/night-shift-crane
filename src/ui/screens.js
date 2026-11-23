@@ -651,6 +651,7 @@ export class Screens {
           { style: { width: '100%' } },
           h('button.btn.primary', { 'data-sound': 'ui_confirm', onclick: () => app.resume(), html: icon('play') + '<span class="grow">Back to work</span>' }),
           app.session && app.session.endless ? null : h('button.btn', { onclick: () => app.retry(), html: icon('retry') + '<span class="grow">Restart shift</span>' }),
+          app.dailyUnlocked() && !(app.level && app.level.daily) ? h('button.btn.night', { onclick: () => app.startDaily(), html: icon('moon') + `<span class="grow">Daily ship</span><span class="badge">${app.dailyRecord().best ? fmtNum(app.dailyRecord().best) : 'NEW'}</span>` }) : null,
           h('button.btn', { onclick: () => this.settings('pause'), html: icon('gear') + '<span class="grow">Settings</span>' }),
           h('button.btn.ghost', { 'data-sound': 'ui_back', onclick: () => app.quitToBoard(), html: icon('home') + '<span class="grow">Clock out</span>' })
         ),

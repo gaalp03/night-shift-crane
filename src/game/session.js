@@ -2,6 +2,7 @@
 // the rules (grab / place / lock, scoring, strikes, hazards, time, endless ship rotation).
 import * as THREE from 'three';
 const _iv = new THREE.Vector3();
+const _va = new THREE.Vector3();
 const _iq = new THREE.Quaternion();
 const _it = new THREE.Vector3();
 import { DIM, TUNE, SCORE, ZONES } from '../config.js';
@@ -240,6 +241,8 @@ export class Session extends Emitter {
     this._resetInterp();
     this._syncVisuals(0);
     this.prehooked = c;
+    // until the first input the hanging crate is off limits for penalties (and loud bursts)
+    this.calm = true;
     return c;
   }
 
@@ -445,13 +448,13 @@ export class Session extends Emitter {
     const frame = Math.min(dt, 0.1);
     this.acc = (this.acc || 0) + frame;
     let steps = 0;
-    while (this.acc >= STEP - 1e-9 && steps < 8) {
+    while (this.acc >= STEP - 1e-6 && steps < 8) {
       this._capturePrev();
       this._fixedStep(STEP);
       this.acc -= STEP;
       steps++;
     }
-    if (steps >= 8) this.acc = 0;
+    if (steps >= 8 || Math.abs(this.acc) < 1e-6) this.acc = 0; // (no float dust carried over)
     this.alpha = clamp(this.acc / STEP, 0, 1);
 
     if (this.phase === 'play') {
@@ -575,6 +578,13 @@ export class Session extends Emitter {
     const w = this.ctx.weather.wind;
     this.env.wind.x = w.x * this.windScale;
     this.env.wind.z = w.z * this.windScale;
+    // height of the load above whatever is under it, measured every step (the hoist's creep speed
+    // depends on it, so it must not wait for the next rendered frame)
+    if (!warm) {
+      const b = rig.bottomWorld(_va);
+      const hit = this.phys.rayDown(b.x, b.y + 0.4, b.z, 60, rig.sprBody);
+      this.altitude = hit ? Math.max(0, hit.dist - 0.4) : Math.max(0, b.y);
+    }
     const ctl = warm ? { x: 0, z: 0, hoist: 0 } : this._controls();
     this._computeAssist(ctl);
     rig.fixedUpdate(h, ctl, this.env);
@@ -798,6 +808,7 @@ export class Session extends Emitter {
 
   _handleActions() {
     if (this.controlsLocked) return;
+    if (this.calm && (input.action('lock') || Math.abs(input.axisX) + Math.abs(input.axisZ) + Math.abs(input.hoist) > 0.05 || this.target)) this.calm = false;
     if (input.action('lock') && this.allow.lock) {
       if (this.rig.carry) this.release();
       else this.tryGrab();
@@ -869,7 +880,8 @@ export class Session extends Emitter {
     const c = rig.carry;
     if (!c) return;
     const seat = this._findSeat();
-    const soft = this.simT - this.touch.t > 0.05 ? this.touch.dv : this.touch.dv;
+    // (only a contact in the last moment says how hard the box is sitting down)
+    const soft = this.simT - this.touch.t > 0.05 ? 0 : this.touch.dv;
     const pose = rig.detach();
     audio.play('unlock', { pos: rig.sprPos });
     // a short drop straight over a cell is decided now, not by how the box happens to bounce
@@ -1404,13 +1416,6 @@ export class Session extends Emitter {
       }
     }
 
-    if (this._failT != null) {
-      this._failT -= h;
-      if (this._failT <= 0) {
-        this._failT = null;
-        if (this.phase === 'play') this._finish(false, 'strikes');
-      }
-    }
   }
 
   /** A loose box came to rest: lock it if it happens to sit right, otherwise score it as sloppy. */
@@ -1473,7 +1478,7 @@ export class Session extends Emitter {
     if (dv > 2.2) fx.sparks(pos.x, pos.y, pos.z, Math.min(30, Math.round(dv * 2.6)), null, 4 + dv);
     if (!onMetal && dv > 1.8) fx.dust(pos.x, pos.y + 0.1, pos.z, Math.min(14, Math.round(dv * 1.6)));
     this.ctx.cams.shake(clamp(dv / 18, 0.04, 0.7));
-    if (dv > 4.6 && this.cool.clang < 0) {
+    if (dv > 4.6 && this.cool.clang < 0 && !this.calm) {
       this.cool.clang = 0.55;
       this.emit('burst', { text: randPick(CLANGS), pos: pos.clone(), kind: 'hit' });
     }
@@ -1494,7 +1499,7 @@ export class Session extends Emitter {
       const lx = pos.x - this.ship.origin.x;
       this.ship.bump((-lx / 6) * 0.004 * (mass / MASS_UNIT) * dv, -0.02 * (mass / MASS_UNIT) * Math.min(dv, 8));
     }
-    if (carried && cargo && dv > 5.4 && this.cool.rough < 0 && !viaSpreader) {
+    if (carried && cargo && dv > 5.4 && this.cool.rough < 0 && !viaSpreader && !this.calm) {
       this.cool.rough = 1.2;
       this.combo = 0;
       this.stats.rough++;
@@ -1666,7 +1671,7 @@ export class Session extends Emitter {
   }
 
   _checkEnd(dt) {
-    if (this.phase !== 'play' || this._failT != null) return;
+    if (this.phase !== 'play') return;
     // low-time warnings
     if (!this.endless || this.time > 0) {
       if (this.time <= 10.4 && this.time > 0 && this.cool.tick < 0) {
@@ -1715,6 +1720,7 @@ export class Session extends Emitter {
     next.snapBody();
     next.group.visible = false;
     this._nextShip = { def, ship: next };
+    this.emit('prebuilt', { def });
   }
 
   _beginSwap(o = {}) {

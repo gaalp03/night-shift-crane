@@ -100,7 +100,7 @@ function sanitize(d) {
   return d;
 }
 
-class Save {
+export class Save {
   constructor() {
     this.data = defaults();
     this._timer = 0;

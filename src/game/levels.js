@@ -427,11 +427,11 @@ export const DAILY_TWISTS = [
 ];
 
 const DAILY_ORDERS = [
-  { text: 'Not a single strike', cash: 220, test: (r) => r.strikes === 0 },
-  { text: 'Build a x5 combo', cash: 220, test: (r) => r.bestCombo >= 5 },
-  { text: 'Four PERFECT set-downs', cash: 200, test: (r) => r.stats.perfect >= 4 },
-  { text: 'Clock out with 60 seconds to spare', cash: 220, test: (r) => r.timeLeft >= 60 },
-  { text: 'Five soft landings', cash: 200, test: (r) => r.stats.soft >= 5 },
+  { text: 'No box lost', cash: 220, test: (r) => r.strikes === 0 },
+  { text: 'Build a x4 combo', cash: 220, test: (r) => r.bestCombo >= 4 },
+  { text: 'Three PERFECT set-downs', cash: 200, test: (r) => r.stats.perfect >= 3 },
+  { text: 'Clock out with 20 seconds to spare', cash: 220, test: (r) => r.timeLeft >= 20 },
+  { text: 'Three soft landings', cash: 200, test: (r) => r.stats.soft >= 3 },
 ];
 
 /** The same shift for everyone on the same date: one ship, two twists, a fresh manifest. */
@@ -473,7 +473,7 @@ export function dailyShift(key = todayKey()) {
   };
   for (const t of twists) if (t.apply) t.apply(def, r);
   // --- manifest
-  const count = r.int(8, 10);
+  const count = r.int(4, 6); // one ship, 4-6 crates, 60-90 seconds
   const cargoTwist = twists.find((t) => t.cargo);
   const checks = (twists.find((t) => t.checks) || {}).checks || r.int(1, 2);
   const types = [];
@@ -535,7 +535,7 @@ export function dailyShift(key = todayKey()) {
   }
   def.preload = preload;
   const timeMul = twists.reduce((m, t) => m * (t.time || 1), 1);
-  def.time = Math.round(((70 + count * 38) * timeMul) / 10) * 10;
+  def.time = Math.max(60, Math.min(90, Math.round(((22 + count * 11) * timeMul) / 5) * 5));
   def.strikes = 3;
   def.quota = count;
   def.checks = manifest.filter((m) => m.check).length;

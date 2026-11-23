@@ -6,7 +6,7 @@ import { save } from './core/save.js';
 import { sdk } from './core/sdk.js';
 import { input } from './core/input.js';
 import { audio } from './core/audio.js';
-import { SOUNDS } from './core/sounds.js';
+import { SOUNDS, SOUND_GROUPS, soundsForLevel } from './core/sounds.js';
 import { gfx } from './core/gfx.js';
 import { initPhysics } from './game/physics.js';
 import { initMaterials, MAT } from './world/vox.js';
@@ -116,6 +116,14 @@ const app = {
     app.mouseMode = !!v && !app.touchMode;
   },
 
+  /** The rest of the sound set (menus, results, flavour) and the music: after the first ship. */
+  needLater() {
+    if (app._later) return;
+    app._later = true;
+    audio.need(SOUND_GROUPS.later);
+    audio._openMusic();
+  },
+
   // ---------------------------------------------------------------- settings
   applySettings() {
     const st = save.data.settings;
@@ -221,6 +229,7 @@ const app = {
     audio.setMuffle(1);
     audio.play('ui_open');
     app.screens.pause();
+    app.needLater(); // (a menu is open: its sounds may as well arrive now)
     sdk.gameplayStop();
   },
   async quitToBoard() {
@@ -438,6 +447,13 @@ async function beginRun(level, opts = {}) {
     await sdk.midgame(adHooks());
   }
   app.shiftsStarted++;
+  // this level's sounds (the boot run fetches nothing before its first frame)
+  if (!opts.boot) {
+    audio.need(SOUND_GROUPS.core);
+    audio.need(SOUND_GROUPS.play);
+    audio.need(soundsForLevel(level));
+    app.needLater();
+  }
   // (the very first load is already behind the loading screen: no doors needed)
   const cover = opts.first || opts.boot ? async (fn) => fn() : (fn) => app.juice.transition(fn);
   await cover(async () => {
@@ -683,6 +699,18 @@ function showShipCard(s, e, cash) {
       );
     }
   }
+  if (app.dailyUnlocked() && s.endless)
+    acts.appendChild(
+      h('button.btn.night.big.daily', {
+        title: 'Daily ship',
+        onclick: () => {
+          if (done) return;
+          close(false);
+          app.startDaily();
+        },
+        html: icon('moon') + '<span>Daily</span>',
+      })
+    );
   acts.appendChild(h('button.btn.primary.big', { onclick: () => close(true), html: icon('next') + '<span>Next</span>' }));
   const card = h('div.shipcard' + (e.complete ? '.good' : ''), head, pay, body || null, acts);
   root.appendChild(card);
@@ -914,7 +942,7 @@ function bindSession(s) {
     const left = e.max - e.strikes;
     // the main shift never ends on a lost box: another one is sent, the ship can still be filled
     j.toast({
-      text: e.again ? 'Lost · new box coming' : s.endless ? 'Box lost' : left > 0 ? `Box lost · ${left} left` : 'Third strike!',
+      text: e.again ? 'Lost · new box coming' : 'Box lost · bonus gone',
       kind: 'warn',
       key: 'strike' + e.strikes,
       silent: true,
@@ -932,6 +960,7 @@ function bindSession(s) {
   });
   s.on('shipDone', (e) => {
     const cash = Math.round(e.bonus * 0.3);
+    app.needLater(); // (the first ship is done: menus, flavour and music can come in now)
     if (e.complete) sdk.happytime();
     if (cash) earn(cash, s.ship.group.position);
     // every ship is a checkpoint: the pay and the save land together
@@ -978,6 +1007,8 @@ function bindSession(s) {
       app.after(4, () => app.radio.say([{ who: 'dispatch', text: 'Ships keep coming all night, Seven — fill each one before its clock runs out.' }, { who: 'dispatch', text: 'Every box pays. Spend it in the workshop. And keep your radio on.' }]), s);
     }
   });
+  // the next ship was just built: stream whatever its cargo / weather will need
+  s.on('prebuilt', (e) => audio.need(soundsForLevel(e.def)));
   s.on('shipIncoming', (e) => {
     app.hud.build(s.level, s);
     j.toast({ text: `${e.def.ship.name} inbound`, kind: 'info', dur: 3200 });
@@ -1092,6 +1123,7 @@ function bindSession(s) {
 
 async function onFinish(s, res) {
   if (app.session !== s) return;
+  app.needLater();
   app.mode = 'results';
   sdk.gameplayStop();
   input.clear();
@@ -1442,7 +1474,6 @@ async function boot() {
   app.weather.onGust = () => audio.play('gust', { vol: 0.9 });
 
   setLoad(0.8, 'Fuelling the trucks…');
-  makeAttract();
   mark('nsc-world');
   bindGlobalInput();
   // the mute button over every menu (the HUD has its own beside pause)
@@ -1481,6 +1512,8 @@ async function boot() {
   // nobody waits behind a menu: new and returning players alike start at the controls
   app.mode = 'menu';
   app.lastInput = performance.now();
+  // nothing simulates behind the loading bar: the frame loop waits until the first real frame
+  app.warming = true;
   await app.startEndless(first, true);
   mark('nsc-session');
   // every shader the first frame needs (the night's ship and cargo included), compiled in parallel
@@ -1496,7 +1529,17 @@ async function boot() {
   await wait(120);
   $('loading').classList.add('out');
   setTimeout(() => $('loading').remove(), 800);
-  setTimeout(() => audio.load(), 400);
+  // progressive loading: the first box's sounds right after the first frame, then what this ship
+  // needs, then the general set; music only once the first-box sounds are in. Anything for later
+  // mechanics streams while the ship before it is being worked (see 'prebuilt').
+  // Music (the biggest files) waits for a new player's first ship; a returning one hears it at once.
+  setTimeout(() => {
+    const core = audio.need(SOUND_GROUPS.core, { front: true });
+    audio.need(soundsForLevel(app.level));
+    setTimeout(() => audio.need(SOUND_GROUPS.play), 1500);
+    if (!first) core.then(() => audio._openMusic());
+    setTimeout(() => app.needLater(), first ? 75000 : 20000);
+  }, 300);
   // first gameplay frame on screen: the number the conversion target is about
   requestAnimationFrame(() => {
     window.__nscFirstFrame = performance.now();
@@ -2017,8 +2060,10 @@ function tick(raw) {
   // hit-stop: a few frozen frames on the big moments
   let dt = frozen ? 0 : raw;
   if (app.hitStop > 0 && !frozen) {
-    app.hitStop -= raw;
-    dt = raw * 0.05;
+    // (exactly the hit-stop's share of this frame is slowed: the same total game time at any frame rate)
+    const hs = Math.min(app.hitStop, raw);
+    app.hitStop -= hs;
+    dt = raw - hs + hs * 0.05;
   }
   app.time += dt;
   const s = app.session;

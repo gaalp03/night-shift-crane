@@ -4126,8 +4126,8 @@ body.hud-on #mutebtn {
 }
 
 /* low-end: pulses fade a pre-drawn glow (opacity is composited) instead of repainting box-shadows every frame */
+/* (.dropbtn is already position: absolute, which anchors its glow; it must stay that way) */
 .coachpill,
-.dropbtn,
 .btn.upgrade {
   position: relative;
 }
@@ -4164,5 +4164,13 @@ body.coach-nudge .dropbtn.ready::after {
 @keyframes nudgeScale {
   to {
     transform: scale(1.08);
+  }
+}
+.shipcard .acts .btn.daily {
+  flex: 0 0 auto;
+}
+@media (max-width: 520px) {
+  .shipcard .acts .btn.daily span {
+    display: none;
   }
 }
