@@ -13,7 +13,7 @@ const _b = new THREE.Vector3();
 export class Coach {
   /**
    * @param save     save store (flags.coach = how many lessons are done)
-   * @param scheme   () => 'touch' | 'mouse' | 'keys': how the player is steering right now
+   * @param scheme   () => 'touch' (one-finger) | 'pad' (manual on-screen stick + buttons) | 'mouse' | 'keys'
    * @param project  (Vector3) => { x, y, behind }: world to screen
    * @param dropRect () => DOMRect of the big DROP button, or null when it is not on screen
    */
@@ -49,8 +49,10 @@ export class Coach {
   automation(s) {
     const sc = this.scheme();
     const st = this.step;
-    if (sc !== 'keys') return { hoist: true, lock: true, release: st >= 1 };
-    return { hoist: st < 2, lock: !!s.mods.autoLock, release: false };
+    // manual control (keys, or the on-screen stick + buttons): the player drives; only the hoist
+    // helps out until it has been taught
+    if (sc === 'keys' || sc === 'pad') return { hoist: st < 2, lock: !!s.mods.autoLock, release: false };
+    return { hoist: true, lock: true, release: st >= 1 };
   }
 
   _truckBox(s) {
@@ -84,7 +86,10 @@ export class Coach {
       }
     }
     const sc = this.scheme();
-    const one = sc !== 'keys'; // one-touch: drag to steer, tap / click to lock or let go
+    const one = sc === 'touch' || sc === 'mouse'; // one-touch: drag to steer, tap / click to lock or let go
+    const pad = sc === 'pad';
+    // key caps for the keyboard, the on-screen buttons' own icons for the touch pad
+    const KEY = { act: pad ? icon('lock') : K('SPACE'), down: pad ? icon('down') : K('Q'), up: pad ? icon('up') : K('E'), move: pad ? icon('move') : ARROWS };
     const st = this.step;
     const rig = s.rig;
     const g = s.wantedGrab();
@@ -97,16 +102,16 @@ export class Coach {
     } else if (st === 1 || (st === 2 && !one)) {
       if (!rig.carry) {
         const box = this._truckBox(s);
-        if (g && g.ready && !one) p = { word: 'GRAB', keys: K('SPACE'), arrow: g.cargo.mesh.getWorldPosition(_b) };
-        else if (st === 2 && g && Math.hypot(g.lx, g.lz) < 0.8) p = { word: 'LOWER', keys: K('Q'), arrow: g.cargo.mesh.getWorldPosition(_b) };
-        else if (st === 2) p = { word: 'LIFT', keys: K('E'), arrow: box };
-        else p = { word: one ? 'DRAG' : 'MOVE', keys: one ? '' : ARROWS, arrow: box, hand: one && box ? { mode: 'drag', from: spr, to: box } : null };
+        if (g && g.ready && !one) p = { word: 'GRAB', keys: KEY.act, arrow: g.cargo.mesh.getWorldPosition(_b), hand: pad ? { mode: 'tap', to: 'drop' } : null };
+        else if (st === 2 && g && Math.hypot(g.lx, g.lz) < 0.8) p = { word: 'LOWER', keys: KEY.down, arrow: g.cargo.mesh.getWorldPosition(_b) };
+        else if (st === 2) p = { word: 'LIFT', keys: KEY.up, arrow: box };
+        else p = { word: one ? 'DRAG' : 'MOVE', keys: one ? '' : KEY.move, arrow: box, hand: one && box ? { mode: 'drag', from: spr, to: box } : null };
       } else {
         const slot = s.guideSlot;
-        if (seat && seat.seated && seat.valid && !one) p = { word: 'DROP', keys: K('SPACE'), arrow: slot };
-        else if (st === 2 && seat && seat.err < 0.8) p = { word: 'LOWER', keys: K('Q'), arrow: slot };
-        else if (st === 2 && s.altitude < 3) p = { word: 'LIFT', keys: K('E'), arrow: slot };
-        else p = { word: one ? 'DRAG' : 'MOVE', keys: one ? '' : ARROWS, arrow: slot, hand: one && slot ? { mode: 'drag', from: spr, to: slot } : null };
+        if (seat && seat.seated && seat.valid && !one) p = { word: 'DROP', keys: KEY.act, arrow: slot, hand: pad ? { mode: 'tap', to: 'drop' } : null };
+        else if (st === 2 && seat && seat.err < 0.8) p = { word: 'LOWER', keys: KEY.down, arrow: slot };
+        else if (st === 2 && s.altitude < 3) p = { word: 'LIFT', keys: KEY.up, arrow: slot };
+        else p = { word: one ? 'DRAG' : 'MOVE', keys: one ? '' : KEY.move, arrow: slot, hand: one && slot ? { mode: 'drag', from: spr, to: slot } : null };
       }
     } else if (st === 3) {
       p = this._comboT == null || this._comboT > 0 ? { word: 'COMBO', keys: icon('star') } : null;
@@ -126,7 +131,8 @@ export class Coach {
   /** A box has been placed: the next lesson begins. */
   onPlaced() {
     const st = this.step;
-    if (st < 3) this.advance(this.scheme() !== 'keys' && st >= 1 ? 3 : st + 1);
+    const one = this.scheme() === 'touch' || this.scheme() === 'mouse';
+    if (st < 3) this.advance(one && st >= 1 ? 3 : st + 1);
   }
 
   _screen(v) {

@@ -11,7 +11,8 @@ const defaults = () => ({
   endless: { best: 0, bestShips: 0, runs: 0 },
   // Tonight's Shift: today's record, and how many nights in a row it has been worked
   daily: { date: '', best: 0, stars: 0, order: '', streak: 0, bestStreak: 0, last: '', plays: 0 },
-  settings: { music: 0.7, sfx: 0.9, quality: 'auto', shake: true, cabDefault: false, hints: true, flashes: true },
+  // controls (touch devices): '' = not chosen yet, 'manual' (stick + buttons) or 'onefinger' (drag + tap)
+  settings: { music: 0.7, sfx: 0.9, quality: 'auto', shake: true, cabDefault: false, hints: true, flashes: true, controls: '' },
   flags: { introSeen: false, tutorialDone: false, endlessSeen: false, checkSeen: false },
   story: { boxes: {}, opened: {}, ending: null },
   login: { last: '', streak: 0, best: 0 }, // daily login streak (local calendar days)
@@ -96,6 +97,7 @@ function sanitize(d) {
   st.sfx = num(st.sfx, 0, 1, false);
   if (!['auto', 'low', 'medium', 'high'].includes(st.quality)) st.quality = 'auto';
   if (!['', 'steady', 'fast'].includes(d.rigSetup)) d.rigSetup = '';
+  if (!['', 'manual', 'onefinger'].includes(st.controls)) st.controls = '';
   if (typeof d.paint !== 'string') d.paint = 'yellow';
   return d;
 }

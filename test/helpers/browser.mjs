@@ -62,8 +62,22 @@ export async function startGame() {
   return {
     pw,
     /** A fresh context with the dev build in place of the shipped bundle; the platform SDK blocked. */
-    async open({ width = 800, height = 450, mobile = false, init } = {}) {
-      const ctx = await browser.newContext(mobile ? { ...pw.devices['Pixel 5'] } : { viewport: { width, height } });
+    /**
+     * @param device  a Playwright device name ('Pixel 5', 'iPhone 13'), or 'ipad' (Safari on iPadOS,
+     *                which reports itself as a Mac with touch points)
+     * @param until   'play' (default) or 'frame' (just the first frame: e.g. the control picker is up)
+     */
+    async open({ width = 800, height = 450, mobile = false, device = null, init, until = 'play' } = {}) {
+      const IPAD = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15';
+      const opts =
+        device === 'ipad'
+          ? { viewport: { width, height }, userAgent: IPAD, hasTouch: true }
+          : device
+            ? { ...pw.devices[device] }
+            : mobile
+              ? { ...pw.devices['Pixel 5'] }
+              : { viewport: { width, height } };
+      const ctx = await browser.newContext(opts);
       const page = await ctx.newPage();
       page.errors = [];
       page.on('pageerror', (e) => page.errors.push(e.message));
@@ -72,10 +86,15 @@ export async function startGame() {
       });
       await page.route('**/build/game.js', (r) => r.continue({ url: base + 'build/game.dev.js' }));
       await page.route('**/sdk.crazygames.com/**', (r) => r.abort());
+      if (device === 'ipad') await page.addInitScript(() => Object.defineProperty(Navigator.prototype, 'maxTouchPoints', { get: () => 5 }));
       if (init) await page.addInitScript(init);
       await page.goto(base + 'index.html');
-      await page.waitForFunction(() => window.__nsc && window.__nsc.app.mode === 'play' && window.__nscFirstFrame, null, { timeout: 120000, polling: 100 });
+      await page.waitForFunction((until) => window.__nsc && window.__nscFirstFrame && (until === 'frame' || window.__nsc.app.mode === 'play'), until, { timeout: 120000, polling: 100 });
       pages.push(ctx);
+      page.reopen = async () => {
+        await page.reload();
+        await page.waitForFunction(() => window.__nsc && window.__nscFirstFrame, null, { timeout: 120000, polling: 100 });
+      };
       return page;
     },
     async close() {

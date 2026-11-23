@@ -489,6 +489,14 @@ export class Screens {
       'div.card-body',
       h('div.set-row', h('label', { html: icon('music') + ' Music' }), h('div.ctl', slider('music', (v) => audio.setVolume('music', v)))),
       h('div.set-row', h('label', { html: icon('speaker') + ' Sound' }), h('div.ctl', slider('sfx', (v) => audio.setVolume('sfx', v)))),
+      // touch devices: Manual (stick + buttons) or One-finger (drag + tap)
+      app.touchMode
+        ? h(
+            'div.set-row.controls-row',
+            h('label', { html: icon('hand') + ' Controls' }),
+            h('div.ctl', seg([['manual', 'Manual'], ['onefinger', 'One-finger']], st.controls === 'onefinger' ? 'onefinger' : 'manual', (v) => app.setControls(v, 'settings')))
+          )
+        : null,
       h(
         'div.set-row',
         h('label', 'Graphics'),
@@ -638,7 +646,9 @@ export class Screens {
     const app = this.app;
     const touch = app.touchMode;
     const help = touch
-      ? 'Drag: move the crane · let go over a slot: it lands · tap: lock on / release · the hoist works by itself'
+      ? app.manualTouch()
+        ? 'Stick: move the crane · arrows: hoist / lower · round button: grab / drop · drag the view to look around'
+        : 'Drag: move the crane · let go over a slot: it lands · tap: grab / drop · the hoist works by itself'
       : 'Mouse: drag to move · click to lock / release · right-drag to look · Keys: A/D W/S (or arrows) move · E/Q hoist · SPACE lock / release · C cab view';
     const tips = 'Amber-sealed boxes: lift, hold steady and read the scale. A match goes on the ship, a mismatch on the blue customs truck in lane 2.';
     const card = h(

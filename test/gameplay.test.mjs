@@ -153,19 +153,21 @@ test('fail forward: a box lost overboard is replaced on a later truck', { skip, 
 });
 
 test('mobile: the pre-hooked crate is not penalised while waiting for the first input', { skip, timeout: 300000 }, async () => {
+  // (first launch on a phone: the control picker waits 5 s, then Manual starts)
   const m = await game.open({ mobile: true });
   const r = await m.evaluate(async () => {
     await new Promise((ok) => setTimeout(ok, 2500));
     const s = window.__nsc.app.session;
-    const d = document.querySelector('.dropbtn').getBoundingClientRect();
+    const d = document.querySelector('#touch .tbtn.lock').getBoundingClientRect();
     return { rough: s.stats.rough, score: s.score, carry: !!s.rig.carry, toasts: document.getElementById('toasts').textContent, bursts: document.getElementById('bursts').textContent, drop: { bottom: d.bottom, cx: d.left + d.width / 2, W: innerWidth, H: innerHeight } };
   });
-  assert.ok(r.drop.bottom > r.drop.H - 140 && Math.abs(r.drop.cx - r.drop.W / 2) < 4, 'the DROP button sits at the bottom centre: ' + JSON.stringify(r.drop));
+  assert.ok(r.drop.bottom > r.drop.H - 220 && r.drop.bottom <= r.drop.H, 'the grab / drop button sits on screen, at the bottom: ' + JSON.stringify(r.drop));
   assert.equal(r.rough, 0, 'no rough-handling penalty');
   assert.ok(r.score >= 0, 'no points taken');
   assert.ok(!/rough|BONG|CLANG|WHAM|KLONK|CRUNCH/i.test(r.toasts + r.bursts), 'no penalty toast or clang burst: ' + r.toasts + ' / ' + r.bursts);
   assert.ok(r.carry, 'the crate is still waiting on the hook');
   assert.deepEqual(m.errors, []);
+  await m.context().close();
 });
 
 test('no page errors during the gameplay tests', { skip }, () => {

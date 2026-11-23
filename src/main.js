@@ -22,6 +22,7 @@ import { Tutorial } from './game/tutorial.js';
 import { SHIFTS, UPGRADES, endlessShip, upgradeMods, dailyShift, todayKey, dayBefore, weekKey, weekDaysLeft, portLevel, PORT_STEPS } from './game/levels.js';
 import { Coach } from './game/coach.js';
 import { analytics } from './core/analytics.js';
+import { detectDevice } from './core/device.js';
 import { icon } from './ui/icons.js';
 import { h } from './core/util.js';
 import { checkAwards } from './game/awards.js';
@@ -48,7 +49,8 @@ const app = {
   shiftsStarted: 0,
   lastResult: null,
   nowPlaying: null,
-  touchMode: isMobile(),
+  // touch vs desktop at launch (iPads reporting as a Mac count as touch); the SDK's answer wins later
+  touchMode: detectDevice().touch,
   cabGhost: null,
   hitStop: 0,
   ambT: { crow: rand(12, 30), bell: rand(8, 20), horn: rand(40, 90), smoke: 0, deep: rand(25, 45) },
@@ -95,7 +97,7 @@ const app = {
     if (app.touchMode === v) return;
     app.touchMode = v;
     document.body.classList.toggle('touch', v);
-    if (app.touch) app.touch.show(false); // (one-touch play: the old stick and buttons never come back)
+    syncControls();
     if (app.tutorial) app.tutorial.setTouch(v);
     if (!v) input.touch.x = input.touch.z = input.touch.hoist = 0;
   },
@@ -337,9 +339,32 @@ function makeAttract() {
 function showHud(v) {
   app.hud.show(v);
   document.body.classList.toggle('hud-on', !!v);
-  // (one-touch play: the old stick and hoist buttons stay hidden; see bindGlobalInput)
-  app.touch.show(false);
+  app._hudOn = !!v;
+  syncControls();
 }
+
+/** Touch devices: 'manual' (stick + hoist / lower / lock buttons, the default) or 'onefinger'. */
+function manualTouch() {
+  return !!app.touchMode && save.data.settings.controls !== 'onefinger';
+}
+app.manualTouch = manualTouch;
+
+/** Show the on-screen stick and buttons exactly when a touch player in manual mode is playing. */
+function syncControls() {
+  const manual = manualTouch();
+  document.body.classList.toggle('ctl-manual', manual);
+  document.body.classList.toggle('ctl-onefinger', !!app.touchMode && !manual);
+  if (app.touch) app.touch.show(manual && !!app._hudOn && (app.mode === 'play' || app.mode === 'paused'));
+}
+
+/** Pick (or change) the touch controls; remembered. */
+app.setControls = (mode, how = 'settings') => {
+  save.data.settings.controls = mode === 'onefinger' ? 'onefinger' : 'manual';
+  save.checkpoint();
+  if (app.session) app.session.target = null;
+  syncControls();
+  analytics.track('controls_pick', { mode: save.data.settings.controls, how });
+};
 
 function setCab(on, silent) {
   const want = on ? 'cab' : 'chase';
@@ -567,13 +592,15 @@ async function runIntro(level, s, opts = {}) {
 
 /** The big DROP button: the only control on screen in the first minute and on portrait phones. */
 function updateDrop(s) {
-  const portrait = app.touchMode && document.body.classList.contains('portrait');
   const stage = app.level && app.level.endless ? app.hudStage : 3;
   const carry = !!s.rig.carry;
-  const show = !s.attract && s.phase === 'play' && (portrait || (stage === 0 && carry));
-  if (!show) return app.hud.setDrop({ show: false });
   const g = s.wantedGrab();
   const seat = s.seat;
+  const manual = manualTouch();
+  if (manual && app.touch) app.touch.setAction(carry ? 'release' : g && g.ready ? 'lock' : 'off', carry && seat && seat.seated && seat.valid ? 'good' : '');
+  // one-finger touch: always on screen, any orientation; desktop: the first box only; manual: the pad's own button
+  const show = !s.attract && s.phase === 'play' && !manual && (app.touchMode || (stage === 0 && carry));
+  if (!show) return app.hud.setDrop({ show: false });
   const quota = s.endless ? s.level.manifest.filter((m) => !m.black).length : s.quota;
   const done = s.endless ? s.delivered - (s.shipBase || 0) : s.delivered;
   const label = carry ? 'DROP' : g && g.ready ? 'GRAB' : `${Math.max(0, done)}/${quota}`;
@@ -1312,6 +1339,76 @@ async function warmShaders() {
   }
 }
 
+/** Touch, first launch: Manual or One-finger, each with a live preview; one tap starts. 5 s: Manual. */
+function showControlPicker() {
+  if ($('picker')) return;
+  let done = false;
+  const go = (mode, auto) => {
+    if (done) return;
+    done = true;
+    clearTimeout(timer);
+    app.setControls(mode, auto ? 'auto' : 'tap');
+    el.classList.add('out');
+    setTimeout(() => el.remove(), 260);
+    app.mode = 'play';
+    showHud(true);
+    app.lastInput = performance.now();
+    audio.play('ui_confirm');
+    sdk.gameplayStart();
+  };
+  const card = (mode, word, sub, preview) =>
+    h(
+      'button.pickcard.' + mode,
+      { onclick: () => go(mode, false), 'aria-label': word },
+      h('div.pv', { html: preview }),
+      h('b', word),
+      h('small', sub),
+      mode === 'manual' ? h('i.autobar') : null
+    );
+  const manualPv = `<div class="pv-stick"><i></i></div><div class="pv-btns"><span>${icon('up')}</span><span>${icon('down')}</span><span class="lk">${icon('lock')}</span></div>`;
+  const onePv = `<div class="pv-track"><i class="pv-box"></i><span class="pv-hand">${icon('hand')}</span></div>`;
+  const el = h(
+    'div#picker',
+    h('div.pick-head', { html: icon('hand') + '<span>CONTROLS</span>' }),
+    h('div.pick-cards', card('manual', 'MANUAL', 'Stick + buttons', manualPv), card('onefinger', 'ONE-FINGER', 'Drag + tap', onePv)),
+    h('div.pick-foot', 'Change any time in Settings')
+  );
+  $('ui').appendChild(el);
+  const timer = setTimeout(() => go('manual', true), 5000);
+  app._pickGo = go;
+}
+
+/** Desktop, first launch: what the keys do, over the running game (never in the way, never blocking). */
+function showKeysIntro() {
+  if ($('keysintro') || app.touchMode) return;
+  save.data.flags.keysIntro = true;
+  save.commit();
+  const K = (...k) => k.map((x) => `<span class="kbd">${x}</span>`).join('');
+  const el = h(
+    'div#keysintro',
+    h('div.krow.move', { html: `<span class="keys">${K('↑')}<span class="pair">${K('←', '↓', '→')}</span></span><i>or</i><span class="keys">${K('W')}<span class="pair">${K('A', 'S', 'D')}</span></span><b>MOVE</b>` }),
+    h('div.krow', { html: `${K('E')}<b>HOIST</b>${K('Q')}<b>LOWER</b>` }),
+    h('div.krow', { html: `${K('SPACE')}<b>LOCK · DROP</b>` }),
+    h('button.kclose', { 'aria-label': 'Close', onclick: () => close(), html: icon('x') })
+  );
+  const close = () => {
+    if (!el.parentNode) return;
+    el.classList.add('out');
+    setTimeout(() => el.remove(), 300);
+  };
+  $('ui').appendChild(el);
+  // it goes by itself once the keys have been used (moved and dropped), or after a while
+  const moved0 = performance.now();
+  const watch = setInterval(() => {
+    const s = app.session;
+    const used = app._movedKeys && s && s.stats.placed > 0;
+    if (!el.parentNode || used || performance.now() - moved0 > 16000) {
+      clearInterval(watch);
+      close();
+    }
+  }, 300);
+}
+
 /** The GPU did not come back: save everything, then reload the page on a tap. */
 function showReloadCard() {
   if ($('lostcard')) return;
@@ -1444,9 +1541,9 @@ async function boot() {
   }, touch: app.touchMode });
   app.coach = new Coach(
     save,
-    () => (app.touchMode ? 'touch' : app.mouseMode ? 'mouse' : 'keys'),
+    () => (app.touchMode ? (manualTouch() ? 'pad' : 'touch') : app.mouseMode ? 'mouse' : 'keys'),
     (v) => app.juice.project(v),
-    () => app.hud.dropRect()
+    () => (manualTouch() ? app.touch.lockRect() : app.hud.dropRect())
   );
   app.screens = new Screens(app);
   app.ctx = { scene, harbor: app.harbor, water: app.water, weather: app.weather, fx: app.fx, crane: app.crane, cams: app.cams, save, mobile };
@@ -1515,6 +1612,14 @@ async function boot() {
   // nothing simulates behind the loading bar: the frame loop waits until the first real frame
   app.warming = true;
   await app.startEndless(first, true);
+  // a touch device that has never chosen its controls: the choice comes first (the game waits)
+  const pick = app.touchMode && !save.data.settings.controls;
+  if (pick) {
+    app.mode = 'picker';
+    showHud(false);
+    sdk.gameplayStop();
+  }
+  syncControls();
   mark('nsc-session');
   // every shader the first frame needs (the night's ship and cargo included), compiled in parallel
   // while the loading bar is still up, so the first frame does not stall on them one by one
@@ -1549,7 +1654,9 @@ async function boot() {
     analytics.trackOnce('game_loaded', { ms: Math.round(window.__nscFirstFrame), first: first ? 1 : 0, day: returnDay });
     if (!first && returnDay > 0) analytics.trackOnce('return_day_' + returnDay, { day: returnDay });
   });
-  if (!first && (idle || login)) setTimeout(() => showWelcomeStrip(idle, login), 1500);
+  if (pick) showControlPicker();
+  else if (!app.touchMode && !save.data.flags.keysIntro) setTimeout(showKeysIntro, 600);
+  if (!first && (idle || login)) setTimeout(() => showWelcomeStrip(idle, login), pick ? 7000 : 1500);
   // outside analytics on the page (beyond the platform SDK): new players get a small, non-blocking note
   if (first && analytics.external()) setTimeout(showPrivacyNote, 2500);
 }
@@ -1690,6 +1797,15 @@ function bindGlobalInput() {
     // one-touch play, for a finger and for the mouse alike: the spreader goes where you point
     // (left button / finger), a click or tap locks on or lets go; the right button orbits the view
     const mouse = e.pointerType === 'mouse';
+    if (e.pointerType === 'touch' && manualTouch()) {
+      app.setTouchMode(true);
+      if (app.cams.mode !== 'chase' || drag) return;
+      drag = { id: e.pointerId, x: e.clientX, y: e.clientY, yaw: app.cams.yaw, pitch: app.cams.pitch };
+      try {
+        canvas.setPointerCapture(e.pointerId);
+      } catch (err) {}
+      return;
+    }
     if ((!mouse || e.button === 0) && s && !s.attract) {
       if (e.pointerType === 'touch') app.setTouchMode(true);
       else app.setMouseMode(true);
@@ -1797,7 +1913,10 @@ function bindGlobalInput() {
     if (!e.ctrlKey && !e.metaKey && !e.altKey && /^(Key[A-Z]|Arrow|Space|Shift|Enter|Page)/.test(e.code)) {
       app.setTouchMode(false);
       // steering with the keys hands the crane back to the full keyboard scheme
-      if (/^(Key[WASDEQ]|Arrow)/.test(e.code)) app.setMouseMode(false);
+      if (/^(Key[WASDEQ]|Arrow)/.test(e.code)) {
+        app.setMouseMode(false);
+        app._movedKeys = true;
+      }
     }
     if (app.mode === 'intro' && app._skipTour && (e.code === 'Space' || e.code === 'Enter' || e.code === 'Escape')) app._skipTour();
     // Enter = the highlighted action, Esc = back, on any open menu
@@ -2056,7 +2175,7 @@ function frame(now) {
 
 function tick(raw) {
   input.poll();
-  const frozen = app.mode === 'paused' || sdk.adActive;
+  const frozen = app.mode === 'paused' || app.mode === 'picker' || sdk.adActive;
   // hit-stop: a few frozen frames on the big moments
   let dt = frozen ? 0 : raw;
   if (app.hitStop > 0 && !frozen) {

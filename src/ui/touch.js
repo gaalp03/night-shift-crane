@@ -1,5 +1,6 @@
-// On-screen controls for phones / tablets: a floating stick (trolley + gantry),
-// two hold buttons for the hoist and one big context button for lock / release.
+// On-screen controls for phones / tablets ("Manual", the default on touch): a floating stick
+// (trolley + gantry), two hold buttons for the hoist and one big context button that grabs a box
+// and drops it.
 import { h, clamp } from '../core/util.js';
 import { input } from '../core/input.js';
 import { icon } from './icons.js';
@@ -104,7 +105,7 @@ export class TouchControls {
     this.upBtn = h('button.tbtn.up', { html: icon('up') + '<small>Hoist</small>', 'aria-label': 'Hoist up' });
     this.downBtn = h('button.tbtn.dn', { html: icon('down') + '<small>Lower</small>', 'aria-label': 'Lower' });
     this.lockIcon = h('span', { html: icon('lock') });
-    this.lockLabel = h('small', 'Lock');
+    this.lockLabel = h('small', 'Grab');
     this.lockBtn = h('button.tbtn.lock', { 'aria-label': 'Lock or release' }, this.lockIcon, this.lockLabel);
     let hoist = 0;
     hold(
@@ -139,6 +140,7 @@ export class TouchControls {
   }
 
   show(v) {
+    if (v !== this.active) this._lockRect = null;
     this.active = v;
     this.root.classList.toggle('hidden', !v);
     if (!v) {
@@ -147,7 +149,7 @@ export class TouchControls {
     }
   }
 
-  /** Reflect what the context button will do. */
+  /** Reflect what the context button will do: 'lock' (GRAB ready), 'release' (DROP), 'off'. */
   setAction(action, state) {
     const key = action + ':' + state;
     if (key === this.lockState) return;
@@ -157,6 +159,18 @@ export class TouchControls {
     b.classList.toggle('release', action === 'release');
     b.classList.toggle('seated', action === 'release' && state === 'good');
     this.lockIcon.innerHTML = icon(action === 'release' ? 'unlock' : 'lock');
-    this.lockLabel.textContent = action === 'release' ? 'Release' : 'Lock';
+    this.lockLabel.textContent = action === 'release' ? 'Drop' : 'Grab';
+    this._lockRect = null;
+  }
+
+  /** Where the context button is (for the coach's ghost hand); cached until the layout changes. */
+  lockRect() {
+    if (!this.active) return null;
+    if (!this._lockRect || this._lockW !== window.innerWidth || this._lockH !== window.innerHeight) {
+      this._lockRect = this.lockBtn.getBoundingClientRect();
+      this._lockW = window.innerWidth;
+      this._lockH = window.innerHeight;
+    }
+    return this._lockRect;
   }
 }

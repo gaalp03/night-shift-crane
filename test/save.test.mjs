@@ -118,3 +118,20 @@ test('a newer cloud copy (CrazyGames data module) wins and later writes are mirr
   s.checkpoint();
   assert.equal(JSON.parse(cloud.map.get(KEY)).money, 10);
 });
+
+test('the touch control choice persists, and unknown values fall back to "not chosen"', () => {
+  const ls = fakeStorage();
+  withWindow(ls);
+  const a = new Save();
+  a.load();
+  assert.equal(a.data.settings.controls, '', 'a new player has not chosen yet');
+  a.data.settings.controls = 'onefinger';
+  a.checkpoint();
+  const b = new Save();
+  b.load();
+  assert.equal(b.data.settings.controls, 'onefinger', 'remembered on the next visit');
+  ls.map.set(KEY, JSON.stringify({ v: 2, settings: { controls: 'joystick' } }));
+  const c = new Save();
+  c.load();
+  assert.equal(c.data.settings.controls, '', 'junk is not trusted');
+});

@@ -124,4 +124,4 @@ export const SCORE = {
   handover: 260, // unlisted box handed to customs
 };
 
-export const GAME_VERSION = '2.4.1';
+export const GAME_VERSION = '2.5.0';

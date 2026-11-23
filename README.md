@@ -56,7 +56,8 @@ npm run build      # src/ -> build/game.js
 npm run watch      # rebuilds build/game.dev.js on change (with dev hooks + source maps)
 npm run serve      # local server (gzip, like a CDN) on :8080
 npm run release    # prod build + release/night-shift-crane-crazygames.zip (index.html at the root)
-npm test           # save safety (plain Node) + fixed-step physics, fail-forward, first-crate checks
+npm test           # save safety + device detection (plain Node); fixed-step physics, fail-forward,
+                   # first crate, controls on iPad / phone / desktop profiles
                    # (headless Chromium via Playwright; skipped with a hint if it is not installed)
 ```
 
@@ -104,10 +105,16 @@ present, so the same build runs on GitHub Pages or locally.
 - **Low-end:** shadow casters match the preset before shaders compile and every program is linked
   behind the loading bar (no mid-play compile); quality steps that would recompile wait for a break;
   the hull's shared container geometry/atlases are no longer freed on swap; pulses are compositor-only.
-- **Controls:** mouse and touch share one scheme (drag moves the spreader, click / tap locks or lets
-  go, right-drag orbits the view); keys still do everything. Pause: on-screen button, P or Esc;
-  sound: an always-visible mute button (or M). The canvas takes focus so keys work in
-  the platform's iframe, and the first boxes show a pulsing nudge when nothing is pressed for 4 s.
+- **Controls:** touch vs desktop is detected at launch (coarse pointer / touch events / touch points,
+  iPadOS Safari reporting as a Mac included; the CrazyGames SDK's device type wins when present).
+  Touch: **Manual** is the default — an on-screen stick (trolley + gantry), HOIST / LOWER and one big
+  GRAB / DROP button; a finger on the world looks around. **One-finger** (drag the spreader, tap to
+  grab / drop) is the alternative. On the first touch launch two cards with live previews ask which
+  one; one tap starts, no tap in 5 s means Manual; the choice is remembered and switchable in
+  Settings. Desktop goes straight to keyboard play: the first launch shows a small, non-blocking key
+  card (arrows or WASD to move, E / Q hoist / lower, SPACE lock · drop). The mouse also steers like a
+  finger (left-drag, click; right-drag orbits). Pause: on-screen button, P or Esc; sound: an
+  always-visible mute button (or M).
 - **Devices:** the platform's device type (desktop / mobile / tablet) decides the touch UI when the
   SDK provides it. Automatic quality starts at *low* on Chromebooks and machines with ≤ 4 GB or
   ≤ 4 threads and only steps up after sustained clean frames; no MSAA on low or above 1.5× DPR.

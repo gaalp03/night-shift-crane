@@ -1,6 +1,6 @@
 {
   "name": "night-shift-crane",
-  "version": "2.4.1",
+  "version": "2.5.0",
   "private": true,
   "description": "Night Shift Crane - harbor crane stacking physics game",
   "type": "module",
