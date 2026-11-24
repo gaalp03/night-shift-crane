@@ -1,7 +1,7 @@
 // Night Shift Crane — application shell: boot, world, game flow, main loop.
 import * as THREE from 'three';
 import { DIM, PAL } from './config.js';
-import { clamp, damp, rand, fmtNum, isMobile, isIOS, Tweens } from './core/util.js';
+import { clamp, damp, rand, fmtNum, isMobile, isIOS, Tweens, ease } from './core/util.js';
 import { save } from './core/save.js';
 import { sdk } from './core/sdk.js';
 import { input } from './core/input.js';
@@ -139,7 +139,9 @@ const app = {
       gfx.applyQuality(st.quality, st.autoLevel || 0);
       document.body.classList.toggle('post', gfx.usePost);
       syncSilhouette();
+      syncEffects();
     }
+    showFpsMeter(!!st.showFps || /[?&]fps\b/.test(location.search));
   },
   applyPaint() {
     if (app.crane) app.crane.setPaint(save.data.paint || 'yellow');
@@ -1143,9 +1145,19 @@ function bindSession(s) {
     }
     if (e.grade === 'perfect' || e.grade === 'great') app.crew.react('cheer', e.grade === 'perfect' ? 1.9 : 1.1);
     if (e.grade === 'perfect') {
-      app.hitStop = 0.07;
+      app.hitStop = Math.max(app.hitStop, 0.07);
       buzz([12, 40, 24]);
     }
+  });
+  // the first box of a career: the big moment, a beat of slow motion, the crew cheers
+  s.on('firstPerfect', (e) => {
+    app.hitStop = Math.max(app.hitStop, 0.34);
+    app.cams.punch(0, -0.32, 0);
+    app.cams.shake(0.45);
+    app.crew.react('cheer', 2.6);
+    audio.play('sax_combo', { delay: 0.3, vol: 0.9 });
+    buzz([20, 40, 30, 40, 60]);
+    app.after(0.5, () => j.banner('PERFECT!', 'First box · dead on the mark', 1500), s);
   });
   s.on('overboard', () => app.crew.react('wince', 2.6));
   s.on('impact', (e) => {
@@ -1511,6 +1523,8 @@ async function boot() {
     save.commit();
     document.body.classList.toggle('post', gfx.usePost);
     syncSilhouette();
+    syncEffects();
+    analytics.trackOnce('perf_level_' + lvl, { level: lvl, mobile: gfx.mobile ? 1 : 0, fps: Math.round(gfx.fps || 0) });
   };
   // a quality step that recompiles shaders waits for a break (between ships, or a menu)
   gfx.quietMoment = () => app.mode !== 'play' || !!(app.session && app.session.phase === 'swap');
@@ -1519,6 +1533,7 @@ async function boot() {
     save.commit();
     document.body.classList.toggle('post', gfx.usePost);
     syncSilhouette();
+    syncEffects();
   };
   syncSilhouette();
   document.body.classList.toggle('post', gfx.usePost);
@@ -1529,6 +1544,7 @@ async function boot() {
   app.water = new Water(scene, { mobile });
   app.weather = new Weather(scene, { count: gfx.rainCount, mobile });
   app.fx = new Fx(scene, { budget: gfx.particleBudget, mobile });
+  syncEffects();
   app.crane = new CraneView(scene, { paint: save.data.paint, mobile });
   app.crew = new Crew(scene);
   app.cams = new CameraRig(camera);
@@ -1663,11 +1679,68 @@ async function boot() {
     analytics.trackOnce('game_loaded', { ms: Math.round(window.__nscFirstFrame), first: first ? 1 : 0, day: returnDay });
     if (!first && returnDay > 0) analytics.trackOnce('return_day_' + returnDay, { day: returnDay });
   });
+  // the opening shot: floodlights come on, the camera pulls back from the hook (play is live meanwhile;
+  // behind the control picker it waits on the close-up)
+  startOpening(first ? 3.0 : 2.4, !pick);
   if (pick) showControlPicker();
   else if (!app.touchMode && !save.data.flags.keysIntro) setTimeout(showKeysIntro, 600);
   if (!first && (idle || login)) setTimeout(() => showWelcomeStrip(idle, login), pick ? 7000 : 1500);
   // outside analytics on the page (beyond the platform SDK): new players get a small, non-blocking note
   if (first && analytics.external()) setTimeout(showPrivacyNote, 2500);
+}
+
+/** Particle and rain budgets follow the automatic quality (shadows and resolution are gfx's own). */
+function syncEffects() {
+  if (app.fx) app.fx.budget = gfx.particleBudget;
+  if (app.weather && app.weather.setDensity) app.weather.setDensity(gfx.rainDensity);
+}
+
+/** Optional frame-rate counter (Settings, or ?fps in the address): fps · preset · auto level · resolution. */
+function showFpsMeter(on) {
+  let el = $('fpsmeter');
+  if (!on) {
+    if (el) el.remove();
+    clearInterval(app._fpsTimer);
+    app._fpsTimer = 0;
+    return;
+  }
+  if (!el) {
+    el = h('div#fpsmeter');
+    document.body.appendChild(el);
+  }
+  if (app._fpsTimer) return;
+  app._fpsTimer = setInterval(() => {
+    const st = gfx.stats();
+    el.textContent = `${st.fps} FPS · ${String(st.quality).toUpperCase()}${gfx.auto ? ' L' + st.level : ''} · ${st.pixelRatio}x${st.shadows ? '' : ' · no shadows'}`;
+    el.classList.toggle('slow', st.fps < 40);
+  }, 250);
+}
+
+/** Fresh page load: a close-up of the hook pulling back into play, the quay lights coming on. */
+function startOpening(dur, lights) {
+  app.cams.intro(dur);
+  if (!lights || !app.crane.workLight) return;
+  app.harbor.powerNow = 0.04;
+  app.opening = { t: 0, lit: false, base: app.crane.workLight.intensity };
+  app.crane.workLight.intensity = 0;
+  gfx.renderer.toneMappingExposure = gfx.exposure * 0.5;
+}
+
+function updateOpening(raw) {
+  const o = app.opening;
+  if (!o) return;
+  o.t += raw;
+  gfx.renderer.toneMappingExposure = gfx.exposure * (0.5 + 0.5 * ease.outCubic(clamp(o.t / 1.3, 0, 1)));
+  if (!o.lit && o.t > 0.3) {
+    // the crane's floodlight: one hard clunk and it is on
+    o.lit = true;
+    app.crane.workLight.intensity = o.base;
+    audio.play('lock', { rate: 0.55, vol: 0.55 });
+  }
+  if (o.t > 1.4) {
+    gfx.renderer.toneMappingExposure = gfx.exposure;
+    app.opening = null;
+  }
 }
 
 /** Whole calendar days from one 'YYYY-MM-DD' to another. */
@@ -2204,7 +2277,14 @@ function tick(raw) {
   } else if (app.mode === 'paused' && input.action('pause')) app.resume();
 
   input.enabled = app.mode === 'play';
+  // the opening camera move waits behind the picker, and hurries once the player steers
+  updateOpening(raw);
+  app.cams.introHold = app.mode !== 'play';
+  app.cams.lensShift = app.mode === 'play' && app.touchMode ? (manualTouch() ? 0.1 : 0.05) : 0;
+  if (app.cams.introOn && app.mode === 'play' && (Math.abs(input.axisX) + Math.abs(input.axisZ) + Math.abs(input.hoist) > 0.1 || (s && s.target))) app.cams.hurryIntro();
   if (s && !frozen) {
+    // (touch players get the stronger anti-sway)
+    s.touchAssist = !!app.touchMode && save.data.settings.touchSteady !== false;
     s.update(dt);
     if (app.tutorial) app.tutorial.update(dt);
   }

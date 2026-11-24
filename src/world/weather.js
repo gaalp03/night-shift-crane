@@ -88,6 +88,11 @@ export class Weather {
     this.bolt.visible = true;
   }
 
+  /** Fewer drops on a struggling device (the buffer stays; only how much of it is drawn changes). */
+  setDensity(k) {
+    if (this.rain) this.rain.geometry.setDrawRange(0, Math.max(2, Math.round(this.rainCount * Math.max(0.2, Math.min(1, k)))) * 2);
+  }
+
   _buildRain(count) {
     this.rainCount = count;
     const pos = new Float32Array(count * 2 * 3);

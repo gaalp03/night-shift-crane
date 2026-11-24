@@ -193,7 +193,8 @@ class Gfx {
     renderer.setClearColor(0x04080f, 1);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.12;
+    this.exposure = 1.12;
+    renderer.toneMappingExposure = this.exposure;
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFShadowMap;
     renderer.info.autoReset = true;
@@ -277,8 +278,9 @@ class Gfx {
     const lvl = this._adaptLevel;
     // Mobile keeps a crisp native-ish resolution; we would rather drop effects than sharpness.
     let cap = q === 'high' ? 2 : q === 'medium' ? (this.mobile ? 2 : 1.5) : this.mobile ? 1.5 : 1;
-    cap -= Math.min(lvl, 3) * 0.2;
-    const minPR = this.mobile ? Math.min(dpr, 1.35) : 1;
+    // a struggling phone keeps stepping its resolution down (sharpness goes last, but it does go)
+    cap -= this.mobile ? Math.min(lvl, 6) * 0.17 : Math.min(lvl, 3) * 0.2;
+    const minPR = this.mobile ? Math.min(dpr, lvl >= 5 ? 0.85 : lvl >= 3 ? 1.1 : 1.35) : 1;
     let pr = clamp(Math.min(dpr, cap), minPR, 2);
     if (!this.mobile) {
       // desktop pixel budget: a 4K / hi-dpi window must not quadruple the shading work
@@ -296,14 +298,16 @@ class Gfx {
     this.usePost = q === 'high' && lvl < 4 && !this.mobile;
     // the mirrored sea costs a second (half-size) scene pass: first thing to go when frames run long
     this.reflections = q === 'high' && lvl < 1 && !this.mobile;
-    this.shadows = q !== 'low' && lvl < 5;
+    // (phones drop the shadow pass sooner: it is the dearest thing they draw)
+    this.shadows = q !== 'low' && lvl < (this.mobile ? 3 : 5);
     // (materials only need recompiling when shadows actually switch: that is a hitch on slow GPUs)
     const shadowFlip = this._shadowsWas !== undefined && this._shadowsWas !== this.shadows;
     this._shadowsWas = this.shadows;
     this.renderer.shadowMap.enabled = this.shadows;
     this.shadowSize = q === 'high' ? 2048 : 1024;
     this.rainCount = q === 'high' ? 2600 : q === 'medium' ? 1500 : 800;
-    this.particleBudget = q === 'low' ? 0.6 : 1;
+    this.particleBudget = (q === 'low' ? 0.6 : 1) * (lvl >= 3 ? 0.65 : 1);
+    this.rainDensity = 1 - Math.min(lvl, 4) * 0.15;
     this.renderer.setPixelRatio(this.pixelRatio);
     this._buildComposer();
     this.resize();
@@ -372,6 +376,7 @@ class Gfx {
 
   render(dt, time) {
     if (!this.renderer || this.contextLost) return;
+    this._meter(dt);
     if (this.flash > 0) this.flash = Math.max(0, this.flash - dt * 3.2);
     this.soft += (this.softTarget - this.soft) * Math.min(1, dt * (this.softTarget ? 9 : 16));
     if (this.softTarget || this.soft > 0.04) {
@@ -388,6 +393,17 @@ class Gfx {
       this.renderer.render(this.scene, this.camera);
     }
     this._adapt(dt);
+  }
+
+  /** Frame-rate meter (smoothed): for the optional on-screen counter and the tests. */
+  _meter(dt) {
+    if (!(dt > 0) || dt > 0.5) return;
+    this.fps = this.fps ? this.fps + (1 / dt - this.fps) * 0.06 : 1 / dt;
+  }
+
+  /** What the automatic mode is doing right now. */
+  stats() {
+    return { fps: Math.round(this.fps || 0), quality: this.quality, level: this._adaptLevel, pixelRatio: +this.pixelRatio.toFixed(2), shadows: this.shadows, post: !!this.usePost, reflections: !!this.reflections, particles: this.particleBudget, rain: this.rainDensity };
   }
 
   /** Steps quality down if the device cannot hold a playable frame rate. */
@@ -430,7 +446,8 @@ class Gfx {
       if (avg >= 1 / 57) this._goodWindows = 0;
     }
     if (avg > 1 / 45 && this._adaptLevel < 6) {
-      this._adaptLevel++;
+      // (far too slow: two steps at once, a weak phone should not stutter through six windows)
+      this._adaptLevel = Math.min(6, this._adaptLevel + (avg > 1 / 26 ? 2 : 1));
       this._goodWindows = 0;
       this._configure();
       this._adaptT = -1.5; // let the change settle before judging again

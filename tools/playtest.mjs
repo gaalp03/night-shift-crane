@@ -58,6 +58,12 @@ const look = () =>
     const N = window.__nsc;
     const a = N.app;
     const s = a.session;
+    // (why boxes are lost: reason, what the box was, where the hook was)
+    if (s && !s.__lossHook) {
+      s.__lossHook = true;
+      window.__losses = window.__losses || [];
+      s.on('strike', (e) => window.__losses.push({ reason: e.reason, type: e.cargo && e.cargo.type, t: +s.elapsed.toFixed(1), carry: !!s.rig.carry, x: +s.rig.x.toFixed(1), alt: +s.altitude.toFixed(1) }));
+    }
     const vis = (sel) => { const el = document.querySelector(sel); if (!el) return null; const r = el.getBoundingClientRect(); const cs = getComputedStyle(el); return r.width > 2 && r.height > 2 && cs.display !== 'none' && cs.visibility !== 'hidden' && el.offsetParent !== null ? { x: r.left + r.width / 2, y: r.top + r.height / 2, w: r.width, h: r.height } : null; };
     const out = { mode: a.mode, picker: !!document.getElementById('picker'), keys: !!document.getElementById('keysintro'), coach: (document.getElementById('coach').textContent || '').trim(), card: !!document.querySelector('.shipcard:not(.out)'), money: N.save.data.money, upgrades: Object.values(N.save.data.upgrades).reduce((x, y) => x + y, 0), rig: N.save.data.rigSetup };
     out.btn = { drop: vis('.dropbtn'), lock: vis('#touch .tbtn.lock'), up: vis('#touch .tbtn.up'), dn: vis('#touch .tbtn.dn'), stick: vis('#touch .stick'), pause: vis('.hud-btns .btn:last-child'), unlock: vis('.shipcard .btn.teal'), next: vis('.shipcard .btn.primary'), steady: vis('.shipcard .rigopt'), manualCard: vis('.pickcard.manual'), oneCard: vis('.pickcard.onefinger') };
@@ -205,6 +211,7 @@ if (per.scheme !== 'keys') {
 await page.waitForTimeout(400);
 // from here the bot and the game take turns: the bot looks and acts, the game runs 0.1 s
 await ev(() => (window.__nsc.app.warming = true));
+if (process.env.NOSTEADY) await ev(() => (window.__nsc.save.data.settings.touchSteady = false)); // (A/B: touch anti-sway off)
 let sim = 0;
 const simNow = () => sim * 1000;
 let lastProgress = 0;
@@ -344,6 +351,7 @@ const out = {
   visual: [...M.visual],
   errors: errors.slice(0, 8),
   fps,
+  losses: await ev(() => window.__losses || []),
 };
 console.log(JSON.stringify(out, null, 1));
 console.log(log.join('\n'));

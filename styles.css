@@ -4566,3 +4566,39 @@ body.touch.ctl-manual .hud-bl {
   top: auto;
   bottom: calc(11.8em + var(--sb));
 }
+
+/* portrait phones: the manual pad a size smaller (the ship stays in view above it) */
+body.portrait.ctl-manual #touch {
+  font-size: 0.86em;
+}
+@media (orientation: portrait) and (max-height: 700px) {
+  body.portrait.ctl-manual #touch {
+    font-size: 0.76em;
+  }
+}
+/* optional frame-rate counter (Settings → FPS counter, or ?fps) */
+#fpsmeter {
+  position: fixed;
+  left: 50%;
+  top: calc(0.4em + var(--st));
+  transform: translateX(-50%);
+  z-index: 60;
+  padding: 0.2em 0.6em;
+  border-radius: 0.5em;
+  background: rgba(4, 10, 15, 0.62);
+  color: #9fe8b0;
+  font: 700 11px/1.3 ui-monospace, Menlo, Consolas, monospace;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  pointer-events: none;
+}
+#fpsmeter.slow {
+  color: #ffb070;
+}
+/* manual pad on a portrait phone: there is no DROP ring to read the clock from, so a small clock
+   and ship count sit in the empty top-left corner */
+body.touch.portrait.ctl-manual:not(.hud0) .hud-tc {
+  display: flex !important;
+  top: calc(var(--pad) + var(--st));
+  font-size: 0.84em;
+}

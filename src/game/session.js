@@ -242,6 +242,8 @@ export class Session extends Emitter {
     this._resetInterp();
     this._syncVisuals(0);
     this.prehooked = c;
+    this._prehookCell = cell;
+    this._firstNight = true;
     // until the first input the hanging crate is off limits for penalties (and loud bursts)
     this.calm = true;
     return c;
@@ -587,6 +589,17 @@ export class Session extends Emitter {
       this.altitude = hit ? Math.max(0, hit.dist - 0.4) : Math.max(0, b.y);
     }
     const ctl = warm ? { x: 0, z: 0, hoist: 0 } : this._controls();
+    if (!warm) {
+      const base = TUNE.swayDamp * this.mods.swayMul;
+      if (this.touchAssist) {
+        const steer = Math.max(Math.abs(ctl.x), Math.abs(ctl.z));
+        this._stickIdle = steer < 0.08 ? (this._stickIdle || 0) + h : 0;
+        let k = steer < 0.08 ? lerp(2.1, 3.4, clamp(this._stickIdle / 0.6, 0, 1)) : 1.7;
+        // (it fades out over the last two metres: touching down, the box must not be dragged sideways)
+        k = lerp(1, k, clamp((this.altitude - 0.3) / 2, 0, 1));
+        rig.mods.sway = Math.min(9, base * k);
+      } else rig.mods.sway = base;
+    }
     this._computeAssist(ctl);
     rig.fixedUpdate(h, ctl, this.env);
     this.gantryBody.setNextKinematicTranslation({ x: 0, y: 0, z: rig.z });
@@ -1008,8 +1021,18 @@ export class Session extends Emitter {
       this.emit('misplaced', { cargo: c, pos: wp.clone(), pts: part, hazard });
       return;
     }
-    const grade = dropped ? 'good' : seat.grade === 'off' ? 'good' : seat.grade;
-    this._award(c, grade, { soft: !dropped && touchDv < TUNE.softLanding, pos: wp.clone(), dropped });
+    // the very first box (it hung right over its slot): always the big PERFECT moment
+    // (set down where it hung: carried off and slammed in elsewhere, it is graded like any other)
+    const pc = this._prehookCell;
+    const first = c === this.prehooked && !c.scored && !!pc && seat.r === pc.r && seat.b === pc.b;
+    const grade = first ? 'perfect' : dropped ? 'good' : seat.grade === 'off' ? 'good' : seat.grade;
+    this._award(c, grade, { soft: first || (!dropped && touchDv < TUNE.softLanding), pos: wp.clone(), dropped: dropped && !first, big: first, sub: first ? 'FIRST BOX' : undefined });
+    if (first) {
+      this.prehooked = null;
+      this.ctx.fx.confetti(wp.x - 1.2, wp.y + c.hy + 0.4, wp.z, [0xffd070, 0xfff2c0, 0x7ee08a]);
+      this.ctx.fx.confetti(wp.x + 1.2, wp.y + c.hy + 0.4, wp.z, [0xffd070, 0xfff2c0, zoneColor(c.zone)]);
+      this.emit('firstPerfect', { cargo: c, pos: wp.clone() });
+    }
   }
 
   _lockToTruck(c, seat) {
@@ -1109,7 +1132,7 @@ export class Session extends Emitter {
     return n;
   }
 
-  _award(c, grade, { soft, pos, dropped, discharge, bonus, label: labelOverride, sub }) {
+  _award(c, grade, { soft, pos, dropped, discharge, bonus, label: labelOverride, sub, big }) {
     let pts = (SCORE[grade] || SCORE.good) + (bonus || 0);
     const parts = sub ? [sub] : [];
     if (soft && grade !== 'sloppy') {
@@ -1148,7 +1171,7 @@ export class Session extends Emitter {
     }
     c.thawing = false;
     const label = labelOverride || (grade === 'perfect' ? 'PERFECT!' : grade === 'great' ? 'GREAT!' : grade === 'good' ? (dropped ? 'DROPPED IN' : 'LOCKED') : 'SLOPPY');
-    this.emit('burst', { text: label, pos, kind: grade, sub: parts.join(' · ') });
+    this.emit('burst', { text: label, pos, kind: grade, sub: parts.join(' · '), big });
     if (pts) this.emit('points', { pts, pos, mult, combo: this.combo });
     audio.play(grade === 'perfect' ? 'perfect' : grade === 'great' ? 'great' : 'good', { vol: grade === 'sloppy' ? 0.4 : 1 });
     if (grade === 'perfect') {
@@ -1562,7 +1585,12 @@ export class Session extends Emitter {
       if (l1.cool <= 0 && this.manifestIdx < this.manifest.length) {
         const spec = this.manifest[this.manifestIdx++];
         const c = this._newCargo(spec);
-        const tr = new Truck(this.ctx.scene, this.phys, { laneX: l1.x, stopZ: l1.z, purpose: 'deliver', color: this.manifestIdx + this.shipIndex, livery: c.black ? 'unmarked' : null, long: c.long });
+        const quick = this._firstNight && !this._quickTruck;
+        const tr = new Truck(this.ctx.scene, this.phys, { laneX: l1.x, stopZ: l1.z, purpose: 'deliver', color: this.manifestIdx + this.shipIndex, livery: c.black ? 'unmarked' : null, long: c.long, startZ: quick ? l1.z - 50 : undefined });
+        if (quick) {
+          this._quickTruck = true;
+          tr.speed = 13;
+        }
         tr.load(c);
         if (c.black) this.blackSeen = true;
         tr.onPark = (trk) => {

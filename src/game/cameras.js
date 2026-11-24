@@ -10,6 +10,8 @@ const _off = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 const _m = new THREE.Matrix4();
 const UP = new THREE.Vector3(0, 1, 0);
+const _ip = new THREE.Vector3();
+const _il = new THREE.Vector3();
 
 export class CameraRig {
   constructor(camera) {
@@ -31,6 +33,10 @@ export class CameraRig {
     this.shots = null;
     this.menuAngle = 0.4;
     this.kick = new THREE.Vector3();
+    // portrait phones: the picture's centre is lifted (a lens shift) so the action sits above the
+    // thumbs' controls instead of under them (fraction of the screen height)
+    this.lensShift = 0;
+    this._shiftNow = 0;
   }
 
   shake(amount) {
@@ -66,6 +72,45 @@ export class CameraRig {
       this.shots = { list: shots, i: 0, t: 0, resolve, onCut };
       if (onCut) onCut(0, shots[0]);
     });
+  }
+
+  /**
+   * Opening move on a fresh load: starts close beside the hanging box, looking up the falls at the
+   * trolley's floodlight, and pulls back into the live chase view. Never blocks play; steering
+   * speeds it up.
+   */
+  intro(dur = 2.8) {
+    this.introT = 0;
+    this.introDur = dur;
+    this.introFast = false;
+  }
+
+  /** The player is steering: finish the move quickly. */
+  hurryIntro() {
+    if (this.introDur) this.introFast = true;
+  }
+
+  get introOn() {
+    return !!this.introDur;
+  }
+
+  _intro(dt, ctx, pose) {
+    if (!this.introHold) this.introT += dt * (this.introFast ? 3.5 : 1);
+    const k = clamp(this.introT / this.introDur, 0, 1);
+    const sp = ctx.rig.sprPos;
+    const portrait = this.camera.aspect < 1;
+    // close: just seaward of the box and towards the camera, a little above it
+    // (portrait: a narrow horizontal view, so from further out)
+    _ip.set(sp.x + (portrait ? 11 : 8.5), sp.y + (portrait ? 3.2 : 1.8), sp.z + (portrait ? 21 : 10.5));
+    _il.set(sp.x - 0.8, sp.y + (portrait ? 1.2 : -0.6), sp.z - 0.4);
+    const e = ease.inOutCubic(k);
+    const el = ease.inOutSine(clamp(k * 1.1, 0, 1));
+    pose.pos = _ip.lerp(pose.pos, e);
+    pose.pos.y += Math.sin(Math.PI * e) * 3.5;
+    pose.look = _il.lerp(pose.look, el);
+    pose.fov = lerp(portrait ? 60 : 38, pose.fov, e);
+    if (k >= 1) this.introDur = 0;
+    return pose;
   }
 
   skipShots() {
@@ -146,8 +191,10 @@ export class CameraRig {
         } else if (s.onCut) s.onCut(s.i, s.list[s.i]);
       }
     } else if (this.mode === 'cab' && ctx && ctx.rig) pose = this._cab(dt, ctx);
-    else if (this.mode === 'chase' && ctx && ctx.rig) pose = this._chase(dt, ctx);
-    else if (this.mode === 'free') pose = { pos: this.pos, look: this.look, up: this.up, fov: this.fov };
+    else if (this.mode === 'chase' && ctx && ctx.rig) {
+      pose = this._chase(dt, ctx);
+      if (this.introDur) pose = this._intro(dt, ctx, { pos: pose.pos, look: pose.look, up: pose.up, fov: pose.fov });
+    } else if (this.mode === 'free') pose = { pos: this.pos, look: this.look, up: this.up, fov: this.fov };
     else pose = this._menu(dt);
 
     if (this.blend < 1) {
@@ -174,6 +221,12 @@ export class CameraRig {
       cam.fov = this.fov;
       cam.updateProjectionMatrix();
     }
+    const shift = cam.aspect < 1 && (this.mode === 'chase' || this.mode === 'cab') ? this.lensShift : 0;
+    this._shiftNow = Math.abs(shift - this._shiftNow) < 0.002 ? shift : damp(this._shiftNow, shift, 4, dt);
+    if (this._shiftNow > 0.001) {
+      // (setViewOffset sets the aspect from its full size: pass the real one)
+      if (!cam.view || !cam.view.enabled || Math.abs(cam.view.offsetY - this._shiftNow) > 1e-4) cam.setViewOffset(cam.aspect, 1, 0, this._shiftNow, cam.aspect, 1);
+    } else if (cam.view && cam.view.enabled) cam.clearViewOffset();
     cam.lookAt(this.look);
     // trauma shake: smooth noise, squared falloff
     if (this.trauma > 0) {

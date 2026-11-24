@@ -254,13 +254,14 @@ def motor(name, pack, src, start, dur, level, lp=None, hp=None, ratio=1.0, sr=22
     done.append((name + ".wav", len(x) / SR))
 
 
-def music(name, src, start, dur, fin=0.05, fout=5.0, lufs=-18.5, bitrate="96k"):
+def music(name, src, start, dur, fin=0.05, fout=5.0, lufs=-18.5, vbr=5):
+    # (mono VBR ~65 kbps: the music is 15.5 kHz low-passed anyway; a third smaller than 96k CBR)
     f = path("music", src)
     af = f"afade=t=in:st=0:d={fin},afade=t=out:st={dur - fout}:d={fout},loudnorm=I={lufs}:TP=-1.5:LRA=11,lowpass=f=15500"
     os.makedirs(OUT, exist_ok=True)
     p = subprocess.run(
         ["ffmpeg", "-v", "error", "-y", "-ss", str(start), "-t", str(dur), "-i", f, "-af", af, "-ar", "44100", "-ac", "1", "-vn",
-         "-codec:a", "libmp3lame", "-b:a", bitrate, "-map_metadata", "-1", os.path.join(OUT, name + ".mp3")],
+         "-codec:a", "libmp3lame", "-q:a", str(vbr), "-map_metadata", "-1", os.path.join(OUT, name + ".mp3")],
         capture_output=True)
     if p.returncode != 0:
         raise RuntimeError(p.stderr.decode())

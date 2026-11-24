@@ -507,6 +507,14 @@ export class Screens {
       ),
       h(
         'div.set-row',
+        h('label', 'FPS counter'),
+        h('div.ctl', seg([[false, 'Off'], [true, 'On']], !!st.showFps, (v) => {
+          st.showFps = v;
+          app.applySettings();
+        }))
+      ),
+      h(
+        'div.set-row',
         h('label', 'Screen shake'),
         h('div.ctl', seg([[true, 'On'], [false, 'Off']], st.shake, (v) => {
           st.shake = v;
