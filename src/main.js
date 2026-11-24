@@ -602,7 +602,7 @@ function updateDrop(s) {
   // one-finger touch: always on screen, any orientation; desktop: the first box only; manual: the pad's own button
   const show = !s.attract && s.phase === 'play' && !manual && (app.touchMode || (stage === 0 && carry));
   if (!show) return app.hud.setDrop({ show: false });
-  const quota = s.endless ? s.level.manifest.filter((m) => !m.black).length : s.quota;
+  const quota = s.endless ? s.level.manifest.filter((m) => !m.black && !m.returned).length : s.quota;
   const done = s.endless ? s.delivered - (s.shipBase || 0) : s.delivered;
   const label = carry ? 'DROP' : g && g.ready ? 'GRAB' : `${Math.max(0, done)}/${quota}`;
   const ready = carry ? stage === 0 || !!(seat && seat.seated && seat.valid) : !!(g && g.ready);
@@ -980,6 +980,12 @@ function bindSession(s) {
     buzz([60, 50, 90]);
   });
   // wrong bay: a little pay now, the zone pulses and an arrow shows the right spot
+  // no room aboard for the carried box: say so and send it back to the collector in lane 2
+  s.on('noslot', () => {
+    j.toast({ text: 'No space aboard · return it to the truck', kind: 'info', key: 'noslot', dur: 4200 });
+    if (s.guides) s.guides.alert = 2;
+    buzz([30, 30]);
+  });
   s.on('misplaced', (e) => {
     if (s.endless && e.pts > 0) earn(Math.round(e.pts * 0.25), e.pos);
     app.coach.fix = { cargo: e.cargo, t: 60 * 20 };

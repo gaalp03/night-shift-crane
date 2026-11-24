@@ -152,6 +152,67 @@ test('fail forward: a box lost overboard is replaced on a later truck', { skip, 
   assert.ok(r.phase === 'play' || r.phase === 'swap', 'the shift carries on');
 });
 
+test('no slot aboard: a carried box with nowhere to go is never a silent dead end (it goes back ashore)', { skip, timeout: 300000 }, async () => {
+  await freshRun(page, 4242);
+  await page.waitForFunction(() => window.__nsc.app.mode === 'play', null, { timeout: 60000 });
+  await injectDriver(page);
+  const r = await page.evaluate(() => {
+    const N = window.__nsc;
+    const s = Q.s();
+    const box = s.rig.carry;
+    if (!box) return { err: 'nothing on the hook' };
+    // force the state: every cell aboard is full for this box
+    const rule = s._ruleProblem.bind(s);
+    s._ruleProblem = (c, r, b) => (c === box ? 'full' : rule(c, r, b));
+    const quota0 = s.hud().quota;
+    Q.hoistTo(6);
+    N.sim(2);
+    const coach = document.getElementById('coach').textContent;
+    const toast = document.getElementById('toasts').textContent;
+    const out = { coach, toast, flagged: s.noSlotCargo === box && !!box.returning, arrow: !!s.guideSlot, quota0 };
+    // a collector comes to lane 2
+    let g = 0;
+    const l2 = s.lanes[1];
+    while (!(l2.truck && l2.truck.parked && l2.truck.purpose === 'collect' && !l2.truck.cargo) && g++ < 600) N.sim(0.1);
+    out.collector = !!(l2.truck && l2.truck.parked && l2.truck.purpose === 'collect');
+    if (!out.collector) return out;
+    out.arrowAtTruck = Math.hypot(s.guideSlot.x - l2.truck.bedCenter(box.hy, new N.THREE.Vector3()).x, s.guideSlot.z - l2.truck.bedCenter(box.hy, new N.THREE.Vector3()).z) < 0.5;
+    // take it there and let go
+    const bed = l2.truck.bedCenter(box.hy, new N.THREE.Vector3());
+    Q.goto(bed.x, bed.z, 0.1);
+    Q.lowerUntil((s) => s.seat && s.seat.seated);
+    out.seatValid = !!(s.seat && s.seat.valid);
+    out.coachAtTruck = document.getElementById('coach').textContent;
+    N.sim(0.3);
+    Q.press('Space');
+    N.sim(1);
+    out.returned = !!box.returned && !!box.counted && !!(box.spec && box.spec.returned);
+    out.free = s.rig.carry !== box;
+    out.phase = s.phase;
+    out.quota1 = s.hud().quota;
+    out.stillFlagged = s.noSlotCargo === box;
+    s._ruleProblem = rule;
+    // and the shift carries on: the next box can be picked up
+    N.sim(20);
+    out.after = s.phase;
+    return out;
+  });
+  assert.ok(!r.err, r.err);
+  assert.ok(r.flagged, 'the box is flagged to go back ashore: ' + JSON.stringify(r));
+  assert.match(r.coach, /RETURN/, 'the coach says what to do (not silent)');
+  assert.match(r.toast, /No space aboard/, 'a toast explains why');
+  assert.ok(r.arrow, 'an arrow points somewhere');
+  assert.ok(r.collector, 'a collector truck parks in lane 2');
+  assert.ok(r.arrowAtTruck, 'the arrow points at the collector bed');
+  assert.ok(r.seatValid, 'the collector bed is a legal drop for it');
+  assert.match(r.coachAtTruck, /DROP|RETURN/);
+  assert.ok(r.returned, 'the truck takes it back: counted and off the list');
+  assert.ok(r.free && !r.stillFlagged, 'the hook is free again');
+  assert.equal(r.quota1, r.quota0 - 1, 'the returned box leaves the ship quota');
+  assert.ok(r.phase === 'play' || r.phase === 'swap', 'still playing');
+  assert.ok(r.after === 'play' || r.after === 'swap', 'the shift goes on');
+});
+
 test('mobile: the pre-hooked crate is not penalised while waiting for the first input', { skip, timeout: 300000 }, async () => {
   // (first launch on a phone: the control picker waits 5 s, then Manual starts)
   const m = await game.open({ mobile: true });

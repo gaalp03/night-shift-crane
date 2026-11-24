@@ -74,6 +74,12 @@ export class Coach {
   update(s, idle = 0) {
     if (!s || s.phase !== 'play') return this._show(null);
     s.auto = this.automation(s);
+    // a box with no room aboard goes back ashore: always said, always pointed at (never a silent dead end)
+    if (s.noSlotCargo && s.rig.carry === s.noSlotCargo) {
+      const sd = s.seat;
+      const there = sd && sd.seated && sd.valid;
+      return this._show({ word: there ? 'DROP' : 'RETURN', keys: icon('truck'), arrow: s.guideSlot }, false);
+    }
     // a box in the wrong place: point at it, then at where it belongs (any time, not just in lessons)
     const fx = this.fix;
     if (fx && fx.cargo) {

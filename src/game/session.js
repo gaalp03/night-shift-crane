@@ -168,6 +168,7 @@ export class Session extends Emitter {
 
   _newCargo(spec, brand) {
     const c = new Cargo({ zone: spec.zone, type: spec.type, brand: (brand == null ? this.cargos.length : brand) % BRAND_COUNT, mobile: this.ctx.mobile, check: !!spec.check });
+    c.spec = spec;
     c.mass = c.typeDef.mass;
     if (spec.episode) c.episode = spec.episode;
     // what the papers say it weighs, and what the load cell will say
@@ -754,7 +755,7 @@ export class Session extends Emitter {
         gap,
         err,
         zoneOk: true,
-        problem: tr.purpose === 'customs' ? (cargo.check || cargo.black ? null : 'notcustoms') : cargo.discharge ? null : 'notout',
+        problem: cargo.returning ? null : tr.purpose === 'customs' ? (cargo.check || cargo.black ? null : 'notcustoms') : cargo.discharge ? null : 'notout',
         seated: gap < 0.2,
         valid: err <= 1 && gap > -0.8,
         grade: err <= 0.3 ? 'perfect' : err <= 0.62 ? 'great' : err <= 1 ? 'good' : 'off',
@@ -1018,6 +1019,18 @@ export class Session extends Emitter {
     audio.play('lock', { pos: wp, rate: 0.95 });
     audio.play('impact_deck', { pos: wp, vol: 0.5 });
     this.ctx.fx.dust(wp.x, wp.y - c.hy, wp.z, 8);
+    if (c.returning) {
+      // a box that had nowhere to go aboard goes back ashore: off this ship's list, no penalty
+      c.returning = false;
+      c.returned = true;
+      c.counted = true;
+      c.scored = true;
+      if (c.spec) c.spec.returned = true;
+      if (this.noSlotCargo === c) this.noSlotCargo = null;
+      this.emit('burst', { text: 'RETURNED', pos: wp.clone(), kind: 'info', sub: 'NO SPACE ABOARD' });
+      this.emit('returned', { cargo: c });
+      return;
+    }
     const grade = seat.grade === 'off' ? 'good' : seat.grade;
     const soft = this.touch.dv < TUNE.softLanding;
     if (tr.purpose !== 'customs') {
@@ -1566,6 +1579,7 @@ export class Session extends Emitter {
     // lane 2: collectors, while there is something to take off the ship
     const l2 = this.lanes[1];
     const pendingOut = this.cargos.some((c) => c.discharge && !c.counted && c.state !== 'gone' && !c.lost);
+    const pendingRet = this.cargos.some((c) => c.returning && !c.counted && c.state !== 'gone' && !c.lost);
     // customs wait in lane 2 while a sealed or unlisted box is still to be dealt with
     const pendingCus =
       !pendingOut &&
@@ -1574,11 +1588,13 @@ export class Session extends Emitter {
         if (c.check) return !c.counted;
         return c.black && (c.state === 'carried' || c.state === 'loose' || (c.state === 'truck' && c.truck && c.truck.purpose === 'deliver'));
       });
-    if (l2.truck && l2.truck.purpose === 'customs' && l2.truck.state === 'wait' && !l2.truck.cargo && !pendingCus && !(l2.truck.leaveDelay > 0)) l2.truck.leaveDelay = 1.2;
-    if ((pendingOut || pendingCus) && (!l2.truck || l2.truck.state === 'gone' || (l2.truck.state === 'out' && l2.truck.z > l2.z + 13))) {
+    // an empty lane-2 truck with nothing left to take drives off (never blocks the lane)
+    const idleL2 = l2.truck && l2.truck.state === 'wait' && !l2.truck.cargo && !pendingRet && !(l2.truck.leaveDelay > 0);
+    if (idleL2 && ((l2.truck.purpose === 'customs' && !pendingCus) || (l2.truck.purpose === 'collect' && !pendingOut))) l2.truck.leaveDelay = 1.2;
+    if ((pendingOut || pendingCus || pendingRet) && (!l2.truck || l2.truck.state === 'gone' || (l2.truck.state === 'out' && l2.truck.z > l2.z + 13))) {
       l2.cool -= dt;
       if (l2.cool <= 0) {
-        const tr = new Truck(this.ctx.scene, this.phys, { laneX: l2.x, stopZ: l2.z, purpose: pendingOut ? 'collect' : 'customs', color: 2 + this.trucks.length });
+        const tr = new Truck(this.ctx.scene, this.phys, { laneX: l2.x, stopZ: l2.z, purpose: pendingOut || pendingRet ? 'collect' : 'customs', color: 2 + this.trucks.length });
         tr.onPark = (trk) => audio.play('air_brake', { pos: trk.group.position });
         this.trucks.push(tr);
         l2.truck = tr;
@@ -1733,7 +1749,7 @@ export class Session extends Emitter {
     this.swapRate = 1;
     this.swapStage = 0;
     this.stats.ships++;
-    const quota = this.manifest.filter((m) => !m.black).length;
+    const quota = this.manifest.filter((m) => !m.black && !m.returned).length;
     const placed = Math.max(0, this.delivered - this.shipBase);
     const complete = !o.timeout && placed >= quota;
     // full ships in a row raise the ship bonus: keep going and it keeps paying more
@@ -1992,6 +2008,27 @@ export class Session extends Emitter {
         best.best = true;
         this.guideSlot = ship.localToWorld(best.pos, this._guideV || (this._guideV = new THREE.Vector3()));
       }
+      // no legal cell anywhere aboard: never a silent dead end — after a moment the box is marked to
+      // go back ashore (a collector comes to lane 2, the coach and the arrow point at it)
+      if (!best && !c.black && !c.returning) {
+        this._noSlotT = (this._noSlotT || 0) + dt;
+        if (this._noSlotT > 0.8) {
+          c.returning = true;
+          this.noSlotCargo = c;
+          this.emit('noslot', { cargo: c });
+        }
+      } else this._noSlotT = 0;
+      if (best && c.returning) {
+        // (room came free after all: it can stay)
+        c.returning = false;
+        this.noSlotCargo = null;
+      }
+    } else this._noSlotT = 0;
+    // a box going back ashore aims at lane 2 (the collector's bed once it is parked)
+    if (playing && rig.carry && rig.carry.returning) {
+      const l2 = this.lanes[1];
+      const tr = l2.truck && l2.truck.parked && !l2.truck.cargo ? l2.truck : null;
+      this.guideSlot = tr ? tr.bedCenter(rig.carry.hy, this._guideV || (this._guideV = new THREE.Vector3())) : (this._guideV || (this._guideV = new THREE.Vector3())).set(l2.x, DIM.QUAY_Y + 2, l2.z);
     }
     g.setGhosts(cells.length ? ship.group : null, cells);
 
@@ -2130,7 +2167,7 @@ export class Session extends Emitter {
       strikes: this.strikes,
       maxStrikes: this.maxStrikes,
       delivered: this.delivered,
-      quota: this.endless ? this.manifest.filter((m) => !m.black).length : this.quota,
+      quota: this.endless ? this.manifest.filter((m) => !m.black && !m.returned).length : this.quota,
       mult: this.multFor(this.combo),
       shipDelivered: this.delivered - this.shipBase,
       carry: c,
