@@ -87,7 +87,8 @@ export async function startGame() {
       await page.route('**/build/game.js', (r) => r.continue({ url: base + 'build/game.dev.js' }));
       await page.route('**/sdk.crazygames.com/**', (r) => r.abort());
       if (device === 'ipad') await page.addInitScript(() => Object.defineProperty(Navigator.prototype, 'maxTouchPoints', { get: () => 5 }));
-      if (init) await page.addInitScript(init);
+      // init: a function, or [function, argument] (closures do not reach the page)
+      if (init) await (Array.isArray(init) ? page.addInitScript(init[0], init[1]) : page.addInitScript(init));
       await page.goto(base + 'index.html');
       await page.waitForFunction((until) => window.__nsc && window.__nscFirstFrame && (until === 'frame' || window.__nsc.app.mode === 'play'), until, { timeout: 120000, polling: 100 });
       pages.push(ctx);

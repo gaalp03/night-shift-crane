@@ -491,6 +491,7 @@ async function beginRun(level, opts = {}) {
     app.session = s;
     bindSession(s);
     app.hud.build(level, s);
+    app.hud.setMoney(save.data.money, app.canUpgrade());
     applyHudStage();
     // a brand-new operator's first five boxes are forgiving (and loud)
     const f = save.data.flags;
@@ -1038,6 +1039,8 @@ function bindSession(s) {
   s.on('prebuilt', (e) => audio.need(soundsForLevel(e.def)));
   s.on('shipIncoming', (e) => {
     app.hud.build(s.level, s);
+    // (a rebuilt HUD starts with the Upgrade chip hidden: show the wallet's real state at once)
+    app.hud.setMoney(save.data.money, app.canUpgrade());
     j.toast({ text: `${e.def.ship.name} inbound`, kind: 'info', dur: 3200 });
   });
   s.on('shipDocked', (e) => {

@@ -173,3 +173,28 @@ test('mobile: the pre-hooked crate is not penalised while waiting for the first 
 test('no page errors during the gameplay tests', { skip }, () => {
   assert.deepEqual(page.errors, []);
 });
+
+test('ship change: the next ship\'s first truck rolls in while she comes alongside (no idle wait)', { skip, timeout: 300000 }, async () => {
+  await freshRun(page, 2024);
+  await page.waitForFunction(() => window.__nsc.app.mode === 'play', null, { timeout: 60000 });
+  const r = await page.evaluate(() => {
+    const N = window.__nsc;
+    const s = N.app.session;
+    N.app.warming = true;
+    N.sim(25); // the next ship gets built while this one is worked
+    const prebuilt = !!s._nextShip;
+    N.sim(s.time + 0.3); // this one sails
+    const old = new Set(s.trucks); // (her trucks leave; only a new one counts)
+    let truck = false;
+    let t = 0;
+    while (s.phase === 'swap' && t < 12) {
+      N.sim(0.25);
+      t += 0.25;
+      if (s.trucks.some((tr) => !old.has(tr) && tr.cargo)) truck = true;
+    }
+    N.app.warming = false;
+    return { prebuilt, truck, swapLasted: t };
+  });
+  assert.ok(r.prebuilt, 'the next ship was prebuilt');
+  assert.ok(r.truck, 'a truck with her first box arrives during the swap: ' + JSON.stringify(r));
+});

@@ -58,6 +58,7 @@ npm run serve      # local server (gzip, like a CDN) on :8080
 npm run release    # prod build + release/night-shift-crane-crazygames.zip (index.html at the root)
 npm test           # save safety + device detection (plain Node); fixed-step physics, fail-forward,
                    # first crate, controls on iPad / phone / desktop profiles
+npm run playtest -- 1 240   # simulated playtest bot (personas 1-5; dev build + `npm run serve -- 8123`)
                    # (headless Chromium via Playwright; skipped with a hint if it is not installed)
 ```
 

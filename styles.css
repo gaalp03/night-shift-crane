@@ -4525,3 +4525,44 @@ body.portrait .pick-cards {
   height: 1em;
   fill: currentColor;
 }
+
+/* playtest fixes: the ship card never covers the Upgrade chip, and short landscape phones fit it all */
+body.portrait #shipcard {
+  padding-top: calc(9.8em + var(--st));
+}
+@media (max-height: 420px) {
+  #shipcard {
+    padding-top: calc(0.5em + var(--st));
+  }
+  .shipcard {
+    font-size: 0.8em;
+    padding: 0.55em 0.9em 0.7em;
+  }
+  .shipcard .acts {
+    margin-top: 0.5em;
+  }
+  .rigpick .opts {
+    margin-top: 0.4em;
+  }
+  .btn.rigopt {
+    padding: 0.4em 0.6em 0.5em;
+    gap: 0.2em;
+  }
+  .btn.rigopt > svg.ico {
+    width: 1.3em;
+    height: 1.3em;
+  }
+}
+@media (orientation: landscape) and (max-height: 420px) {
+  body.ctl-manual .tbtns {
+    font-size: 0.78em;
+  }
+  body.ctl-manual .stick {
+    font-size: 0.85em;
+  }
+}
+/* manual touch: the wind dial sits above the stick, not under it */
+body.touch.ctl-manual .hud-bl {
+  top: auto;
+  bottom: calc(11.8em + var(--sb));
+}

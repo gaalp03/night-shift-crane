@@ -3,3 +3,4 @@ build/game.dev.js
 .DS_Store
 *.log
 tools/__pycache__/
+playtest-out/

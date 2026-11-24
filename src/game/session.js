@@ -1539,7 +1539,9 @@ export class Session extends Emitter {
       }
     }
     this.trucks = this.trucks.filter((tr) => tr.state !== 'gone');
-    if (this.phase !== 'play' && this.phase !== 'pre') return;
+    // (during a ship change the next ship's cargo already rolls in once her manifest is known)
+    const early = this.phase === 'swap' && this._manifestEarly;
+    if (this.phase !== 'play' && this.phase !== 'pre' && !early) return;
     // lane 1: deliveries
     const l1 = this.lanes[0];
     if (!l1.truck || l1.truck.state === 'gone' || (l1.truck.state === 'out' && l1.truck.z > l1.z + 13)) {
@@ -1560,6 +1562,7 @@ export class Session extends Emitter {
         l1.cool = 1.2;
       }
     }
+    if (early) return; // (lane 2 waits for the ship herself)
     // lane 2: collectors, while there is something to take off the ship
     const l2 = this.lanes[1];
     const pendingOut = this.cargos.some((c) => c.discharge && !c.counted && c.state !== 'gone' && !c.lost);
