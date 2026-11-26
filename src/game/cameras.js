@@ -79,9 +79,10 @@ export class CameraRig {
    * trolley's floodlight, and pulls back into the live chase view. Never blocks play; steering
    * speeds it up.
    */
-  intro(dur = 2.8) {
+  intro(dur = 2.8, hold = 0) {
     this.introT = 0;
     this.introDur = dur;
+    this.introHoldT = hold; // (seconds on the close shot before the pull-back starts)
     this.introFast = false;
   }
 
@@ -96,7 +97,7 @@ export class CameraRig {
 
   _intro(dt, ctx, pose) {
     if (!this.introHold) this.introT += dt * (this.introFast ? 3.5 : 1);
-    const k = clamp(this.introT / this.introDur, 0, 1);
+    const k = clamp((this.introT - (this.introHoldT || 0)) / this.introDur, 0, 1);
     const sp = ctx.rig.sprPos;
     const portrait = this.camera.aspect < 1;
     // close: just seaward of the box and towards the camera, a little above it

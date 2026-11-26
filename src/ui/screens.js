@@ -117,7 +117,7 @@ export class Screens {
     const episode = d.flags.played ? episodeFor(d.story, todayKey()) : null;
     const col = h(
       'div.title-col',
-      h('div', h('div.logo', h('span.logo-top', 'Night Shift'), h('span.logo-main', 'Crane')), h('div.tagline', { style: { marginTop: '1.2em' } }, 'Pier Seven · Graveyard shift')),
+      h('div', h('div.logo', h('span.logo-top', 'Night Shift'), h('span.logo-main', 'Crane'), h('span.logo-sub', 'Pier Seven')), h('div.tagline', { style: { marginTop: '1.2em' } }, 'Graveyard shift · 22:00 to 06:00')),
       h(
         'div.menu',
         // the night shift itself (endless, ship after ship) is the game; everything else hangs off it
@@ -631,7 +631,7 @@ export class Screens {
     const app = this.app;
     const body = h('div.card-body.credits', {
       html: `
-      <h3>NIGHT SHIFT CRANE</h3>
+      <h3>NIGHT SHIFT CRANE: PIER SEVEN</h3>
       <p>Design, code, models, shaders and interface made for this game. Every model and texture is built procedurally — no third-party art.</p>
       <h3>MUSIC · CC0</h3>
       <p>“3 am West End” — Statusq <small>(FreePD)</small><br>“Night Life”, “City Lights” — HoliznaCC0 <small>(Free Music Archive)</small><br>“Limit 70”, “Bass Meant Jazz” — Kevin MacLeod <small>(FreePD)</small></p>
@@ -870,7 +870,7 @@ export class Screens {
         // a line to paste into a group chat: today's date, stars, score, the run of nights
         const shareBtn = add('', 'Share', 'file', () => {
           const rec = app.dailyRecord();
-          const text = `Night Shift Crane · Tonight ${fmtDay(meta.level.date, { day: 'numeric', month: 'short' })}\n${'★'.repeat(res.stars)}${'☆'.repeat(3 - res.stars)} ${fmtNum(res.score)} · ${meta.level.twists.map((t) => t.name).join(' + ')}${rec.streak > 1 ? ` · ${rec.streak} nights worked` : ''}`;
+          const text = `Night Shift Crane: Pier Seven · Tonight ${fmtDay(meta.level.date, { day: 'numeric', month: 'short' })}\n${'★'.repeat(res.stars)}${'☆'.repeat(3 - res.stars)} ${fmtNum(res.score)} · ${meta.level.twists.map((t) => t.name).join(' + ')}${rec.streak > 1 ? ` · ${rec.streak} nights worked` : ''}`;
           // (toasts sit under the report, so the button itself confirms)
           const done = () => {
             shareBtn.innerHTML = icon('check') + 'Copied';

@@ -1,4 +1,4 @@
-# Night Shift Crane — Credits
+# Night Shift Crane: Pier Seven — Credits
 
 Game design, code, 3D models, textures, shaders and UI: built for this project (all models and
 textures are generated procedurally in code, no third-party art assets).

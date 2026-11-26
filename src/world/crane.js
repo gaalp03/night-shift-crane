@@ -15,6 +15,7 @@ export const PAINTS = {
   // daily ladder and port fund paints (unlocked, never bought with stars or money)
   dawn: { name: 'Dawn Orange', main: 0xe2702a, accent: 0x1f2529, trim: 0xe2ddd0, unlock: 'paint_dawn' },
   ice: { name: 'Ice Blue', main: 0x8cc4e0, accent: 0x1f2529, trim: 0xe8a61c, unlock: 'paint_ice' },
+  rust: { name: 'Rust Red', main: 0x8a3a22, accent: 0xe2ddd0, trim: 0x1f2529, unlock: 'paint_rust' },
   owl: { name: 'Night Owl', main: 0x1c2228, accent: 0x5fe0e8, trim: 0x5fe0e8, unlock: 'rig_owl' },
   gold: { name: 'Gold Leaf', main: 0xc9a23a, accent: 0x1f2529, trim: 0xf3efe6, unlock: 'paint_gold' },
 };
@@ -25,6 +26,7 @@ export const LAMPS = {
   led: { name: 'LED', color: 0xe8f2ff, unlock: 'lamp_led' },
   cyan: { name: 'Night Owl', color: 0x7fe8ff, unlock: 'rig_owl' },
   amber: { name: 'Amber', color: 0xffa040, unlock: 'lamp_amber' },
+  green: { name: 'Green', color: 0x8affa8, unlock: 'lamp_green' },
 };
 
 const _a = new THREE.Vector3();

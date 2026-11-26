@@ -7,7 +7,9 @@
 export const DAILY_LADDER = [
   { day: 2, id: 'paint_dawn', kind: 'paint', paint: 'dawn', name: 'Dawn Orange paint', icon: 'paint' },
   { day: 3, id: 'lamp_led', kind: 'lamp', lamp: 'led', name: 'LED floodlight', icon: 'eye' },
+  { day: 4, id: 'paint_rust', kind: 'paint', paint: 'rust', name: 'Rust Red paint', icon: 'paint' },
   { day: 5, id: 'paint_ice', kind: 'paint', paint: 'ice', name: 'Ice Blue paint', icon: 'paint' },
+  { day: 6, id: 'lamp_green', kind: 'lamp', lamp: 'green', name: 'Green beacon lamp', icon: 'eye' },
   { day: 7, id: 'rig_owl', kind: 'rig', paint: 'owl', lamp: 'cyan', name: 'Night Owl rig', icon: 'moon' },
   { day: 10, id: 'plate_gold', kind: 'plate', name: 'Gold cab plate', icon: 'badge' },
   { day: 14, id: 'berth_b', kind: 'berth', name: 'Berth B: bigger ships, +25% pay', icon: 'anchor' },

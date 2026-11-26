@@ -2,12 +2,28 @@
 // Pure data + a few helpers; the session only reports what the player did with each box.
 
 export const WHO = {
+  control: { name: 'HARBOUR CONTROL', sub: 'Pier Seven · VHF 14', cls: 'dispatch', icon: 'radio' },
   dispatch: { name: 'DISPATCH', sub: 'Marta · Tower', cls: 'dispatch', icon: 'radio' },
   unknown: { name: 'UNKNOWN', sub: 'No caller ID', cls: 'unknown', icon: 'eye' },
   customs: { name: 'CUSTOMS', sub: 'Insp. Okafor', cls: 'customs', icon: 'badge' },
 };
 
 const D = (text, dur) => ({ who: 'dispatch', text, dur });
+
+/** The very first night opens on the box nobody listed. */
+export const OPENING_CALL = [{ who: 'control', text: 'Pier Seven, Harbour Control. That one’s not on the manifest. Set it down soft.', dur: 5200 }];
+export const OPENING_NOTED = [{ who: 'control', text: '…noted.', dur: 2200 }];
+
+/** The shift report's teaser for the next night (one line, never a spoiler). */
+export const NIGHT_TEASERS = [
+  'Tomorrow’s box has a name on it.',
+  'The gate log has a truck booked with no plates.',
+  'Something followed the last one in.',
+  'The lights are on at the old fish quay.',
+  'Four tanks empty. The fifth is not.',
+  'Customs wants a word about the scale readings.',
+  'A ship with no flag is asking for berth seven.',
+];
 const U = (text, dur) => ({ who: 'unknown', text, dur });
 const C = (text, dur) => ({ who: 'customs', text, dur });
 

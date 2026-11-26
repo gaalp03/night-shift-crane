@@ -1,4 +1,4 @@
-// Night Shift Crane — application shell: boot, world, game flow, main loop.
+// Night Shift Crane: Pier Seven — application shell: boot, world, game flow, main loop.
 import * as THREE from 'three';
 import { DIM, PAL } from './config.js';
 import { clamp, damp, rand, fmtNum, fmtTime, isMobile, isIOS, Tweens, ease } from './core/util.js';
@@ -19,7 +19,7 @@ import { Crew } from './world/crew.js';
 import { CameraRig } from './game/cameras.js';
 import { Session } from './game/session.js';
 import { Tutorial } from './game/tutorial.js';
-import { SHIFTS, UPGRADES, endlessShip, upgradeMods, dailyShift, todayKey, dayBefore, weekKey, weekDaysLeft, portLevel, PORT_STEPS, STORM_LOSSES } from './game/levels.js';
+import { SHIFTS, UPGRADES, endlessShip, upgradeMods, dailyShift, todayKey, dayBefore, weekKey, weekDaysLeft, portLevel, PORT_STEPS, STORM_LOSSES, SHIFT_SHIPS } from './game/levels.js';
 import { Coach } from './game/coach.js';
 import { DAILY_LADDER, ladderAt, claimLadder, awardFund, FUND_CAP, unlockEpisodePerk, EPISODE_PERKS } from './game/rewards.js';
 import { analytics } from './core/analytics.js';
@@ -35,7 +35,7 @@ import { Radio } from './ui/radio.js';
 import { DeepLight } from './world/deep.js';
 import { WetShine } from './world/shine.js';
 import { Tug, Gulls } from './world/harborlife.js';
-import { BLACK_ORDER, CLIFFHANGERS, episodeFor, SHIFT_OPEN, SHIFT_BEATS, CHECK_INTRO, LONG_INTRO, BLACK_BOXES, BLACKOUT, SMUGGLE_FOUND, epilogue } from './game/story.js';
+import { BLACK_ORDER, CLIFFHANGERS, episodeFor, SHIFT_OPEN, SHIFT_BEATS, CHECK_INTRO, LONG_INTRO, BLACK_BOXES, BLACKOUT, SMUGGLE_FOUND, epilogue, OPENING_CALL, OPENING_NOTED, NIGHT_TEASERS } from './game/story.js';
 
 const $ = (id) => document.getElementById(id);
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -581,12 +581,18 @@ async function runIntro(level, s, opts = {}) {
   if (level.endless) {
     // tonight's episode of the Pier Seven file rides in on the second ship
     s.onShip = (def, n) => berthShip(injectEpisode(def, n), s);
-    if (opts.first || (save.data.flags.coach || 0) === 0) s.prehook();
+    if (opts.first || (save.data.flags.coach || 0) === 0) s.prehook(!!opts.first);
+    // the first night opens on the box nobody listed
+    if (s.storyOpening) {
+      app.radio.say(OPENING_CALL, { urgent: true, key: 'opening' });
+      analytics.trackOnce('story_opening', {});
+    }
     app.hud.setMoney(save.data.money, app.canUpgrade());
   }
   // the job, from second zero: what to load and how long there is
   showJobLine(s, level);
   app._shipMoney0 = save.data.money;
+  if (level.endless) startNight(s);
   if (level.feature && !(save.data.shifts[level.id] || {}).stars) {
     j.toast({ text: `${level.feature.title}: ${level.feature.text}`, kind: 'info', dur: 7000 });
     if (level.also) app.after(7.5, () => j.toast({ text: `${level.also.title}: ${level.also.text}`, kind: 'info', dur: 7000 }), s);
@@ -601,11 +607,11 @@ async function runIntro(level, s, opts = {}) {
 }
 
 /** The job line at the start of a run: on screen from the first frame until the first box is down. */
-function showJobLine(s, level) {
+function showJobLine(s, level, tag) {
   const old = $('jobline');
   if (old) old.remove();
   const quota = s.endless ? level.manifest.filter((m) => !m.black).length : s.quota;
-  const t1 = `LOAD ${quota} BOXES · ${s.endless ? 'SHIP ' + (s.shipIndex + 1) : level.daily ? 'TONIGHT' : 'SHIFT ' + level.n}`;
+  const t1 = `LOAD ${quota} BOXES · ${tag || (s.endless ? 'SHIP ' + (s.shipIndex + 1) : level.daily ? 'TONIGHT' : 'SHIFT ' + level.n)}`;
   const t2 = s.endless ? `${fmtTime(s.timeTotal)} on the clock · ${s.ship.name}` : `before ${level.clock || '06:00'} · ${level.name || s.ship.name}`;
   const el = h('div#jobline', h('div.j1', t1), h('div.j2', t2));
   $('ui').appendChild(el);
@@ -620,7 +626,7 @@ function updateJobLine(raw) {
   j.t += raw;
   // it stays while the first box hangs there; once a box is down (or after a few seconds) it goes
   const down = !j.s.prehooked && j.s.stats.placed > 0;
-  if (j.after == null && (down || (!j.s.prehooked && j.t > 4.5))) j.after = down ? 2.2 : 0;
+  if (j.after == null && (down || (!j.s.prehooked && j.t > 4.5))) j.after = down ? 0.4 : 0;
   if (j.after != null && (j.after -= raw) <= 0) {
     j.el.classList.add('out');
     setTimeout(() => j.el.remove(), 500);
@@ -716,7 +722,11 @@ function showShipCard(s, e, cash) {
     card.classList.add('out');
     setTimeout(() => card.remove(), 300);
   };
-  const head = h('div.t1', { html: icon(e.complete ? 'check' : 'box') + `<span>${e.complete ? 'SHIP ' + e.n : e.placed + '/' + e.quota}</span>` });
+  const night = save.data.night || 1;
+  const k = nightShips(s);
+  const head = h('div.t1', { html: icon(e.complete ? 'check' : 'box') + `<span>NIGHT ${night} · ${e.placed}/${e.quota} · Pier Seven</span>` });
+  const hour = h('div.hour', `${String((22 + k) % 24).padStart(2, '0')}:00 · ${SHIFT_SHIPS - k} ship${SHIFT_SHIPS - k === 1 ? '' : 's'} to 06:00`);
+  const teaser = night === 1 && k === 1 ? h('div.teaser', 'Tomorrow’s box has a name on it.') : null;
   // the card always ends on one named next goal, and this week's record
   const goal = cardGoal(s, e, cash);
   app._shipMoney0 = d.money;
@@ -787,7 +797,7 @@ function showShipCard(s, e, cash) {
     );
   acts.appendChild(h('button.btn.primary.big', { onclick: () => close(true), html: icon('next') + '<span>Next</span>' }));
   const stormRow = e.nextStorm ? h('div.stormnext', { html: icon('bolt') + `<span>STORM SHIP NEXT · ${STORM_LOSSES} lost and she sails · ×2 pay</span>` }) : null;
-  const card = h('div.shipcard' + (e.complete ? '.good' : ''), head, pay, stormRow, body || null, goalRow, weekRow, acts);
+  const card = h('div.shipcard' + (e.complete ? '.good' : ''), head, hour, pay, stormRow, body || null, goalRow, teaser, weekRow, acts);
   root.appendChild(card);
   // it never blocks: the card goes by itself when the next ship is alongside
   const watch = setInterval(() => {
@@ -835,6 +845,135 @@ function cardGoal(s, e, cash) {
   return cands[0];
 }
 
+// ====================================================================== the night shift (22:00 - 06:00)
+
+/** Ships worked so far this night (one an hour; the eighth brings 06:00). */
+function nightShips(s) {
+  return Math.max(0, (s.stats.ships || 0) - ((app.nightStart && app.nightStart.ships) || 0));
+}
+
+function startNight(s) {
+  app.nightStart = { s, ships: s.stats.ships || 0, placed: s.stats.placed || 0, perfect: s.stats.perfect || 0, earned: save.data.stats.earned || 0 };
+}
+
+/** 06:00: dawn comes up, the harbour horn, the shift report; one tap and the next night starts. */
+function endShift(s, e, cash) {
+  const d = save.data;
+  const n0 = app.nightStart && app.nightStart.s === s ? app.nightStart : { ships: 0, placed: 0, perfect: 0, earned: d.stats.earned };
+  const rep = { night: d.night || 1, ships: nightShips(s), placed: s.stats.placed - n0.placed, perfects: s.stats.perfect - n0.perfect, takings: Math.max(0, d.stats.earned - n0.earned) };
+  d.night = rep.night + 1;
+  d.stats.nights = (d.stats.nights || 0) + 1;
+  save.checkpoint();
+  // the next night's ship waits at sea while the report is up (a few seconds at most: never a wall)
+  s.swapHold = 14;
+  setDawn(true);
+  audio.play('horn_ship', { vol: 1, rate: 0.82, delay: 0.4 });
+  audio.play('horn_ship', { vol: 0.8, rate: 0.82, delay: 1.5 });
+  app.crew.react('cheer', 2.2);
+  sdk.happytime();
+  analytics.track('shift_end', { night: rep.night, ships: rep.ships, placed: rep.placed, perfects: rep.perfects, takings: rep.takings });
+  showShiftReport(s, e, cash, rep);
+  app.after(2.5, showReturnPreview, s);
+}
+
+function nextNight(s) {
+  if (app.session !== s) return;
+  setDawn(false);
+  app.harbor.setSky('evening');
+  s.swapHold = 0;
+  if (s.phase === 'swap') s.hurrySwap();
+  startNight(s);
+  // (the job line for the night's first ship comes when she docks)
+  app._nightJob = true;
+}
+
+/** The 7-day ladder as a row of days: owned ones ticked, tomorrow's lit. */
+function ladderRow(tomorrow) {
+  const u = save.data.unlocks || {};
+  const cells = [];
+  for (let day = 1; day <= 7; day++) {
+    const r = DAILY_LADDER.find((x) => x.day === day);
+    const own = day === 1 || (r && u[r.id]);
+    const lit = day === tomorrow;
+    cells.push(`<span class="lday${own ? ' own' : ''}${lit ? ' lit' : ''}" title="${r ? r.name : 'Clocked in'}">${icon(own && !lit ? 'check' : r ? r.icon : 'star')}<b>${day}</b>${lit && r ? `<em>${r.name}</em>` : ''}</span>`);
+  }
+  return `<div class="ladderrow">${cells.join('')}</div>`;
+}
+
+function showShiftReport(s, e, cash, rep) {
+  const root = $('shipcard');
+  root.innerHTML = '';
+  let done = false;
+  const close = () => {
+    if (done) return;
+    done = true;
+    card.classList.add('out');
+    setTimeout(() => card.remove(), 300);
+    nextNight(s);
+  };
+  const goal = cardGoal(s, e, cash);
+  const L = save.data.login || { streak: 1 };
+  const tomorrow = Math.min(7, (L.streak || 1) + 1);
+  const teaser = NIGHT_TEASERS[(rep.night - 1) % NIGHT_TEASERS.length];
+  const R = (k, v) => `<div class="srow"><span>${k}</span><b>${v}</b></div>`;
+  const card = h(
+    'div.shipcard.shiftcard.good',
+    h('div.t1', { html: icon('moon') + `<span>06:00 · NIGHT ${rep.night} DONE</span>` }),
+    h('div.sub', 'Pier Seven · the day crew takes over'),
+    h('div.srows', { html: R('Ships worked', rep.ships) + R('Boxes placed', rep.placed) + R('Perfects', rep.perfects) + R('Takings', '$' + fmtNum(rep.takings)) }),
+    h('div.nextgoal', { html: icon(goal.icon) + `<span class="gt">${goal.text}</span>` + bar(goal.k, goal.k >= 1 ? ' ok' : '') }),
+    h('div.teaser', `Night ${rep.night + 1}: ${teaser}`),
+    h('div.wkladder', { html: `<div class="lhead">${icon('gift')}<span>DAILY LADDER · TOMORROW: DAY ${tomorrow}</span></div>` + ladderRow(tomorrow) }),
+    h('div.acts', h('button.btn.primary.big', { onclick: () => close(), html: icon('next') + `<span>Night ${rep.night + 1}</span>` }))
+  );
+  root.appendChild(card);
+  audio.play('ui_open');
+  // never a wall: when the ship comes anyway, the next night has started
+  const watch = setInterval(() => {
+    if (done || app.session !== s || s.phase === 'play' || app.mode === 'results' || !(s.swapHold > 0)) {
+      clearInterval(watch);
+      close();
+    }
+  }, 250);
+}
+
+/** Boot: the 7-day ladder for a moment, tomorrow's item lit (over the game, never in the way). */
+function showLadderStrip(dur = 2300) {
+  if ($('ladderstrip')) return;
+  const L = save.data.login || { streak: 1 };
+  const tomorrow = Math.min(7, (L.streak || 1) + 1);
+  const el = h('div#ladderstrip', { html: `<div class="lhead">${icon('gift')}<span>COME BACK TOMORROW · DAY ${tomorrow}</span></div>` + ladderRow(tomorrow) });
+  $('ui').appendChild(el);
+  setTimeout(() => {
+    el.classList.add('out');
+    setTimeout(() => el.remove(), 400);
+  }, dur);
+}
+
+/** The opening's manifest: a small card, and a stamp slammed onto it. */
+function showManifestStamp(s) {
+  const old = $('manifestcard');
+  if (old) old.remove();
+  const el = h(
+    'div#manifestcard',
+    h('div.mh', 'MANIFEST · PIER SEVEN'),
+    h('div.ml', { html: `<span>Vessel</span><b>${s.ship.name}</b>` }),
+    h('div.ml', { html: '<span>Box</span><b>NO. ——— ——— —</b>' }),
+    h('div.ml', { html: '<span>Shipper</span><b>—</b>' }),
+    h('div.stampmark.bad', 'UNLISTED')
+  );
+  $('ui').appendChild(el);
+  requestAnimationFrame(() => requestAnimationFrame(() => el.querySelector('.stampmark').classList.add('in')));
+  setTimeout(() => {
+    audio.play('impact_deck', { vol: 0.6, rate: 1.4 });
+    app.cams.shake(0.12);
+  }, 120);
+  setTimeout(() => {
+    el.classList.add('out');
+    setTimeout(() => el.remove(), 400);
+  }, 3800);
+}
+
 /** First session, after ship 2: what coming back tomorrow is worth (streak + the night crew). */
 function showReturnPreview() {
   const root = $('strip');
@@ -842,10 +981,14 @@ function showReturnPreview() {
   const l = app.harbor.portLevel || 0;
   const boxes = Math.floor(8 * (6 + 4 * l));
   const crew = boxes * (12 + 5 * l);
+  // tomorrow's step on the daily ladder (or the next one ahead)
+  const st = (save.data.login && save.data.login.streak) || 1;
+  const tday = st + 1;
+  const tr = ladderAt(tday).now || ladderAt(st).next;
   const card = h(
     'div.strip.preview',
     h('div.row', { html: `<b class="sthead">TOMORROW</b>` }),
-    h('div.row', { html: icon('gift') + `<span class="w">DAY 2</span>${ladder(2)}<span class="amt">${ladderAt(1).next.name}</span>` }),
+    h('div.row', { html: icon('gift') + `<span class="w">DAY ${tday}</span>${ladder(Math.min(7, tday))}<span class="amt">${tr ? tr.name : 'Night ' + (save.data.night || 2)}</span>` }),
     h('div.row', { html: icon('truck') + `<span class="w">AWAY</span>${bar(1)}<span class="amt">+$${fmtNum(crew)}</span>` }),
     h('div.acts', h('button.btn.small.primary', { onclick: () => out(), html: icon('check') + 'OK' }))
   );
@@ -1105,7 +1248,8 @@ function bindSession(s) {
     // every ship is a checkpoint: the pay and the save land together
     save.data.stats.ships = (save.data.stats.ships || 0) + 1;
     save.checkpoint();
-    showShipCard(s, e, cash);
+    if (s.endless && nightShips(s) >= SHIFT_SHIPS) endShift(s, e, cash);
+    else showShipCard(s, e, cash);
     // a new operator's HUD fills in one ship at a time
     if (s.endless && save.data.flags.hud < 3) {
       save.data.flags.hud = Math.min(3, e.n);
@@ -1164,11 +1308,9 @@ function bindSession(s) {
     j.toast({ text: e.n >= e.max ? 'Storm ship: she is sailing!' : `Storm ship: ${e.n}/${e.max} lost · one more and she sails`, kind: 'warn', key: 'stormloss', dur: 3600 });
   });
   s.on('shipDocked', (e) => {
-    // first session: after the second ship, show what tomorrow is worth
-    if (e.n === 3 && app.newcomer && !save.data.flags.previewSeen) {
-      save.data.flags.previewSeen = true;
-      save.commit();
-      app.after(1.5, showReturnPreview, s);
+    if (app._nightJob) {
+      app._nightJob = false;
+      showJobLine(s, s.level, `NIGHT ${save.data.night || 1}`);
     }
     if (e.def.storm) j.banner('STORM SHIP', `Load all ${e.def.manifest.filter((m) => !m.black).length} in ${Math.round(s.timeTotal)}s · ${STORM_LOSSES} lost and she sails · double pay`, 3200);
     else j.banner(e.def.ship.name, `Ship ${e.n} · ${e.def.manifest.filter((m) => !m.black).length} boxes · ${Math.round(s.timeTotal)}s on the clock`, 2400);
@@ -1271,6 +1413,29 @@ function bindSession(s) {
     audio.play('sax_combo', { delay: 0.3, vol: 0.9 });
     buzz([20, 40, 30, 40, 60]);
     app.after(0.5, () => j.banner('PERFECT!', 'First box · dead on the mark', 1500), s);
+    if (s.storyOpening) {
+      app.after(0.9, () => showManifestStamp(s), s);
+      app.after(2.2, () => app.radio.say(OPENING_NOTED, { key: 'noted' }), s);
+      s._gustArmed = true;
+    }
+  });
+  // the opening's second box: a gust (telegraphed), and the counter-swing shown
+  s.on('gustWarn', () => {
+    app.weather.triggerGust(0.9);
+    j.toast({ text: 'Gust!', kind: 'warn', key: 'storygust', dur: 1800 });
+  });
+  s.on('scriptedGust', () => {
+    app.coach.counter = { until: s.elapsed + 5 };
+    analytics.trackOnce('story_gust', {});
+  });
+  // countering a swing pays a little, any time
+  s.on('countered', (e) => {
+    app.coach.counter = null;
+    j.burst({ text: 'COUNTERED', pos: e.pos, kind: 'great', sub: `+$${e.pts}` });
+    audio.play('great', { vol: 0.8 });
+    if (s.endless) earn(e.pts, e.pos);
+    buzz([10, 30, 16]);
+    analytics.trackOnce('first_counter', {});
   });
   s.on('overboard', () => app.crew.react('wince', 2.6));
   s.on('impact', (e) => {
@@ -1755,7 +1920,7 @@ async function boot() {
   });
   app.warming = true;
   // the opening shot is set up first, so the warm-up draws exactly what the first seconds show
-  startOpening(first ? 3.0 : 2.4, true);
+  startOpening(first ? 3.0 : 2.4, true, first ? 3.0 : 0);
   await warmShaders();
   app.warming = false;
   mark('nsc-shaders');
@@ -1784,6 +1949,7 @@ async function boot() {
   });
   if (!app.touchMode && !save.data.flags.keysIntro) setTimeout(showKeysIntro, 600);
   if (!first && (idle || login)) setTimeout(() => showWelcomeStrip(idle, login), 1500);
+  else setTimeout(() => showLadderStrip(), first ? 400 : 900);
   // outside analytics on the page (beyond the platform SDK): new players get a small, non-blocking note
   if (first && analytics.external()) setTimeout(showPrivacyNote, 2500);
 }
@@ -1818,8 +1984,8 @@ function showFpsMeter(on) {
 }
 
 /** Fresh page load: a close-up of the hook pulling back into play, the quay lights coming on. */
-function startOpening(dur, lights) {
-  app.cams.intro(dur);
+function startOpening(dur, lights, hold = 0) {
+  app.cams.intro(dur, hold);
   if (!lights || !app.crane.workLight) return;
   app.harbor.powerNow = 0.04;
   app.opening = { t: 0, lit: false, base: app.crane.workLight.intensity };
@@ -2405,6 +2571,10 @@ function tick(raw) {
   // the opening camera move waits while paused, and hurries once the player steers
   updateOpening(raw);
   updateJobLine(raw);
+  if (s && s._gustArmed && app.mode === 'play' && s.phase === 'play' && s.rig.carry && !s.prehooked && s.altitude > 2.6) {
+    s._gustArmed = false;
+    s.scriptGust();
+  }
   app.cams.introHold = app.mode !== 'play';
   app.cams.lensShift = app.mode === 'play' && app.touchMode ? (manualTouch() ? 0.1 : 0.05) : 0;
   if (app.cams.introOn && app.mode === 'play' && (Math.abs(input.axisX) + Math.abs(input.axisZ) + Math.abs(input.hoist) > 0.1 || (s && s.target))) app.cams.hurryIntro();

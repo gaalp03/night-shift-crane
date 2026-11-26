@@ -9,7 +9,7 @@ import { DIM, TUNE, SCORE, ZONES } from '../config.js';
 import { Phys, STEP, GROUPS } from './physics.js';
 import { Rig, MASS_UNIT } from './rig.js';
 import { Guides, zoneColor } from './guides.js';
-import { zoneFn, starsFor, starThresholds, upgradeMods, endlessShip, STORM_LOSSES, STORM_JACKPOT } from './levels.js';
+import { zoneFn, starsFor, starThresholds, upgradeMods, endlessShip, STORM_LOSSES, STORM_JACKPOT, SHIFT_SHIPS } from './levels.js';
 import { Ship } from '../world/ship.js';
 import { Cargo, BRAND_COUNT } from '../world/cargo.js';
 import { Truck } from '../world/trucks.js';
@@ -32,6 +32,10 @@ const FRAGILE_LIMIT = 3.4;
 const HAZMAT_LIMIT = 7.5;
 
 const CLANGS = ['CLANG!', 'BONG!', 'KLONK!', 'WHAM!', 'CRUNCH!'];
+
+// countering a swing: armed when the load is this far out (m), paid when it is back under this,
+// with at least minHold s of steering towards it within window s
+const COUNTER = { armAt: 0.85, quietAt: 0.35, quietSpeed: 0.6, quietHold: 0.45, minHold: 0.22, window: 6, cooldown: 7, bonus: 40, gust: 7.5 };
 
 export class Session extends Emitter {
   /**
@@ -166,8 +170,8 @@ export class Session extends Emitter {
     this.ctx.water.setHull(P.origin.x, P.origin.z + (P.zBow + P.zStern) / 2, P.halfBeam * 0.96, (P.zBow - P.zStern) / 2 - 2, 1);
   }
 
-  _newCargo(spec, brand) {
-    const c = new Cargo({ zone: spec.zone, type: spec.type, brand: (brand == null ? this.cargos.length : brand) % BRAND_COUNT, mobile: this.ctx.mobile, check: !!spec.check });
+  _newCargo(spec, brand, look) {
+    const c = new Cargo({ zone: spec.zone, type: spec.type, brand: (brand == null ? this.cargos.length : brand) % BRAND_COUNT, mobile: this.ctx.mobile, check: !!spec.check, look });
     c.spec = spec;
     c.mass = c.typeDef.mass;
     if (spec.episode) c.episode = spec.episode;
@@ -215,10 +219,11 @@ export class Session extends Emitter {
    * Opening of the very first night: the first box already hangs on the spreader, seated over
    * its slot, so the first thing the player ever does is let go of it.
    */
-  prehook() {
+  prehook(story = false) {
     const ship = this.ship;
     const spec = this.manifest[this.manifestIdx++];
-    const c = this._newCargo(spec);
+    // (the story opening: a scuffed box with no name on it — scored like any other)
+    const c = this._newCargo(spec, undefined, story ? 'unmarked' : '');
     // the free deck cell nearest the quay, in a bay that takes this box
     let cell = null;
     for (let r = 0; r < ship.rows && !cell; r++) for (let b = 0; b < ship.bays && !cell; b++) if (this._zoneOk(c, r, b) && !this._ruleProblem(c, r, b) && ship.height(r, b) === 0) cell = { r, b };
@@ -237,6 +242,11 @@ export class Session extends Emitter {
       rig._setRope(rig.rope);
     }
     for (let i = 0; i < 30; i++) this._fixedStep(1 / 60, true);
+    // the story opening: it is still swinging a little when the picture comes up
+    if (story) {
+      rig.sprBody.setLinvel({ x: 0.32, y: 0, z: 0.18 }, true);
+      this.storyOpening = true;
+    }
     this.carryT = 0;
     c.pickedAt = this.elapsed;
     this._resetInterp();
@@ -500,6 +510,12 @@ export class Session extends Emitter {
         this.emit('event', e);
       }
     }
+    // the scripted gust: a beat of warning, then the push
+    const sg = this._sgust;
+    if (sg && sg.warn > 0 && (sg.warn -= dt) <= 0) {
+      sg.push = 1.15;
+      this.emit('scriptedGust', { dir: sg.dir });
+    }
     this._syncVisuals(dt);
     this._updateGuides(dt);
     this._updateAudio(dt);
@@ -581,6 +597,13 @@ export class Session extends Emitter {
     const w = this.ctx.weather.wind;
     this.env.wind.x = w.x * this.windScale;
     this.env.wind.z = w.z * this.windScale;
+    // a scripted gust (the opening's second box): a short, hard push on the load
+    const sg = this._sgust;
+    if (sg && sg.push > 0) {
+      sg.push -= h;
+      this.env.wind.x += sg.x;
+      this.env.wind.z += sg.z;
+    }
     // height of the load above whatever is under it, measured every step (the hoist's creep speed
     // depends on it, so it must not wait for the next rendered frame)
     if (!warm) {
@@ -601,6 +624,7 @@ export class Session extends Emitter {
       } else rig.mods.sway = base;
     }
     this._computeAssist(ctl);
+    if (!warm) this._watchCounter(h, ctl);
     rig.fixedUpdate(h, ctl, this.env);
     this.gantryBody.setNextKinematicTranslation({ x: 0, y: 0, z: rig.z });
     this.ship.fixedUpdate(this.simT, h);
@@ -816,6 +840,49 @@ export class Session extends Emitter {
       a.x = clamp(tx * k * 1.25 * near - (v.x - rig.vx) * 1.2 * near, -5, 5);
       a.z = clamp(tz * k * 1.25 * near - (v.z - rig.vz) * 1.2 * near, -5, 5);
     }
+  }
+
+  /**
+   * Countering a swing (any time): the load is well out from under the trolley and the player drives
+   * the trolley towards it until it hangs quiet again. Small bonus, and a word for it.
+   */
+  _watchCounter(h, ctl) {
+    const rig = this.rig;
+    this._counterCool = Math.max(0, (this._counterCool || 0) - h);
+    if (this.phase !== 'play' || !rig.carry || this.calm) {
+      this._cw = null;
+      return;
+    }
+    const ox = rig.sprPos.x - rig.x;
+    const oz = rig.sprPos.z - rig.z;
+    const off = Math.hypot(ox, oz);
+    let w = this._cw;
+    if (!w) {
+      if (off > COUNTER.armAt && this._counterCool <= 0) w = this._cw = { t: 0, peak: off, held: 0 };
+      else return;
+    }
+    w.t += h;
+    w.peak = Math.max(w.peak, off);
+    // driving the trolley under the load (towards where it has swung) takes the energy out
+    const steer = Math.hypot(ctl.x, ctl.z);
+    if (steer > 0.25 && off > 0.25 && (ctl.x * ox + ctl.z * oz) / (steer * off) > 0.35) w.held += h;
+    // quiet means hanging still under the trolley, not just swinging through the middle
+    const rv = Math.hypot(rig.sprVel.x - rig.vx, rig.sprVel.z - rig.vz);
+    w.quiet = off < COUNTER.quietAt && rv < COUNTER.quietSpeed ? (w.quiet || 0) + h : 0;
+    if (w.quiet >= COUNTER.quietHold && w.held >= COUNTER.minHold) {
+      this._cw = null;
+      this._counterCool = COUNTER.cooldown;
+      this.score += COUNTER.bonus;
+      this.stats.countered = (this.stats.countered || 0) + 1;
+      this.emit('countered', { pts: COUNTER.bonus, pos: rig.sprPos.clone(), peak: w.peak });
+    } else if (w.t > COUNTER.window) this._cw = null;
+  }
+
+  /** The opening's second box: a gust is coming (called once). Returns the push direction. */
+  scriptGust() {
+    const dir = this.rig.sprPos.z > 0 ? -1 : 1;
+    this._sgust = { warn: 0.9, push: 0, x: 0, z: COUNTER.gust * dir, dir };
+    this.emit('gustWarn', { dir });
   }
 
   // ====================================================================== player actions
@@ -1864,7 +1931,9 @@ export class Session extends Emitter {
       const k = clamp(this.swapT / 4.5, 0, 1);
       ship.offsetZ = k * k * 150;
       ship.offsetX = k * k * 10;
-      if (k >= 1) {
+      // (06:00: the next night's ship waits out at sea while the shift report is up, a few seconds at most)
+      if (this.swapHold > 0) this.swapHold -= dt;
+      if (k >= 1 && !(this.swapHold > 0)) {
         for (const c of this.cargos) if (c.state === 'locked' || c.state === 'shipped') c.state = 'gone';
         // sailed boxes free their own material (their geometry and atlas are shared and stay)
         for (const c of this.cargos) if (c.state === 'gone') c.dispose();
@@ -1894,7 +1963,9 @@ export class Session extends Emitter {
         this.ship._applyPose(this.simT);
         this.ship.snapBody();
         this.ctx.weather.set(def.weather);
-        this.ctx.harbor.setSky(['evening', 'night', 'night', 'predawn'][this.shipIndex % 4]);
+        // the sky follows the hour: dusk for the first ships of a night, deep night, then the grey before dawn
+        const hr = this.shipIndex % SHIFT_SHIPS;
+        this.ctx.harbor.setSky(hr < 2 ? 'evening' : hr < 6 ? 'night' : 'predawn');
         this.swapStage = 1;
         this.swapT = 0;
         this.emit('shipIncoming', { n: this.shipIndex + 1, def });

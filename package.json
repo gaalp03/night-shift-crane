@@ -1,8 +1,8 @@
 {
   "name": "night-shift-crane",
-  "version": "2.7.0",
+  "version": "2.8.0",
   "private": true,
-  "description": "Night Shift Crane - harbor crane stacking physics game",
+  "description": "Night Shift Crane: Pier Seven - harbor crane stacking physics game",
   "type": "module",
   "scripts": {
     "build": "node tools/build.mjs",

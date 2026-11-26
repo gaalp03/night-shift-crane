@@ -9,8 +9,9 @@ test('daily ladder: day 2 paint, day 7 rig, day 14 berth; each step once, a skip
   assert.equal(ladderAt(2).now.id, 'paint_dawn');
   assert.equal(ladderAt(7).now.id, 'rig_owl');
   assert.equal(ladderAt(14).now.id, 'berth_b');
-  assert.equal(ladderAt(4).now, null);
-  assert.equal(ladderAt(4).next.day, 5, 'between steps: the next one is named');
+  for (let d = 2; d <= 7; d++) assert.ok(ladderAt(d).now, `the first week pays every day (day ${d})`);
+  assert.equal(ladderAt(8).now, null);
+  assert.equal(ladderAt(8).next.day, 10, 'between steps: the next one is named');
   for (const r of DAILY_LADDER) assert.ok(!('cash' in r) && !('money' in r), 'cosmetics and unlocks only: ' + r.id);
   const d = {};
   assert.deepEqual(claimLadder(d, 1), []);
@@ -22,7 +23,7 @@ test('daily ladder: day 2 paint, day 7 rig, day 14 berth; each step once, a skip
   // (a returning player who skipped the app for a while still gets every step they passed)
   assert.deepEqual(
     claimLadder(d, 7).map((r) => r.id),
-    ['lamp_led', 'paint_ice', 'rig_owl']
+    ['lamp_led', 'paint_rust', 'paint_ice', 'lamp_green', 'rig_owl']
   );
 });
 

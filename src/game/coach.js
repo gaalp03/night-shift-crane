@@ -74,6 +74,22 @@ export class Coach {
   update(s, idle = 0) {
     if (!s || s.phase !== 'play') return this._show(null);
     s.auto = this.automation(s);
+    // a gust has swung the load out: drive the trolley towards it (the ghost hand shows the counter-swing)
+    const ct = this.counter;
+    if (ct) {
+      const rig = s.rig;
+      if (!rig.carry || s.elapsed > ct.until) this.counter = null;
+      else {
+        const ox = rig.sprPos.x - rig.x;
+        const oz = rig.sprPos.z - rig.z;
+        const sc = this.scheme();
+        const xMajor = Math.abs(ox) >= Math.abs(oz);
+        const key = xMajor ? (ox > 0 ? '→' : '←') : oz > 0 ? '↓' : '↑';
+        const from = (this._cf || (this._cf = new THREE.Vector3())).set(rig.x, rig.sprPos.y + 1.2, rig.z);
+        const to = (this._ct || (this._ct = new THREE.Vector3())).set(rig.sprPos.x + ox * 1.8, rig.sprPos.y + 1.2, rig.sprPos.z + oz * 1.8);
+        return this._show({ word: 'COUNTER', keys: sc === 'keys' ? K(key) : sc === 'pad' ? icon('move') : '', arrow: null, hand: { mode: 'drag', from, to } }, true);
+      }
+    }
     // a box with no room aboard goes back ashore: always said, always pointed at (never a silent dead end)
     if (s.noSlotCargo && s.rig.carry === s.noSlotCargo) {
       const sd = s.seat;

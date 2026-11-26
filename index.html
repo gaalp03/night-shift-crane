@@ -3,12 +3,15 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-    <title>Night Shift Crane</title>
-    <meta name="description" content="Run a harbour container crane through the night: swing, stack and lock cargo onto a rolling ship. A 3D physics stacking game." />
+    <title>Night Shift Crane: Pier Seven</title>
+    <meta name="description" content="Night Shift Crane: Pier Seven. Run a harbour container crane through the night: swing, stack and lock cargo onto a rolling ship, and find out what the unlisted boxes are. A 3D physics stacking game." />
     <meta name="theme-color" content="#04080f" />
-    <meta property="og:title" content="Night Shift Crane" />
-    <meta property="og:description" content="Swing, stack and lock containers onto a rolling ship. A 3D harbour-crane physics game." />
+    <meta property="og:title" content="Night Shift Crane: Pier Seven" />
+    <meta property="og:description" content="Swing, stack and lock containers onto a rolling ship through the night shift at Pier Seven. A 3D harbour-crane physics game." />
     <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Night Shift Crane: Pier Seven" />
+    <meta name="application-name" content="Night Shift Crane" />
+    <meta name="apple-mobile-web-app-title" content="Night Shift Crane" />
     <meta property="og:image" content="docs/screenshot-play.jpg" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -23,7 +26,7 @@
     <script src="https://sdk.crazygames.com/crazygames-sdk-v3.js" async onerror="window.__cgSdkFailed = true"></script>
   </head>
   <body>
-    <canvas id="game" tabindex="0" aria-label="Night Shift Crane"></canvas>
+    <canvas id="game" tabindex="0" aria-label="Night Shift Crane: Pier Seven"></canvas>
     <div id="vignette"></div>
     <div id="ui">
       <div id="cab-overlay" class="hidden"></div>
@@ -52,13 +55,14 @@
           <div class="logo small">
             <span class="logo-top">NIGHT SHIFT</span>
             <span class="logo-main">CRANE</span>
+            <span class="logo-sub">PIER SEVEN</span>
           </div>
           <div class="loadbar"><div class="loadbar-fill" id="loadfill"></div></div>
           <div class="loadtext" id="loadtext">Clocking in…</div>
         </div>
       </div>
     </div>
-    <noscript>Night Shift Crane needs JavaScript and WebGL.</noscript>
+    <noscript>Night Shift Crane: Pier Seven needs JavaScript and WebGL.</noscript>
     <script src="build/game.js"></script>
   </body>
 </html>

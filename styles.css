@@ -4491,6 +4491,19 @@ body.firstcue #touch .tbtn.lock {
   border-radius: 0.35em;
   background: rgba(255, 255, 255, 0.08);
 }
+/* the title's third line */
+.logo-sub {
+  display: block;
+  margin-top: 0.35em;
+  font-family: 'Saira Stencil One', 'Bungee', sans-serif;
+  font-size: 0.32em;
+  letter-spacing: 0.42em;
+  color: #ffc566;
+  text-align: center;
+}
+.logo.small .logo-sub {
+  font-size: 0.5em;
+}
 @media (max-height: 420px) {
   .shipcard .nextgoal {
     margin-top: 0.35em;
@@ -4590,4 +4603,208 @@ body.stormship #ui::after {
   letter-spacing: 0.12em;
   pointer-events: none;
   white-space: nowrap;
+}
+
+/* ---- the night shift: ship card hour line, the 06:00 report, the 7-day ladder, the opening's manifest */
+.shipcard .hour {
+  margin-top: 0.15em;
+  font-size: 0.78em;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--dim);
+}
+.shipcard .teaser {
+  margin-top: 0.5em;
+  font-style: italic;
+  font-weight: 700;
+  color: #9fe8d6;
+}
+.shiftcard .sub {
+  margin-top: 0.15em;
+  font-size: 0.85em;
+  color: var(--dim);
+}
+.shiftcard .srows {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.25em 1em;
+  margin-top: 0.6em;
+  text-align: left;
+}
+.shiftcard .srow {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5em;
+  padding: 0.2em 0.4em;
+  border-bottom: 0.06em solid rgba(255, 255, 255, 0.1);
+  font-size: 0.92em;
+}
+.shiftcard .srow b {
+  color: #ffe2b0;
+}
+.wkladder .lhead,
+#ladderstrip .lhead {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4em;
+  margin-top: 0.6em;
+  font-size: 0.78em;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--dim);
+}
+.wkladder .lhead svg.ico,
+#ladderstrip .lhead svg.ico {
+  width: 1.1em;
+  height: 1.1em;
+  fill: #ffd070;
+}
+.ladderrow {
+  display: flex;
+  justify-content: center;
+  gap: 0.3em;
+  margin-top: 0.35em;
+}
+.lday {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.1em;
+  width: 2.5em;
+  padding: 0.3em 0 0.25em;
+  border-radius: 0.4em;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--dim);
+  font-size: 0.85em;
+}
+.lday svg.ico {
+  width: 1.3em;
+  height: 1.3em;
+  fill: currentColor;
+}
+.lday.own {
+  color: #7ee08a;
+}
+.lday.lit {
+  background: rgba(255, 179, 71, 0.22);
+  box-shadow: inset 0 0 0 0.12em #ffb347, 0 0 1em rgba(255, 179, 71, 0.45);
+  color: #ffd27a;
+  animation: pulse 0.7s ease-in-out infinite alternate;
+}
+.lday em {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-top: 0.25em;
+  font-style: normal;
+  font-size: 0.8em;
+  font-weight: 700;
+  white-space: nowrap;
+  color: #ffd27a;
+}
+.wkladder {
+  padding-bottom: 1.3em;
+}
+#ladderstrip {
+  position: absolute;
+  left: 50%;
+  right: auto;
+  bottom: auto;
+  width: auto;
+  height: auto;
+  top: calc(14.2em + var(--st));
+  z-index: 16;
+  transform: translateX(-50%);
+  padding: 0.2em 0.8em 1.6em;
+  border-radius: 0.7em;
+  background: rgba(6, 12, 18, 0.74);
+  box-shadow: inset 0 0 0 0.1em rgba(255, 179, 71, 0.4);
+  pointer-events: none;
+  animation: jobIn 0.35s ease-out both;
+  transition: opacity 0.4s, transform 0.4s;
+}
+#ladderstrip.out {
+  opacity: 0;
+  transform: translate(-50%, -0.6em);
+}
+body.touch #ladderstrip {
+  top: calc(10.6em + var(--st));
+  font-size: 0.9em;
+}
+#manifestcard {
+  position: absolute;
+  right: calc(6% + var(--sr));
+  left: auto;
+  top: 34%;
+  bottom: auto;
+  height: auto;
+  z-index: 17;
+  width: 13em;
+  padding: 0.7em 0.9em 0.9em;
+  border-radius: 0.3em;
+  background: #efe7d2;
+  color: #2a2418;
+  box-shadow: 0 0.8em 2em rgba(0, 0, 0, 0.55);
+  transform: rotate(-3deg);
+  pointer-events: none;
+  animation: jobIn 0.3s ease-out both;
+  transition: opacity 0.4s, transform 0.4s;
+}
+#manifestcard.out {
+  opacity: 0;
+  transform: rotate(-3deg) translateY(-0.8em);
+}
+#manifestcard .mh {
+  font-family: var(--font-stencil);
+  font-size: 0.85em;
+  letter-spacing: 0.12em;
+  border-bottom: 0.08em solid rgba(42, 36, 24, 0.4);
+  padding-bottom: 0.25em;
+  margin-bottom: 0.35em;
+}
+#manifestcard .ml {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5em;
+  font-size: 0.82em;
+  line-height: 1.5;
+}
+#manifestcard .stampmark {
+  position: absolute;
+  right: 0.6em;
+  bottom: 0.9em;
+  padding: 0.1em 0.45em;
+  border: 0.16em solid currentColor;
+  border-radius: 0.2em;
+  outline: 0.07em solid currentColor;
+  outline-offset: 0.12em;
+  font-family: var(--font-stencil);
+  font-size: 1.35em;
+  letter-spacing: 0.1em;
+  color: #b3301f;
+  transform: rotate(-14deg) scale(2.6);
+  opacity: 0;
+  mix-blend-mode: multiply;
+}
+#manifestcard .stampmark.in {
+  opacity: 0.9;
+  transform: rotate(-14deg) scale(1);
+  transition: transform 0.2s cubic-bezier(0.3, 1.6, 0.5, 1), opacity 0.1s;
+}
+@media (orientation: portrait) {
+  #manifestcard {
+    right: auto;
+    left: 50%;
+    top: 22%;
+    margin-left: -6.5em;
+  }
+}
+@media (orientation: portrait) {
+  body.touch #ladderstrip {
+    top: auto;
+    bottom: calc(13.5em + var(--sb));
+  }
 }

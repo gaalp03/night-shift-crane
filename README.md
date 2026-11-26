@@ -1,6 +1,6 @@
-# Night Shift Crane
+# Night Shift Crane: Pier Seven
 
-![Night Shift Crane — carrying a heavy box over a rolling deck](docs/screenshot-play.jpg)
+![Night Shift Crane: Pier Seven — carrying a heavy box over a rolling deck](docs/screenshot-play.jpg)
 
 A 3D harbour-crane stacking game for the browser. Run ship-to-shore crane 07 through the graveyard
 shift: lift containers off the trucks, fight the swing, the wind and the swell, and twist-lock them

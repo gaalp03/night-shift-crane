@@ -253,6 +253,8 @@ const ENDLESS_WEATHER = [
  * she pays double and a jackpot. Every other ship stays fail-free.
  */
 export const STORM_EVERY = 5;
+/** A night shift: 22:00 to 06:00, one ship an hour. */
+export const SHIFT_SHIPS = 8;
 export const STORM_LOSSES = 2;
 export const STORM_JACKPOT = 400;
 export function isStormShip(n) {

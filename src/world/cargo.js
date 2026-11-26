@@ -271,6 +271,64 @@ function sealPlate(g, cx, cy, s) {
   g.fillText('?', cx, cy + s * 0.06);
 }
 
+/** The opening's box: scuffed grey steel, rust bleeding from the rails, the owner's name ground off. */
+function buildUnmarkedAtlas(seed) {
+  const rng = makeRng(seed * 71 + 13);
+  const c = makeCanvas(AT, AT);
+  const g = c.getContext('2d');
+  const rust = (x, y, w, h, n) => {
+    for (let i = 0; i < n; i++) {
+      const sx = x + rng() * w;
+      const len = 20 + rng() * h * 0.7;
+      const grd = g.createLinearGradient(0, y, 0, y + len);
+      grd.addColorStop(0, `rgba(122,62,28,${0.35 + rng() * 0.3})`);
+      grd.addColorStop(1, 'rgba(122,62,28,0)');
+      g.fillStyle = grd;
+      g.fillRect(sx, y, 2 + rng() * 7, len);
+    }
+  };
+  const panel = (reg, pitch) => {
+    const [x, y, w, h] = reg;
+    corrugate(g, x, y, w, h, '#4a5054', pitch);
+    for (let i = 0; i < 26; i++) {
+      g.fillStyle = `rgba(${rng() < 0.5 ? '20,22,24' : '210,214,216'},${0.05 + rng() * 0.08})`;
+      g.fillRect(x + rng() * w, y + rng() * h, 10 + rng() * 70, 1 + rng() * 3);
+    }
+    rust(x, y, w, h, 16);
+    frame(g, x, y, w, h, '#2b2f32', 9);
+    return [x, y, w, h];
+  };
+  {
+    const [x, y, w, h] = panel(REG.side, 13);
+    g.fillStyle = 'rgba(160,166,170,0.35)';
+    g.fillRect(x + 70, y + h * 0.3, 260, 48);
+    small(g, 'NO. ——— ——— —', x + w - 26, y + 34, 22, 'rgba(230,232,234,0.35)', 'right');
+  }
+  {
+    const [x, y, w, h] = REG.top;
+    g.fillStyle = '#40464a';
+    g.fillRect(x, y, w, h);
+    rust(x, y, w, h * 0.6, 10);
+    frame(g, x, y, w, h, '#2b2f32', 8);
+  }
+  {
+    const [x, y, w, h] = panel(REG.door, 16);
+    g.fillStyle = 'rgba(0,0,0,0.45)';
+    g.fillRect(x + w / 2 - 2, y, 4, h);
+    for (const rx of [0.2, 0.38, 0.62, 0.8]) {
+      g.fillStyle = '#5c6266';
+      g.fillRect(x + w * rx - 2, y + 8, 4, h - 16);
+    }
+  }
+  panel(REG.front, 12);
+  {
+    const [x, y, w, h] = REG.bottom;
+    g.fillStyle = '#16181a';
+    g.fillRect(x, y, w, h);
+  }
+  return canvasTexture(c, { aniso: 8 });
+}
+
 /** The unlisted boxes: bare black steel, a ground-off serial, salt creeping out of the seams. */
 function buildBlackAtlas(seed) {
   const rng = makeRng(seed * 131 + 9);
@@ -576,11 +634,11 @@ function containerGeometry() {
   return g;
 }
 
-function materialFor(zoneId, type, brandIdx, mobile, sealed) {
+function materialFor(zoneId, type, brandIdx, mobile, sealed, look) {
   const black = type === 'black';
-  const key = black ? 'black' : `${zoneId}:${type}:${brandIdx}${sealed ? ':seal' : ''}`;
+  const key = black ? 'black' : look === 'unmarked' ? 'unmarked' : `${zoneId}:${type}:${brandIdx}${sealed ? ':seal' : ''}`;
   if (!matCache.has(key)) {
-    const map = buildAtlas(zoneId, type, brandIdx, matCache.size + 3, sealed);
+    const map = look === 'unmarked' && !black ? buildUnmarkedAtlas(matCache.size + 3) : buildAtlas(zoneId, type, brandIdx, matCache.size + 3, sealed);
     const mat = mobile
       ? new THREE.MeshPhongMaterial({ map, shininess: black ? 60 : 26, specular: black ? 0x35454a : 0x24282c })
       : new THREE.MeshStandardMaterial({ map, roughness: black ? 0.34 : 0.58, metalness: black ? 0.5 : 0.12 });
@@ -592,7 +650,7 @@ function materialFor(zoneId, type, brandIdx, mobile, sealed) {
 let nextId = 1;
 
 export class Cargo {
-  constructor({ zone = 'ANY', type = 'std', brand = 0, mobile = false, check = false }) {
+  constructor({ zone = 'ANY', type = 'std', brand = 0, mobile = false, check = false, look = '' }) {
     this.id = nextId++;
     this.zone = zone;
     this.type = type;
@@ -629,7 +687,8 @@ export class Cargo {
     this.black = type === 'black';
 
     this.mesh = new THREE.Group();
-    const box = new THREE.Mesh(this.long ? longGeometry() : containerGeometry(), materialFor(zone, type, brand, mobile, check));
+    this.look = look;
+    const box = new THREE.Mesh(this.long ? longGeometry() : containerGeometry(), materialFor(zone, type, brand, mobile, check, look));
     box.castShadow = true;
     box.receiveShadow = true;
     this.mesh.add(box);
