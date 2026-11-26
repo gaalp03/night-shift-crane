@@ -214,7 +214,7 @@ test('no slot aboard: a carried box with nowhere to go is never a silent dead en
 });
 
 test('mobile: the pre-hooked crate is not penalised while waiting for the first input', { skip, timeout: 300000 }, async () => {
-  // (first launch on a phone: the control picker waits 5 s, then Manual starts)
+  // (first launch on a phone: Manual from the first frame, the crate waiting on the hook)
   const m = await game.open({ mobile: true });
   const r = await m.evaluate(async () => {
     await new Promise((ok) => setTimeout(ok, 2500));

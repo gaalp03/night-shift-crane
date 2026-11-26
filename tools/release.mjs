@@ -14,7 +14,7 @@ const LIMIT = 20 * 1024 * 1024;
 execFileSync(process.execPath, [join(root, 'tools', 'build.mjs')], { stdio: 'inherit' });
 
 const walk = (d) => readdirSync(d).flatMap((n) => (statSync(join(d, n)).isDirectory() ? walk(join(d, n)) : [join(d, n)]));
-const files = ['index.html', 'privacy.html', 'styles.css', 'build/game.js', 'build/rapier.wasm', ...walk(join(root, 'assets')).map((f) => relative(root, f).split(sep).join('/'))].filter((f) => !/(^|\/)\.DS_Store$/.test(f));
+const files = ['index.html', 'privacy.html', 'styles.css', 'build/game.js', 'build/rapier.wasm', 'build/rapier.wasm.gz', ...walk(join(root, 'assets')).map((f) => relative(root, f).split(sep).join('/'))].filter((f) => !/(^|\/)\.DS_Store$/.test(f));
 
 // sanity: every local URL the page references must be in the package, and none may be absolute
 const html = readFileSync(join(root, 'index.html'), 'utf8');
@@ -26,7 +26,7 @@ for (const m of html.matchAll(/(?:src|href)="([^"]+)"/g)) {
 }
 
 // a small, dependency-free zip writer (deflate; already-compressed media is stored)
-const STORE = /\.(mp3|ogg|woff2|png|jpg|jpeg|webp)$/i;
+const STORE = /\.(mp3|ogg|woff2|png|jpg|jpeg|webp|gz)$/i;
 const chunks = [];
 const central = [];
 let offset = 0;

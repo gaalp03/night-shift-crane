@@ -1,5 +1,5 @@
-// Controls on real device profiles (headless Chromium): the touch picker, Manual as the default,
-// the choice persisting across visits, the desktop key intro, and every control button on screen.
+// Controls on real device profiles (headless Chromium): Manual straight away on touch (no choice
+// screen), One-finger from the pause menu and remembered, the desktop key intro, every button on screen.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { startGame, findPlaywright } from './helpers/browser.mjs';
@@ -54,19 +54,15 @@ const onScreen = (page) =>
     };
   });
 
-test('iPad (reports as a Mac), landscape 1024x712: picker first; no tap for 5 s -> Manual; every button on screen', { skip, timeout: 300000 }, async () => {
+test('iPad (reports as a Mac), landscape 1024x712: no choice screen, Manual and the HUD from the first frame; every button on screen', { skip, timeout: 300000 }, async () => {
   await withPage({ device: 'ipad', width: 1024, height: 712, until: 'frame' }, async (page) => {
     const boot = await onScreen(page);
     assert.equal(await page.evaluate(() => window.__nsc.app.touchMode), true, 'detected as touch');
-    assert.ok(boot.picker && boot.mode === 'picker', 'the control picker comes first');
-    assert.equal(boot.controls, '', 'nothing chosen yet');
-    await page.waitForTimeout(5600);
-    const v = await onScreen(page);
-    assert.equal(v.mode, 'play');
-    assert.equal(v.controls, 'manual', 'Manual after 5 s without input');
-    assert.ok(v.stick && v.up && v.down && v.lock, 'stick + hoist / lower / grab-drop buttons on screen: ' + JSON.stringify(v));
-    assert.ok(v.pause && v.mute, 'pause and mute on screen');
-    // the choice is remembered: the next visit starts straight in Manual, no picker
+    assert.ok(!boot.picker && boot.mode === 'play', 'straight into play: ' + JSON.stringify(boot));
+    assert.equal(boot.controls, 'manual', 'Manual by default');
+    assert.ok(boot.stick && boot.up && boot.down && boot.lock, 'stick + hoist / lower / grab-drop buttons on screen: ' + JSON.stringify(boot));
+    assert.ok(boot.pause && boot.mute, 'pause and mute on screen');
+    assert.ok(await page.evaluate(() => window.__nsc.sdk.isPlaying && document.body.classList.contains('hud-on')), 'gameplay started, HUD on');
     await page.reopen();
     await page.waitForTimeout(500);
     const again = await onScreen(page);
@@ -75,13 +71,21 @@ test('iPad (reports as a Mac), landscape 1024x712: picker first; no tap for 5 s 
   });
 });
 
-test('the picker: one tap on One-finger starts play with it; the switch in settings changes and persists it', { skip, timeout: 300000 }, async () => {
+test('pause menu: Switch controls goes to One-finger and back; the choice persists', { skip, timeout: 300000 }, async () => {
   await withPage({ device: 'ipad', width: 1024, height: 712, until: 'frame' }, async (page) => {
-    await page.locator('.pickcard.onefinger').tap();
+    await page.evaluate(() => window.__nsc.app.pause());
+    await page.waitForTimeout(200);
+    await page.locator('.btn.switchctl').tap();
+    assert.equal(await page.evaluate(() => window.__nsc.save.data.settings.controls), 'onefinger');
+    assert.match(await page.locator('.btn.switchctl').textContent(), /ONE-FINGER/, 'the badge shows the current scheme');
+    await page.evaluate(() => window.__nsc.app.resume());
     await page.waitForTimeout(500);
     const v = await onScreen(page);
-    assert.ok(v.mode === 'play' && v.controls === 'onefinger', 'one tap picks and plays: ' + JSON.stringify(v));
+    assert.ok(v.mode === 'play' && v.controls === 'onefinger', 'playing with One-finger: ' + JSON.stringify(v));
     assert.ok(v.drop && !v.stick, 'One-finger: the DROP button, no stick (landscape iPad too): ' + JSON.stringify(v));
+    await page.reopen();
+    await page.waitForTimeout(500);
+    assert.equal(await page.evaluate(() => window.__nsc.save.data.settings.controls), 'onefinger', 'remembered');
     // settings: back to Manual
     await page.evaluate(() => window.__nsc.app.pause());
     await page.evaluate(() => [...document.querySelectorAll('#screens .btn')].find((b) => /Settings/.test(b.textContent)).click());
@@ -103,7 +107,7 @@ for (const [name, opts] of [
 ]) {
   test(`${name}: Manual controls all on screen`, { skip, timeout: 300000 }, async () => {
     await withPage({ ...opts, until: 'frame' }, async (page) => {
-      await page.waitForTimeout(5600);
+      await page.waitForTimeout(300);
       const v = await onScreen(page);
       assert.ok(v.mode === 'play' && v.controls === 'manual', JSON.stringify(v));
       assert.ok(v.stick && v.up && v.down && v.lock && v.pause && v.mute, 'every control on screen: ' + JSON.stringify(v));
@@ -136,7 +140,7 @@ test('desktop 1366x768: straight into keyboard play, a non-blocking key intro, D
 
 test('portrait phone: the Upgrade button is on screen when something is affordable', { skip, timeout: 300000 }, async () => {
   await withPage({ device: 'iPhone 13', until: 'frame' }, async (page) => {
-    await page.waitForTimeout(5600);
+    await page.waitForTimeout(300);
     await page.evaluate(() => {
       const N = window.__nsc;
       N.save.data.flags.hud = 3;

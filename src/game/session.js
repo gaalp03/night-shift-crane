@@ -9,7 +9,7 @@ import { DIM, TUNE, SCORE, ZONES } from '../config.js';
 import { Phys, STEP, GROUPS } from './physics.js';
 import { Rig, MASS_UNIT } from './rig.js';
 import { Guides, zoneColor } from './guides.js';
-import { zoneFn, starsFor, starThresholds, upgradeMods, endlessShip } from './levels.js';
+import { zoneFn, starsFor, starThresholds, upgradeMods, endlessShip, STORM_LOSSES, STORM_JACKPOT } from './levels.js';
 import { Ship } from '../world/ship.js';
 import { Cargo, BRAND_COUNT } from '../world/cargo.js';
 import { Truck } from '../world/trucks.js';
@@ -43,7 +43,7 @@ export class Session extends Emitter {
     this.ctx = ctx;
     this.level = level;
     this.endless = !!level.endless;
-    this.mods = upgradeMods(ctx.save.data.upgrades, ctx.save.data.rigSetup);
+    this.mods = upgradeMods(ctx.save.data.upgrades, ctx.save.data.rigSetup, ctx.save.data.unlocks, ctx.save.data.settings.berth);
     this.lockTol = TUNE.lockTol * this.mods.tolMul;
     this.phase = 'pre'; // pre | play | swap | over
     this.simT = 0;
@@ -195,7 +195,7 @@ export class Session extends Emitter {
 
   /** Upgrades bought mid-run take effect at once. */
   refreshMods() {
-    this.mods = upgradeMods(this.ctx.save.data.upgrades, this.ctx.save.data.rigSetup);
+    this.mods = upgradeMods(this.ctx.save.data.upgrades, this.ctx.save.data.rigSetup, this.ctx.save.data.unlocks, this.ctx.save.data.settings.berth);
     // a brand-new operator's first few boxes: wider lock window, calmer swing, stronger centring
     if (this.rookieLeft > 0) {
       const m = this.mods;
@@ -1204,6 +1204,12 @@ export class Session extends Emitter {
       again = true;
     }
     this.emit('strike', { cargo: c, reason, pos: pos ? pos.clone() : null, strikes: this.strikes, max: this.maxStrikes, again });
+    // the storm ship is the one that can be lost: her second lost box and she sails
+    if (this.endless && this.level.storm && this.phase === 'play' && !c.preload && !c.black) {
+      this.stormLosses = (this.stormLosses || 0) + 1;
+      this.emit('stormLoss', { n: this.stormLosses, max: STORM_LOSSES });
+      if (this.stormLosses >= STORM_LOSSES) this._stormSail = true;
+    }
     // (a lost box costs its bonus and the combo — never the shift)
   }
 
@@ -1742,6 +1748,11 @@ export class Session extends Emitter {
         else this._finish(this.delivered >= Math.ceil(this.quota * 0.6), 'complete');
       }
     } else this._doneT = 0;
+    if (this._stormSail && this.phase === 'play') {
+      this._stormSail = false;
+      this._beginSwap({ timeout: true, stormLost: 'losses' });
+      return;
+    }
     if (this.time <= 0 && this.phase === 'play') {
       // a ship never waits: when its clock runs out it sails with whatever is aboard
       if (this.endless) this._beginSwap({ timeout: true });
@@ -1785,7 +1796,15 @@ export class Session extends Emitter {
     if (complete) this.fullShips = (this.fullShips || 0) + 1;
     const streakMul = 1 + 0.25 * Math.min(4, Math.max(0, this.fullStreak - 1));
     // a full ship pays a bonus, more the sooner it is done; a ship that sails short just sails
-    const bonus = complete ? Math.round((150 + this.shipIndex * 25 + Math.max(0, this.time) * 3) * this.multFor(this.combo) * streakMul) : 0;
+    let bonus = complete ? Math.round((150 + this.shipIndex * 25 + Math.max(0, this.time) * 3) * this.multFor(this.combo) * streakMul) : 0;
+    // the storm ship: double and a jackpot when she is full; lost otherwise
+    const storm = this.level.storm ? { won: complete, lost: !complete, why: o.stormLost || (complete ? '' : 'time'), jackpot: complete ? STORM_JACKPOT : 0 } : null;
+    if (storm && complete) bonus = bonus * 2 + STORM_JACKPOT;
+    if (storm) {
+      this.stats.storms = (this.stats.storms || 0) + 1;
+      if (complete) this.stats.stormsWon = (this.stats.stormsWon || 0) + 1;
+    }
+    this.stormLosses = 0;
     this.score += bonus;
     // whatever did not make it aboard stays behind
     if (this.rig.carry) {
@@ -1805,7 +1824,7 @@ export class Session extends Emitter {
     if (o.timeout && !complete) this.combo = 0;
     audio.play('horn_ship', { pos: this.ship.group.position });
     audio.play(complete ? 'sting_win' : 'ui_warn', { delay: 0.3 });
-    this.emit('shipDone', { n: this.shipIndex + 1, bonus, complete, placed, quota, timeLeft: Math.max(0, this.time), streak: this.fullStreak, streakMul });
+    this.emit('shipDone', { n: this.shipIndex + 1, bonus, complete, placed, quota, timeLeft: Math.max(0, this.time), streak: this.fullStreak, streakMul, storm, nextStorm: !!(this._nextShip && this._nextShip.def.storm) });
     const smug = this._sweep();
     if (smug) this.emit('smuggled', { n: smug });
     // anything loose rides away lashed down

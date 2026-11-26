@@ -2,7 +2,8 @@
 import { h, fmtNum, fmtTime, clamp } from '../core/util.js';
 import { ZONES, GAME_VERSION } from '../config.js';
 import { SHIFTS, UPGRADES, RIG_SETUPS, starThresholds } from '../game/levels.js';
-import { PAINTS } from '../world/crane.js';
+import { PAINTS, LAMPS } from '../world/crane.js';
+import { DAILY_LADDER, FUND_SHOP, FUND_CAP, EPISODE_PERKS, buyWithFund } from '../game/rewards.js';
 import { AWARDS } from '../game/awards.js';
 import { icon } from './icons.js';
 import { cargoChip } from './hud.js';
@@ -348,6 +349,9 @@ export class Screens {
     const moneyEl = h('span', fmtNum(d.money));
     const shop = h('div.shop');
     const paints = h('div.paints');
+    const lamps = h('div.paints.lamps');
+    const fundEl = h('div.shop.fundshop');
+    const extras = h('div.extras');
     const render = () => {
       moneyEl.textContent = fmtNum(d.money);
       shop.innerHTML = '';
@@ -395,9 +399,16 @@ export class Screens {
       }
       paints.innerHTML = '';
       const stars = save.totalStars();
+      const un = d.unlocks || {};
+      const gate = (id) => {
+        const r = DAILY_LADDER.find((x) => x.id === id);
+        if (r) return `DAY ${r.day}`;
+        const f = FUND_SHOP.find((x) => x.id === id);
+        return f ? `FUND ${f.cost}` : '';
+      };
       for (const id in PAINTS) {
         const p = PAINTS[id];
-        const open = stars >= p.cost;
+        const open = p.unlock ? !!un[p.unlock] : stars >= p.cost;
         paints.appendChild(
           h(
             `button.paint${d.paint === id ? '.sel' : ''}${open ? '' : '.locked'}`,
@@ -413,10 +424,84 @@ export class Screens {
             },
             h('span.dot'),
             p.name.split(' ')[1] || p.name,
-            open ? null : h('small', { html: `${icon('star')} ${p.cost}` })
+            open ? null : h('small', { html: p.unlock ? gate(p.unlock) : `${icon('star')} ${p.cost}` })
           )
         );
       }
+      // work lamp (ladder / fund unlocks)
+      lamps.innerHTML = '';
+      for (const id in LAMPS) {
+        const l = LAMPS[id];
+        const open = !l.unlock || !!un[l.unlock];
+        lamps.appendChild(
+          h(
+            `button.paint${(d.lamp || 'sodium') === id ? '.sel' : ''}${open ? '' : '.locked'}`,
+            {
+              style: { '--c': '#' + (l.color == null ? 0xffb347 : l.color).toString(16).padStart(6, '0') },
+              onclick: () => {
+                if (!open) return;
+                d.lamp = id;
+                save.commit();
+                app.applyPaint();
+                render();
+              },
+            },
+            h('span.dot'),
+            l.name,
+            open ? null : h('small', gate(l.unlock))
+          )
+        );
+      }
+      // the port fund: daily ship only, spent on what money cannot buy
+      const f = d.fund || { n: 0 };
+      fundEl.innerHTML = '';
+      fundEl.appendChild(h('div.fundhead', { html: `${icon('anchor')}<b>${f.n}</b><span>port fund · up to ${FUND_CAP} a day from the daily ship</span>` }));
+      for (const it of FUND_SHOP) {
+        const own = !!un[it.id];
+        fundEl.appendChild(
+          h(
+            `div.up.fund${own ? '.maxed' : ''}`,
+            h('div.glyph', { html: icon(it.icon) }),
+            h('div.info', h('b', it.name), h('span', it.kind === 'perk' ? 'Crane perk' : it.kind === 'lamp' ? 'Work lamp' : 'Crane paint')),
+            own
+              ? h('button.btn.small', { disabled: true, html: icon('check') + 'Owned' })
+              : h('button.btn.small' + (f.n >= it.cost ? '.primary' : ''), {
+                  disabled: f.n < it.cost,
+                  onclick: () => {
+                    if (!buyWithFund(d, it.id)) return;
+                    if (it.paint) d.paint = it.paint;
+                    if (it.lamp) d.lamp = it.lamp;
+                    save.checkpoint();
+                    audio.play('ui_buy');
+                    app.applyPaint();
+                    if (app.upgradesChanged) app.upgradesChanged();
+                    render();
+                  },
+                  html: icon('anchor') + it.cost,
+                })
+          )
+        );
+      }
+      // berth B (the ladder's day 14) and the story perks earned so far
+      extras.innerHTML = '';
+      if (un.berth_b) {
+        const seg = h('div.seg');
+        for (const b of ['A', 'B'])
+          seg.appendChild(
+            h('button' + ((d.settings.berth || 'A') === b ? '.on' : ''), {
+              onclick: () => {
+                d.settings.berth = b;
+                save.checkpoint();
+                if (app.upgradesChanged) app.upgradesChanged();
+                render();
+              },
+              html: icon('anchor') + 'BERTH ' + b,
+            })
+          );
+        extras.appendChild(h('div.up.rigrow', h('div.glyph', { html: icon('anchor') }), h('div.info', h('b', 'Berth'), h('span', d.settings.berth === 'B' ? 'Bigger ships · +25% pay' : 'Pier Seven, berth A')), seg));
+      }
+      const perks = Object.entries(EPISODE_PERKS).filter(([, p]) => un[p.id]);
+      if (perks.length) extras.appendChild(h('div.perks', { html: perks.map(([, p]) => `<span class="perk">${icon('file')}<b>${p.name}</b> ${p.desc}</span>`).join('') }));
     };
     render();
     const back = () => {
@@ -434,7 +519,7 @@ export class Screens {
     const card = h(
       'div.card.wide',
       h('div.card-head', h('h2', 'Workshop'), h('span.money', { html: icon('coin') }, moneyEl)),
-      h('div.card-body', shop, h('div.section-label', 'Crane paint · earned with stars'), paints),
+      h('div.card-body', shop, extras, h('div.section-label', 'Crane paint · stars, the daily ladder, the port fund'), paints, h('div.section-label', 'Work lamp'), lamps, h('div.section-label', 'Port fund'), fundEl),
       h('div.card-foot', h('button.btn.ghost', { 'data-sound': 'ui_back', onclick: back, html: icon('back') + 'Back' }))
     );
     return this._mount('workshop', h('div.screen.dim', card));
@@ -653,11 +738,13 @@ export class Screens {
   pause() {
     const app = this.app;
     const touch = app.touchMode;
-    const help = touch
-      ? app.manualTouch()
-        ? 'Stick: move the crane · arrows: hoist / lower · round button: grab / drop · drag the view to look around'
-        : 'Drag: move the crane · let go over a slot: it lands · tap: grab / drop · the hoist works by itself'
-      : 'Mouse: drag to move · click to lock / release · right-drag to look · Keys: A/D W/S (or arrows) move · E/Q hoist · SPACE lock / release · C cab view';
+    const helpText = () =>
+      touch
+        ? app.manualTouch()
+          ? 'Stick: move the crane · arrows: hoist / lower · round button: grab / drop · drag the view to look around'
+          : 'Drag: move the crane · let go over a slot: it lands · tap: grab / drop · the hoist works by itself'
+        : 'Mouse: drag to move · click to lock / release · right-drag to look · Keys: A/D W/S (or arrows) move · E/Q hoist · SPACE lock / release · C cab view';
+    let help = null;
     const tips = 'Amber-sealed boxes: lift, hold steady and read the scale. A match goes on the ship, a mismatch on the blue customs truck in lane 2.';
     const card = h(
       'div.card',
@@ -670,11 +757,23 @@ export class Screens {
           h('button.btn.primary', { 'data-sound': 'ui_confirm', onclick: () => app.resume(), html: icon('play') + '<span class="grow">Back to work</span>' }),
           app.session && app.session.endless ? null : h('button.btn', { onclick: () => app.retry(), html: icon('retry') + '<span class="grow">Restart shift</span>' }),
           app.dailyUnlocked() && !(app.level && app.level.daily) ? h('button.btn.night', { onclick: () => app.startDaily(), html: icon('moon') + `<span class="grow">Daily ship</span><span class="badge">${app.dailyRecord().best ? fmtNum(app.dailyRecord().best) : 'NEW'}</span>` }) : null,
+          touch
+            ? h('button.btn.switchctl', {
+                onclick: (ev) => {
+                  app.setControls(app.manualTouch() ? 'onefinger' : 'manual', 'pause');
+                  // (updated in place: the menu does not flash)
+                  const b = ev.currentTarget.querySelector('.badge');
+                  if (b) b.textContent = app.manualTouch() ? 'MANUAL' : 'ONE-FINGER';
+                  if (help) help.textContent = helpText();
+                },
+                html: icon('hand') + `<span class="grow">Switch controls</span><span class="badge">${app.manualTouch() ? 'MANUAL' : 'ONE-FINGER'}</span>`,
+              })
+            : null,
           h('button.btn', { onclick: () => this.settings('pause'), html: icon('gear') + '<span class="grow">Settings</span>' }),
           h('button.btn.ghost', { 'data-sound': 'ui_back', onclick: () => app.quitToBoard(), html: icon('home') + '<span class="grow">Clock out</span>' })
         ),
         h('div.section-label', 'Controls'),
-        h('div', { style: { color: 'var(--dim)', lineHeight: '1.35' } }, help),
+        (help = h('div', { style: { color: 'var(--dim)', lineHeight: '1.35' } }, helpText())),
         app.level && app.level.checks ? h('div', { style: { color: 'var(--dim)', lineHeight: '1.35', marginTop: '0.5em' } }, tips) : null,
         app.level && app.level.order ? h('div.section-label', 'Foreman’s order') : null,
         app.level && app.level.order ? h('div', { style: { fontWeight: 700 } }, app.level.order.text) : null,
@@ -734,6 +833,7 @@ export class Screens {
         const rec = this.app.dailyRecord();
         R('Nights worked', String(rec.streak), '.good');
       }
+      if (meta.level.daily) R('Port fund', meta.fund ? `+${meta.fund} · ${(save.data.fund || {}).n} saved` : `today's ${FUND_CAP} earned`, meta.fund ? '.good' : '');
       if (res.black) R('Unlisted box', { ship: 'Sailed with the ship', customs: 'Handed to customs', sea: 'Lost overboard', left: 'Left on the quay' }[res.black] || '—', '.hush');
     }
     for (let i = rows.length - 1; i >= 0 && rows.length > 9; i--) if (rows[i]._optional) rows.splice(i, 1);

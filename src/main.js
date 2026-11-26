@@ -1,7 +1,7 @@
 // Night Shift Crane — application shell: boot, world, game flow, main loop.
 import * as THREE from 'three';
 import { DIM, PAL } from './config.js';
-import { clamp, damp, rand, fmtNum, isMobile, isIOS, Tweens, ease } from './core/util.js';
+import { clamp, damp, rand, fmtNum, fmtTime, isMobile, isIOS, Tweens, ease } from './core/util.js';
 import { save } from './core/save.js';
 import { sdk } from './core/sdk.js';
 import { input } from './core/input.js';
@@ -19,8 +19,9 @@ import { Crew } from './world/crew.js';
 import { CameraRig } from './game/cameras.js';
 import { Session } from './game/session.js';
 import { Tutorial } from './game/tutorial.js';
-import { SHIFTS, UPGRADES, endlessShip, upgradeMods, dailyShift, todayKey, dayBefore, weekKey, weekDaysLeft, portLevel, PORT_STEPS } from './game/levels.js';
+import { SHIFTS, UPGRADES, endlessShip, upgradeMods, dailyShift, todayKey, dayBefore, weekKey, weekDaysLeft, portLevel, PORT_STEPS, STORM_LOSSES } from './game/levels.js';
 import { Coach } from './game/coach.js';
+import { DAILY_LADDER, ladderAt, claimLadder, awardFund, FUND_CAP, unlockEpisodePerk, EPISODE_PERKS } from './game/rewards.js';
 import { analytics } from './core/analytics.js';
 import { detectDevice } from './core/device.js';
 import { icon } from './ui/icons.js';
@@ -67,7 +68,7 @@ const app = {
   },
 
   // ---------------------------------------------------------------- queries used by the UI
-  mods: () => upgradeMods(save.data.upgrades, save.data.rigSetup),
+  mods: () => upgradeMods(save.data.upgrades, save.data.rigSetup, save.data.unlocks, save.data.settings.berth),
   adsAvailable: () => sdk.adsEnabled,
   shiftUnlocked(i) {
     if (i === 0) return true;
@@ -144,7 +145,10 @@ const app = {
     showFpsMeter(!!st.showFps || /[?&]fps\b/.test(location.search));
   },
   applyPaint() {
-    if (app.crane) app.crane.setPaint(save.data.paint || 'yellow');
+    if (!app.crane) return;
+    app.crane.setPaint(save.data.paint || 'yellow');
+    if (app.crane.setLamp) app.crane.setLamp(save.data.lamp || 'sodium');
+    if (app.crane.setPlateGold) app.crane.setPlateGold(save.data.plate === 'gold');
   },
   shake(a) {
     if (app.cams) app.cams.shake(a);
@@ -576,10 +580,13 @@ async function runIntro(level, s, opts = {}) {
   s.start();
   if (level.endless) {
     // tonight's episode of the Pier Seven file rides in on the second ship
-    s.onShip = (def, n) => injectEpisode(def, n);
+    s.onShip = (def, n) => berthShip(injectEpisode(def, n), s);
     if (opts.first || (save.data.flags.coach || 0) === 0) s.prehook();
     app.hud.setMoney(save.data.money, app.canUpgrade());
   }
+  // the job, from second zero: what to load and how long there is
+  showJobLine(s, level);
+  app._shipMoney0 = save.data.money;
   if (level.feature && !(save.data.shifts[level.id] || {}).stars) {
     j.toast({ text: `${level.feature.title}: ${level.feature.text}`, kind: 'info', dur: 7000 });
     if (level.also) app.after(7.5, () => j.toast({ text: `${level.also.title}: ${level.also.text}`, kind: 'info', dur: 7000 }), s);
@@ -593,6 +600,34 @@ async function runIntro(level, s, opts = {}) {
   sdk.gameplayStart();
 }
 
+/** The job line at the start of a run: on screen from the first frame until the first box is down. */
+function showJobLine(s, level) {
+  const old = $('jobline');
+  if (old) old.remove();
+  const quota = s.endless ? level.manifest.filter((m) => !m.black).length : s.quota;
+  const t1 = `LOAD ${quota} BOXES · ${s.endless ? 'SHIP ' + (s.shipIndex + 1) : level.daily ? 'TONIGHT' : 'SHIFT ' + level.n}`;
+  const t2 = s.endless ? `${fmtTime(s.timeTotal)} on the clock · ${s.ship.name}` : `before ${level.clock || '06:00'} · ${level.name || s.ship.name}`;
+  const el = h('div#jobline', h('div.j1', t1), h('div.j2', t2));
+  $('ui').appendChild(el);
+  app._job = { el, s, t: 0, after: null };
+}
+
+function updateJobLine(raw) {
+  const j = app._job;
+  if (!j) return;
+  if (app.session !== j.s || !j.el.parentNode) return (app._job = null);
+  if (app.mode !== 'play') return;
+  j.t += raw;
+  // it stays while the first box hangs there; once a box is down (or after a few seconds) it goes
+  const down = !j.s.prehooked && j.s.stats.placed > 0;
+  if (j.after == null && (down || (!j.s.prehooked && j.t > 4.5))) j.after = down ? 2.2 : 0;
+  if (j.after != null && (j.after -= raw) <= 0) {
+    j.el.classList.add('out');
+    setTimeout(() => j.el.remove(), 500);
+    app._job = null;
+  }
+}
+
 /** The big DROP button: the only control on screen in the first minute and on portrait phones. */
 function updateDrop(s) {
   const stage = app.level && app.level.endless ? app.hudStage : 3;
@@ -600,14 +635,20 @@ function updateDrop(s) {
   const g = s.wantedGrab();
   const seat = s.seat;
   const manual = manualTouch();
-  if (manual && app.touch) app.touch.setAction(carry ? 'release' : g && g.ready ? 'lock' : 'off', carry && seat && seat.seated && seat.valid ? 'good' : '');
+  // (the first box hangs right over its slot: its DROP is lit and pulsing from the first frame)
+  const first = !!s.prehooked && carry;
+  if (manual && app.touch) app.touch.setAction(carry ? 'release' : g && g.ready ? 'lock' : 'off', first || (carry && seat && seat.seated && seat.valid) ? 'good' : '');
+  if (app._firstCue !== first) {
+    app._firstCue = first;
+    document.body.classList.toggle('firstcue', first);
+  }
   // one-finger touch: always on screen, any orientation; desktop: the first box only; manual: the pad's own button
-  const show = !s.attract && s.phase === 'play' && !manual && (app.touchMode || (stage === 0 && carry));
+  const show = !s.attract && s.phase === 'play' && !manual && (app.touchMode || ((stage === 0 || first) && carry));
   if (!show) return app.hud.setDrop({ show: false });
   const quota = s.endless ? s.level.manifest.filter((m) => !m.black && !m.returned).length : s.quota;
   const done = s.endless ? s.delivered - (s.shipBase || 0) : s.delivered;
   const label = carry ? 'DROP' : g && g.ready ? 'GRAB' : `${Math.max(0, done)}/${quota}`;
-  const ready = carry ? stage === 0 || !!(seat && seat.seated && seat.valid) : !!(g && g.ready);
+  const ready = carry ? stage === 0 || first || !!(seat && seat.seated && seat.valid) : !!(g && g.ready);
   app.hud.setDrop({ show: true, label, ready, sub: app.touchMode ? '' : '<span class="kbd">SPACE</span>', timeK: s.timeTotal ? s.time / s.timeTotal : 1 });
 }
 
@@ -676,6 +717,15 @@ function showShipCard(s, e, cash) {
     setTimeout(() => card.remove(), 300);
   };
   const head = h('div.t1', { html: icon(e.complete ? 'check' : 'box') + `<span>${e.complete ? 'SHIP ' + e.n : e.placed + '/' + e.quota}</span>` });
+  // the card always ends on one named next goal, and this week's record
+  const goal = cardGoal(s, e, cash);
+  app._shipMoney0 = d.money;
+  const goalRow = h('div.nextgoal', { html: icon(goal.icon) + `<span class="gt">${goal.text}</span>` + bar(goal.k, goal.k >= 1 ? ' ok' : '') + (goal.sub ? `<small>${goal.sub}</small>` : '') });
+  const wk = d.week && d.week.key === weekKey() ? d.week : null;
+  const runScore = Math.max(0, Math.round(s.score));
+  const weekRow = h('div.weekrec', {
+    html: icon('trophy') + (wk && wk.best ? `<span>WEEK BEST <b>${fmtNum(wk.best)}</b></span><span class="you">${runScore > wk.best ? 'NEW BEST ' : 'YOU '}${fmtNum(runScore)}</span>` : `<span>WEEK RECORD: <b>OPEN</b></span><span class="you">YOU ${fmtNum(runScore)}</span>`),
+  });
   const pay = h('div.t2', cash ? `+$${fmtNum(cash)}` : '');
   const acts = h('div.acts');
   let body;
@@ -697,14 +747,8 @@ function showShipCard(s, e, cash) {
       });
     body = h('div.rigpick', h('div.t3', { html: icon('wrench') + '<span>CRANE SETUP</span>' }), h('div.opts', opt('steady', 'shield', 'STEADY', 0.4, 0.25), opt('fast', 'bolt', 'FAST', 0.9, 0.8)));
   } else {
-    // the cheapest upgrade still to buy: buy it now, or see how close it is
-    let up = null;
-    for (const u of UPGRADES) {
-      const l = d.upgrades[u.id] || 0;
-      if (l < u.costs.length && (!up || u.costs[l] < up.cost)) up = { u, l, cost: u.costs[l] };
-    }
+    const up = goal.up;
     const afford = up && d.money >= up.cost;
-    if (up) body = h('div.t3', { html: icon(up.u.icon || 'wrench') + bar(d.money / up.cost, afford ? ' ok' : '') + `<span>$${fmtNum(Math.min(d.money, up.cost))}/${fmtNum(up.cost)}</span>` });
     if (afford) {
       acts.appendChild(
         h('button.btn.teal.big', {
@@ -742,7 +786,8 @@ function showShipCard(s, e, cash) {
       })
     );
   acts.appendChild(h('button.btn.primary.big', { onclick: () => close(true), html: icon('next') + '<span>Next</span>' }));
-  const card = h('div.shipcard' + (e.complete ? '.good' : ''), head, pay, body || null, acts);
+  const stormRow = e.nextStorm ? h('div.stormnext', { html: icon('bolt') + `<span>STORM SHIP NEXT · ${STORM_LOSSES} lost and she sails · ×2 pay</span>` }) : null;
+  const card = h('div.shipcard' + (e.complete ? '.good' : ''), head, pay, stormRow, body || null, goalRow, weekRow, acts);
   root.appendChild(card);
   // it never blocks: the card goes by itself when the next ship is alongside
   const watch = setInterval(() => {
@@ -751,6 +796,43 @@ function showShipCard(s, e, cash) {
       close(false);
     }
   }, 250);
+}
+
+/**
+ * The one next goal a ship card ends on: the cheapest upgrade ("Hoist Winch in 2 ships", from what
+ * this ship earned) or the next port expansion ("Berth 3 opens at 80 boxes (62/80)"), whichever is
+ * nearer in ships. An upgrade that can be bought right now always wins.
+ */
+function cardGoal(s, e, cash) {
+  const d = save.data;
+  let up = null;
+  for (const u of UPGRADES) {
+    const l = d.upgrades[u.id] || 0;
+    if (l < u.costs.length && (!up || u.costs[l] < up.cost)) up = { u, l, cost: u.costs[l] };
+  }
+  const earned = app._shipMoney0 != null ? d.money - app._shipMoney0 : cash || 0;
+  const perShip = Math.max(60, earned);
+  const boxes = (d.stats.placed || 0) + (d.stats.crew || 0) + (s.stats.placed || 0);
+  const lvl = portLevel(boxes);
+  const perShipBoxes = Math.max(2, e.placed || 4);
+  const cands = [];
+  if (up) {
+    const left = up.cost - d.money;
+    const ships = left <= 0 ? 0 : Math.ceil(left / perShip);
+    cands.push({ ships, icon: up.u.icon || 'wrench', text: ships === 0 ? `${up.u.name} — unlock it now` : `${up.u.name} in ${ships} ship${ships > 1 ? 's' : ''}`, k: d.money / up.cost, sub: `$${fmtNum(Math.min(d.money, up.cost))} / $${fmtNum(up.cost)}`, up });
+  }
+  if (lvl < PORT_STEPS.length - 1) {
+    const hi = PORT_STEPS[lvl + 1];
+    const lo = PORT_STEPS[lvl];
+    cands.push({ ships: Math.ceil((hi - boxes) / perShipBoxes) + 0.5, icon: 'anchor', text: `Berth ${lvl + 2} opens at ${hi} boxes (${boxes}/${hi})`, k: (boxes - lo) / (hi - lo), up });
+  }
+  if (!cands.length) {
+    const ships = s.stats.ships || e.n || 0;
+    const m = (Math.floor(ships / 5) + 1) * 5;
+    return { icon: 'star', text: `Ship ${m} tonight (${ships}/${m})`, k: (ships % 5) / 5, up: null };
+  }
+  cands.sort((a, b) => a.ships - b.ships);
+  return cands[0];
 }
 
 /** First session, after ship 2: what coming back tomorrow is worth (streak + the night crew). */
@@ -763,7 +845,7 @@ function showReturnPreview() {
   const card = h(
     'div.strip.preview',
     h('div.row', { html: `<b class="sthead">TOMORROW</b>` }),
-    h('div.row', { html: icon('gift') + `<span class="w">DAY 2</span>${ladder(2)}<span class="amt">+$${fmtNum(loginReward(2))}</span>` }),
+    h('div.row', { html: icon('gift') + `<span class="w">DAY 2</span>${ladder(2)}<span class="amt">${ladderAt(1).next.name}</span>` }),
     h('div.row', { html: icon('truck') + `<span class="w">AWAY</span>${bar(1)}<span class="amt">+$${fmtNum(crew)}</span>` }),
     h('div.acts', h('button.btn.small.primary', { onclick: () => out(), html: icon('check') + 'OK' }))
   );
@@ -937,6 +1019,13 @@ function recordEpisode(s, key, outcome) {
   if (st.boxes[key]) return;
   st.boxes[key] = outcome;
   st.lastEpisode = todayKey();
+  // every episode unlocks a crane perk, whatever was read (skipping the radio still pays)
+  const perk = unlockEpisodePerk(save.data, key);
+  if (perk) {
+    s.refreshMods();
+    app.after(2.5, () => app.juice.toast({ text: `Unlocked · ${perk.name}: ${perk.desc}`, kind: 'good', key: 'perk' + key, dur: 5200 }), s);
+    analytics.track('episode_perk', { key, perk: perk.id });
+  }
   if (outcome === 'ship') earn(300 + (BLACK_BOXES[key] ? BLACK_BOXES[key].n * 40 : 0), s.rig.sprPos.clone());
   const end = epilogue(st);
   if (end) st.ending = end.id;
@@ -989,12 +1078,26 @@ function bindSession(s) {
     buzz([30, 30]);
   });
   s.on('misplaced', (e) => {
-    if (s.endless && e.pts > 0) earn(Math.round(e.pts * 0.25), e.pos);
+    if (s.endless && e.pts > 0) earn(Math.round(e.pts * 0.25 * (s.mods.payMul || 1)), e.pos);
     app.coach.fix = { cargo: e.cargo, t: 60 * 20 };
     if (s.guides) s.guides.alert = 3;
     buzz([40, 40, 40]);
   });
   s.on('shipDone', (e) => {
+    document.body.classList.remove('stormship');
+    if (e.storm) {
+      save.data.stats.storms = (save.data.stats.storms || 0) + 1;
+      if (e.storm.won) {
+        save.data.stats.stormsWon = (save.data.stats.stormsWon || 0) + 1;
+        j.banner('STORM SHIP LOADED', `Double pay · +${fmtNum(e.storm.jackpot)} jackpot`, 2800);
+        audio.play('sax_combo', { delay: 0.2 });
+        app.crew.react('cheer', 3);
+      } else {
+        j.banner('SHE SAILED WITHOUT YOU', e.storm.why === 'losses' ? `${STORM_LOSSES} boxes in the water · no storm bonus` : 'Not full when the clock ran out · no storm bonus', 2800);
+        app.crew.react('wince', 2.4);
+      }
+      analytics.track('storm_ship', { won: e.storm.won ? 1 : 0, why: e.storm.why, n: e.n });
+    }
     const cash = Math.round(e.bonus * 0.3);
     app.needLater(); // (the first ship is done: menus, flavour and music can come in now)
     if (e.complete) sdk.happytime();
@@ -1028,10 +1131,8 @@ function bindSession(s) {
       app.after(3.2, () => {
         // day one of the login streak, and the promise of day two
         app.after(5, () => {
-          const pay = loginReward(1);
-          earn(pay, null);
-          j.toast({ text: `Day 1 bonus +$${pay} · tomorrow +$${loginReward(2)}`, kind: 'good', key: 'login1', dur: 5000 });
-          analytics.track('daily_reward_claim', { day: 1, amount: pay });
+          const nx = ladderAt(1).next;
+          j.toast({ text: `Day 1 on the quay · come back tomorrow: ${nx.name}`, kind: 'good', key: 'login1', dur: 5000 });
         }, s);
         app.radio.say([{ who: 'dispatch', text: 'Nice work, Seven.' }]);
       }, s);
@@ -1044,12 +1145,23 @@ function bindSession(s) {
     }
   });
   // the next ship was just built: stream whatever its cargo / weather will need
-  s.on('prebuilt', (e) => audio.need(soundsForLevel(e.def)));
+  s.on('prebuilt', (e) => {
+    audio.need(soundsForLevel(e.def));
+    // the storm ship is announced a whole ship ahead
+    if (e.def.storm && s.endless) {
+      j.toast({ text: `Storm ship next · ${STORM_LOSSES} boxes lost and she sails · double pay`, kind: 'warn', key: 'stormnext', dur: 5200 });
+      app.radio.say([{ who: 'dispatch', text: 'Seven, weather’s turning. The next one is riding a storm in — load her full and she pays double. Drop two in the water and she goes without us.' }], { key: 'storm-next' });
+    }
+  });
   s.on('shipIncoming', (e) => {
     app.hud.build(s.level, s);
     // (a rebuilt HUD starts with the Upgrade chip hidden: show the wallet's real state at once)
     app.hud.setMoney(save.data.money, app.canUpgrade());
-    j.toast({ text: `${e.def.ship.name} inbound`, kind: 'info', dur: 3200 });
+    document.body.classList.toggle('stormship', !!e.def.storm);
+    j.toast({ text: e.def.storm ? `STORM SHIP · ${e.def.ship.name} inbound` : `${e.def.ship.name} inbound`, kind: e.def.storm ? 'warn' : 'info', dur: 3200 });
+  });
+  s.on('stormLoss', (e) => {
+    j.toast({ text: e.n >= e.max ? 'Storm ship: she is sailing!' : `Storm ship: ${e.n}/${e.max} lost · one more and she sails`, kind: 'warn', key: 'stormloss', dur: 3600 });
   });
   s.on('shipDocked', (e) => {
     // first session: after the second ship, show what tomorrow is worth
@@ -1058,7 +1170,8 @@ function bindSession(s) {
       save.commit();
       app.after(1.5, showReturnPreview, s);
     }
-    j.banner(e.def.ship.name, `Ship ${e.n} · ${e.def.manifest.filter((m) => !m.black).length} boxes · ${Math.round(s.timeTotal)}s on the clock`, 2400);
+    if (e.def.storm) j.banner('STORM SHIP', `Load all ${e.def.manifest.filter((m) => !m.black).length} in ${Math.round(s.timeTotal)}s · ${STORM_LOSSES} lost and she sails · double pay`, 3200);
+    else j.banner(e.def.ship.name, `Ship ${e.n} · ${e.def.manifest.filter((m) => !m.black).length} boxes · ${Math.round(s.timeTotal)}s on the clock`, 2400);
   });
   s.on('finish', (res) => onFinish(s, res));
   // ---- the Pier Seven file
@@ -1135,7 +1248,7 @@ function bindSession(s) {
     // the main shift pays per box, straight into the wallet
     if (s.endless && e.pts > 0) {
       e.cargo.mesh.getWorldPosition(_tmp);
-      earn(Math.round(e.pts * 0.25) + (rookie ? 50 : 0), _tmp.clone(), rookie ? 3 : 1);
+      earn(Math.round(e.pts * 0.25 * (s.mods.payMul || 1)) + (rookie ? 50 : 0), _tmp.clone(), rookie ? 3 : 1);
     }
     app.coach.onPlaced();
     const beat = SHIFT_BEATS[s.level.id];
@@ -1186,6 +1299,7 @@ async function onFinish(s, res) {
   let week = null;
   let newBest = false;
   let newStars = 0;
+  let fund = 0;
   if (endless) {
     payout = 0; // (the main shift pays as it goes)
     d.endless.runs++;
@@ -1219,6 +1333,9 @@ async function onFinish(s, res) {
       }
       payout = Math.round(res.score * 0.3) + newStars * 60;
     } else payout = Math.round(res.score * 0.1);
+    // the port fund: only the daily ship pays it, capped per day
+    fund = awardFund(d, res, level.date);
+    if (fund) analytics.track('fund_earned', { n: fund, total: d.fund.n });
   } else if (res.success) {
     const r = save.recordShift(level.id, res.stars, res.score);
     newStars = r.gainedStars;
@@ -1268,7 +1385,7 @@ async function onFinish(s, res) {
   const fresh = checkAwards(d, res, level);
   save.checkpoint();
   const idx = SHIFTS.indexOf(level);
-  const meta = { level, payout, newStars, newBest, endless, hush, ending, order, week, nextLevel: !endless && res.success && idx >= 0 && idx < SHIFTS.length - 1 ? SHIFTS[idx + 1] : null };
+  const meta = { level, payout, newStars, newBest, endless, hush, ending, order, week, fund, nextLevel: !endless && res.success && idx >= 0 && idx < SHIFTS.length - 1 ? SHIFTS[idx + 1] : null };
   app.lastResult = { res, meta };
   showHud(false);
   setCab(false, true);
@@ -1338,6 +1455,16 @@ function fail(msg) {
 
 /** Compile the scene's programs for the target the frame really draws into (the post chain's
  *  linear buffer, or the screen without post), without blocking where the browser can help. */
+/** Start compiling (and linking, where the driver can do it in parallel) the scene's shaders now. */
+function prelinkShaders(scene, camera) {
+  const r = gfx.renderer;
+  try {
+    for (const o of scene.children) if (o.isLight && o.userData && o.userData.wantShadow) o.castShadow = gfx.shadows;
+    const parallel = r.compileAsync && r.extensions && r.extensions.has('KHR_parallel_shader_compile');
+    if (parallel) app._prelink = r.compileAsync(scene, camera).catch(() => {});
+  } catch (e) {}
+}
+
 async function warmShaders() {
   const r = gfx.renderer;
   const prev = r.getRenderTarget();
@@ -1354,49 +1481,19 @@ async function warmShaders() {
         prog.getUniforms();
       } catch (e) {}
     }
+    // draw once from where the opening shot starts (some drivers finish a shader only at its first
+    // real draw): the first frame on screen is then not the one that pays for it
+    const s = app.session;
+    const cams = app.cams;
+    if (s && cams.introOn) {
+      const ctx = { rig: s.rig, groundY: s.groundY };
+      cams.introHold = true;
+      cams.update(10, ctx); // (a long step: the chase focus settles, the held move stays at its start)
+    }
     gfx.render(0, 0);
   } catch (e) {
     r.setRenderTarget(prev);
   }
-}
-
-/** Touch, first launch: Manual or One-finger, each with a live preview; one tap starts. 5 s: Manual. */
-function showControlPicker() {
-  if ($('picker')) return;
-  let done = false;
-  const go = (mode, auto) => {
-    if (done) return;
-    done = true;
-    clearTimeout(timer);
-    app.setControls(mode, auto ? 'auto' : 'tap');
-    el.classList.add('out');
-    setTimeout(() => el.remove(), 260);
-    app.mode = 'play';
-    showHud(true);
-    app.lastInput = performance.now();
-    audio.play('ui_confirm');
-    sdk.gameplayStart();
-  };
-  const card = (mode, word, sub, preview) =>
-    h(
-      'button.pickcard.' + mode,
-      { onclick: () => go(mode, false), 'aria-label': word },
-      h('div.pv', { html: preview }),
-      h('b', word),
-      h('small', sub),
-      mode === 'manual' ? h('i.autobar') : null
-    );
-  const manualPv = `<div class="pv-stick"><i></i></div><div class="pv-btns"><span>${icon('up')}</span><span>${icon('down')}</span><span class="lk">${icon('lock')}</span></div>`;
-  const onePv = `<div class="pv-track"><i class="pv-box"></i><span class="pv-hand">${icon('hand')}</span></div>`;
-  const el = h(
-    'div#picker',
-    h('div.pick-head', { html: icon('hand') + '<span>CONTROLS</span>' }),
-    h('div.pick-cards', card('manual', 'MANUAL', 'Stick + buttons', manualPv), card('onefinger', 'ONE-FINGER', 'Drag + tap', onePv)),
-    h('div.pick-foot', 'Change any time in Settings')
-  );
-  $('ui').appendChild(el);
-  const timer = setTimeout(() => go('manual', true), 5000);
-  app._pickGo = go;
 }
 
 /** Desktop, first launch: what the keys do, over the running game (never in the way, never blocking). */
@@ -1455,6 +1552,7 @@ function mark(name) {
 }
 
 async function boot() {
+  mark('nsc-boot');
   save.load();
   const mobile = isMobile();
   document.body.classList.toggle('touch', app.touchMode);
@@ -1546,6 +1644,7 @@ async function boot() {
   app.fx = new Fx(scene, { budget: gfx.particleBudget, mobile });
   syncEffects();
   app.crane = new CraneView(scene, { paint: save.data.paint, mobile });
+  app.applyPaint(); // (lamp and cab plate unlocks)
   app.crew = new Crew(scene);
   app.cams = new CameraRig(camera);
   app.cams.shakeEnabled = save.data.settings.shake !== false;
@@ -1597,6 +1696,9 @@ async function boot() {
 
   setLoad(0.8, 'Fuelling the trucks…');
   mark('nsc-world');
+  // pre-link: the static world's shaders compile on the driver's own threads while the platform SDK
+  // answers and the session is built (the warm-up before the first frame then only adds ship and cargo)
+  prelinkShaders(scene, camera);
   bindGlobalInput();
   // the mute button over every menu (the HUD has its own beside pause)
   const mb = h('button.btn.icon.ghost#mutebtn', { title: 'Sound (M)', html: icon(save.data.settings.muted ? 'mute' : 'speaker'), onclick: () => app.toggleMute() });
@@ -1637,12 +1739,11 @@ async function boot() {
   // nothing simulates behind the loading bar: the frame loop waits until the first real frame
   app.warming = true;
   await app.startEndless(first, true);
-  // a touch device that has never chosen its controls: the choice comes first (the game waits)
-  const pick = app.touchMode && !save.data.settings.controls;
-  if (pick) {
-    app.mode = 'picker';
-    showHud(false);
-    sdk.gameplayStop();
+  // touch: Manual (stick + buttons) from the first frame, no choice screen; One-finger is in the pause menu
+  if (app.touchMode && !save.data.settings.controls) {
+    save.data.settings.controls = 'manual';
+    save.commit();
+    analytics.track('controls_default', { mode: 'manual' });
   }
   syncControls();
   mark('nsc-session');
@@ -1653,6 +1754,8 @@ async function boot() {
     if (o.isLight && o.userData.wantShadow) o.castShadow = gfx.shadows;
   });
   app.warming = true;
+  // the opening shot is set up first, so the warm-up draws exactly what the first seconds show
+  startOpening(first ? 3.0 : 2.4, true);
   await warmShaders();
   app.warming = false;
   mark('nsc-shaders');
@@ -1679,12 +1782,8 @@ async function boot() {
     analytics.trackOnce('game_loaded', { ms: Math.round(window.__nscFirstFrame), first: first ? 1 : 0, day: returnDay });
     if (!first && returnDay > 0) analytics.trackOnce('return_day_' + returnDay, { day: returnDay });
   });
-  // the opening shot: floodlights come on, the camera pulls back from the hook (play is live meanwhile;
-  // behind the control picker it waits on the close-up)
-  startOpening(first ? 3.0 : 2.4, !pick);
-  if (pick) showControlPicker();
-  else if (!app.touchMode && !save.data.flags.keysIntro) setTimeout(showKeysIntro, 600);
-  if (!first && (idle || login)) setTimeout(() => showWelcomeStrip(idle, login), pick ? 7000 : 1500);
+  if (!app.touchMode && !save.data.flags.keysIntro) setTimeout(showKeysIntro, 600);
+  if (!first && (idle || login)) setTimeout(() => showWelcomeStrip(idle, login), 1500);
   // outside analytics on the page (beyond the platform SDK): new players get a small, non-blocking note
   if (first && analytics.external()) setTimeout(showPrivacyNote, 2500);
 }
@@ -1709,11 +1808,13 @@ function showFpsMeter(on) {
     document.body.appendChild(el);
   }
   if (app._fpsTimer) return;
-  app._fpsTimer = setInterval(() => {
+  const upd = () => {
     const st = gfx.stats();
     el.textContent = `${st.fps} FPS · ${String(st.quality).toUpperCase()}${gfx.auto ? ' L' + st.level : ''} · ${st.pixelRatio}x${st.shadows ? '' : ' · no shadows'}`;
     el.classList.toggle('slow', st.fps < 40);
-  }, 250);
+  };
+  upd();
+  app._fpsTimer = setInterval(upd, 250);
 }
 
 /** Fresh page load: a close-up of the hook pulling back into play, the quay lights coming on. */
@@ -1754,11 +1855,7 @@ function daysBetween(a, b) {
 
 // ====================================================================== returning players
 
-/** Daily login streak: the reward grows for each day in a row, up to day 7 and its jackpot. */
-const LOGIN_PAY = [100, 150, 200, 250, 300, 400, 750];
-function loginReward(day) {
-  return LOGIN_PAY[Math.min(LOGIN_PAY.length, Math.max(1, day)) - 1];
-}
+/** Daily visits climb a ladder of unlocks (paints, the LED lamp, the Night Owl rig, Berth B …), never cash. */
 function dailyLogin(first) {
   const L = (save.data.login = save.data.login || { last: '', streak: 0, best: 0 });
   const today = todayKey();
@@ -1768,16 +1865,37 @@ function dailyLogin(first) {
   L.last = today;
   L.best = Math.max(L.best || 0, L.streak);
   save.flush();
-  // (a brand-new player gets day one's bonus with their first full ship instead)
+  // (a brand-new player's day one is the install day: the ladder starts paying on day two)
   if (first) return null;
-  return { day: L.streak, cash: loginReward(L.streak) };
+  const got = claimLadder(save.data, L.streak);
+  for (const r of got) equipReward(r);
+  if (got.length) save.flush();
+  return { day: L.streak, got, next: ladderAt(L.streak).next };
+}
+
+/** A new unlock goes straight on the crane (it is a reward: the player should see it at once). */
+function equipReward(r) {
+  const d = save.data;
+  if (r.paint) d.paint = r.paint;
+  if (r.lamp) d.lamp = r.lamp;
+  if (r.kind === 'plate') d.plate = 'gold';
+  if (r.kind === 'berth') d.settings.berth = 'B';
+  app.applyPaint();
+  analytics.track('daily_unlock', { id: r.id, day: r.day });
+}
+
+/** Berth B (day 14 of the ladder): every ship there carries one more box, and pays 25% more. */
+function berthShip(def, s) {
+  if (!s.mods.berthB || !def || !def.manifest || !def.manifest.length) return def;
+  const std = def.manifest.find((m) => m.type === 'std' && !m.black) || def.manifest[0];
+  return { ...def, manifest: [...def.manifest, { zone: std.zone, type: 'std' }], berthB: true };
 }
 
 /** Night crew + login bonus, shown over the running game (it never pauses or blocks). */
 function showWelcomeStrip(idle, login) {
   const root = $('strip');
   root.innerHTML = '';
-  const total = (idle ? idle.cash : 0) + (login ? login.cash : 0);
+  const total = idle ? idle.cash : 0;
   let done = false;
   const collect = async (double) => {
     if (done) return;
@@ -1790,18 +1908,22 @@ function showWelcomeStrip(idle, login) {
     const k = double ? 2 : 1;
     const rect = card.getBoundingClientRect();
     if (idle) save.data.stats.crew = (save.data.stats.crew || 0) + idle.boxes;
-    earn(total * k, { screen: true, x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
-    if (login) analytics.track('daily_reward_claim', { day: login.day, amount: login.cash * k });
+    if (total) earn(total * k, { screen: true, x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
+    if (login) analytics.track('daily_reward_claim', { day: login.day, unlocks: login.got.map((r) => r.id).join(',') });
     if (idle) analytics.track('idle_collect', { boxes: idle.boxes, amount: idle.cash * k });
     card.classList.add('out');
     setTimeout(() => (root.innerHTML = ''), 320);
   };
   const rows = [];
   if (idle) rows.push(h('div.row', { html: icon('truck') + `<span class="w">AWAY</span>${bar(idle.hrs / 8)}<span class="amt">+$${fmtNum(idle.cash)}</span>` }));
-  if (login) rows.push(h('div.row', { html: icon(login.day >= 7 ? 'trophy' : 'star') + `<span class="w">DAY ${login.day}</span>${ladder(Math.min(7, login.day))}<span class="amt">+$${fmtNum(login.cash)}</span>` }));
+  if (login) {
+    // today's unlock (it is already on the crane), or how far the next one is
+    for (const r of login.got) rows.push(h('div.row.unlock', { html: icon(r.icon) + `<span class="w">DAY ${r.day}</span><span class="amt">UNLOCKED · ${r.name}</span>` }));
+    if (!login.got.length && login.next) rows.push(h('div.row', { html: icon('gift') + `<span class="w">DAY ${login.day}</span>${bar(login.day / login.next.day)}<span class="amt">DAY ${login.next.day}: ${login.next.name}</span>` }));
+  }
   const acts = h('div.acts');
-  if (sdk.adsEnabled) acts.appendChild(h('button.btn.small.teal', { onclick: () => collect(true), html: icon('ad') + 'Collect ×2' }));
-  acts.appendChild(h('button.btn.small.primary', { onclick: () => collect(false), html: icon('coin') + 'Collect' }));
+  if (sdk.adsEnabled && total) acts.appendChild(h('button.btn.small.teal', { onclick: () => collect(true), html: icon('ad') + 'Collect ×2' }));
+  acts.appendChild(h('button.btn.small.primary', { onclick: () => collect(false), html: icon(total ? 'coin' : 'check') + (total ? 'Collect' : 'OK') }));
   const card = h('div.strip', h('div.row', { html: `<b class="sthead">WELCOME BACK</b>` }), ...rows, acts);
   root.appendChild(card);
   audio.play('ui_open');
@@ -1825,7 +1947,10 @@ function showPrivacyNote() {
 /** What tomorrow brings — for the pause card and the end-of-shift report. Only things that exist. */
 app.tomorrow = () => {
   const L = save.data.login || { streak: 0 };
-  const lines = [`Day ${(L.streak || 0) + 1} login bonus: +$${fmtNum(loginReward((L.streak || 0) + 1))}`];
+  const nx = ladderAt(L.streak || 0).next;
+  const lines = [nx ? (nx.day === (L.streak || 0) + 1 ? `Day ${nx.day}: ${nx.name}` : `Day ${(L.streak || 0) + 1} on the ladder · day ${nx.day}: ${nx.name}`) : `Day ${(L.streak || 0) + 1} on the quay`];
+  const f = save.data.fund || {};
+  lines.push(`Daily ship: up to ${FUND_CAP} port fund (${f.n || 0} saved)`);
   const weekEnds = weekDaysLeft() === 1;
   lines.push('A new daily challenge ship' + (weekEnds ? (sdk.hasLeaderboard ? ' · a new weekly tournament' : ' · a fresh weekly port record') : ''));
   const st = save.data.story || {};
@@ -2257,7 +2382,7 @@ function frame(now) {
 
 function tick(raw) {
   input.poll();
-  const frozen = app.mode === 'paused' || app.mode === 'picker' || sdk.adActive;
+  const frozen = app.mode === 'paused' || sdk.adActive;
   // hit-stop: a few frozen frames on the big moments
   let dt = frozen ? 0 : raw;
   if (app.hitStop > 0 && !frozen) {
@@ -2277,8 +2402,9 @@ function tick(raw) {
   } else if (app.mode === 'paused' && input.action('pause')) app.resume();
 
   input.enabled = app.mode === 'play';
-  // the opening camera move waits behind the picker, and hurries once the player steers
+  // the opening camera move waits while paused, and hurries once the player steers
   updateOpening(raw);
+  updateJobLine(raw);
   app.cams.introHold = app.mode !== 'play';
   app.cams.lensShift = app.mode === 'play' && app.touchMode ? (manualTouch() ? 0.1 : 0.05) : 0;
   if (app.cams.introOn && app.mode === 'play' && (Math.abs(input.axisX) + Math.abs(input.axisZ) + Math.abs(input.hoist) > 0.1 || (s && s.target))) app.cams.hurryIntro();
@@ -2416,6 +2542,7 @@ if (typeof __DEV__ !== 'undefined' && __DEV__) {
     THREE,
     dailyShift,
     endlessShip,
+    sdk,
     sim(sec, step = 1 / 60) {
       const n = Math.round(sec / step);
       for (let i = 0; i < n; i++) {

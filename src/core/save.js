@@ -12,7 +12,7 @@ const defaults = () => ({
   // Tonight's Shift: today's record, and how many nights in a row it has been worked
   daily: { date: '', best: 0, stars: 0, order: '', streak: 0, bestStreak: 0, last: '', plays: 0 },
   // controls (touch devices): '' = not chosen yet, 'manual' (stick + buttons) or 'onefinger' (drag + tap)
-  settings: { music: 0.7, sfx: 0.9, quality: 'auto', shake: true, cabDefault: false, hints: true, flashes: true, controls: '', showFps: false },
+  settings: { music: 0.7, sfx: 0.9, quality: 'auto', shake: true, cabDefault: false, hints: true, flashes: true, controls: '', showFps: false, berth: '' },
   flags: { introSeen: false, tutorialDone: false, endlessSeen: false, checkSeen: false },
   story: { boxes: {}, opened: {}, ending: null },
   login: { last: '', streak: 0, best: 0 }, // daily login streak (local calendar days)
@@ -20,6 +20,10 @@ const defaults = () => ({
   rigSetup: '', // 'steady' | 'fast' | '' (chosen after the second ship, switchable in the workshop)
   install: '', // first day played (YYYY-MM-DD), for return-day analytics // what became of each unlisted box (shift id -> outcome)
   paint: 'yellow',
+  lamp: 'sodium', // the trolley's work lamp (LAMPS in crane.js)
+  plate: '', // 'gold' once the daily ladder gives it
+  unlocks: {}, // daily ladder, port fund and story perk unlocks (rewards.js): id -> true
+  fund: { n: 0, date: '', today: 0, total: 0 }, // port fund: daily ship only, capped per day
   awards: {},
   stats: { placed: 0, lost: 0, perfects: 0, earned: 0, playSeconds: 0, busted: 0, smuggled: 0 },
 });
@@ -99,6 +103,12 @@ function sanitize(d) {
   if (!['', 'steady', 'fast'].includes(d.rigSetup)) d.rigSetup = '';
   if (!['', 'manual', 'onefinger'].includes(st.controls)) st.controls = '';
   if (typeof d.paint !== 'string') d.paint = 'yellow';
+  if (typeof d.lamp !== 'string') d.lamp = 'sodium';
+  if (!d.unlocks || typeof d.unlocks !== 'object' || Array.isArray(d.unlocks)) d.unlocks = {};
+  if (!d.fund || typeof d.fund !== 'object') d.fund = { n: 0, date: '', today: 0, total: 0 };
+  d.fund.n = num(d.fund.n);
+  d.fund.today = num(d.fund.today, 0, 3);
+  if (!['', 'A', 'B'].includes(st.berth)) st.berth = '';
   return d;
 }
 

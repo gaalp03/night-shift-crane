@@ -4174,7 +4174,7 @@ body.coach-nudge .dropbtn.ready::after {
   }
 }
 
-/* ------------------------------------------------------------------ controls: manual pad, picker, desktop keys */
+/* ------------------------------------------------------------------ controls: manual pad, desktop keys */
 /* the upgrade chip stays reachable on portrait phones (under the wallet) */
 body.touch.portrait .hud-tr .upgrade {
   font-size: 0.92em;
@@ -4196,244 +4196,6 @@ body.ctl-manual.landscape .hud-bc {
 }
 .tbtn.lock:not(.ready):not(.release) {
   opacity: 0.8;
-}
-
-#picker {
-  z-index: 50;
-  pointer-events: auto;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 1em;
-  padding: calc(1em + var(--st)) 1em calc(1em + var(--sb));
-  background: radial-gradient(ellipse at center, rgba(4, 8, 15, 0.72), rgba(4, 8, 15, 0.92));
-  animation: pickIn 0.3s ease both;
-}
-#picker.out {
-  animation: pickOut 0.25s ease forwards;
-}
-@keyframes pickIn {
-  from {
-    opacity: 0;
-  }
-}
-@keyframes pickOut {
-  to {
-    opacity: 0;
-  }
-}
-.pick-head {
-  display: flex;
-  align-items: center;
-  gap: 0.4em;
-  font-family: var(--font-stencil);
-  font-size: 1.5em;
-  letter-spacing: 0.14em;
-  color: var(--amber);
-}
-.pick-head svg.ico {
-  width: 1.1em;
-  height: 1.1em;
-  fill: currentColor;
-}
-.pick-cards {
-  display: flex;
-  gap: 1em;
-  width: min(100%, 36em);
-}
-body.portrait .pick-cards {
-  flex-direction: column;
-  width: min(100%, 22em);
-}
-.pickcard {
-  position: relative;
-  flex: 1 1 0;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.35em;
-  padding: 0.9em 0.8em 1em;
-  border: 0;
-  border-radius: 0.8em;
-  overflow: hidden;
-  color: var(--text);
-  background: linear-gradient(rgba(34, 57, 74, 0.92), rgba(16, 28, 38, 0.96));
-  box-shadow: inset 0 0 0 0.14em rgba(255, 179, 71, 0.55), 0 0.8em 2em rgba(0, 0, 0, 0.5);
-  cursor: pointer;
-  touch-action: manipulation;
-  -webkit-tap-highlight-color: transparent;
-}
-.pickcard:active {
-  transform: scale(0.97);
-}
-.pickcard b {
-  font-family: var(--font-stencil);
-  font-weight: 400;
-  font-size: 1.45em;
-  letter-spacing: 0.08em;
-}
-.pickcard small {
-  color: var(--dim);
-  font-size: max(12px, 0.85em);
-}
-.pickcard .autobar {
-  position: absolute;
-  left: 0;
-  bottom: 0;
-  height: 0.3em;
-  width: 100%;
-  background: #ffb347;
-  transform-origin: left center;
-  animation: autobar 5s linear forwards;
-}
-@keyframes autobar {
-  to {
-    transform: scaleX(0);
-  }
-}
-.pick-foot {
-  color: var(--dim);
-  font-size: max(12px, 0.85em);
-}
-/* live previews: a tiny stick that drives itself next to its buttons; a finger dragging a box */
-.pv {
-  position: relative;
-  width: 10em;
-  height: 5.4em;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 1em;
-}
-.pv-stick {
-  position: relative;
-  width: 4.4em;
-  height: 4.4em;
-  border-radius: 50%;
-  background: rgba(8, 15, 21, 0.7);
-  box-shadow: inset 0 0 0 0.12em rgba(255, 255, 255, 0.2);
-}
-.pv-stick i {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 1.9em;
-  height: 1.9em;
-  margin: -0.95em;
-  border-radius: 50%;
-  background: radial-gradient(circle at 35% 30%, #ffd98a, #f09a22 70%);
-  animation: pvStick 2.4s ease-in-out infinite;
-}
-@keyframes pvStick {
-  0%,
-  100% {
-    transform: translate(0, 0);
-  }
-  20% {
-    transform: translate(1.1em, 0);
-  }
-  40% {
-    transform: translate(0, -1.1em);
-  }
-  60% {
-    transform: translate(-1.1em, 0);
-  }
-  80% {
-    transform: translate(0, 1.1em);
-  }
-}
-.pv-btns {
-  display: grid;
-  grid-template-columns: auto auto;
-  gap: 0.3em;
-}
-.pv-btns span {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.9em;
-  height: 1.9em;
-  border-radius: 0.4em;
-  background: rgba(34, 57, 74, 0.95);
-  box-shadow: inset 0 0 0 0.1em rgba(255, 255, 255, 0.18);
-  animation: pvBtn 2.4s linear infinite;
-}
-.pv-btns span:nth-child(2) {
-  animation-delay: 0.8s;
-}
-.pv-btns span.lk {
-  grid-column: 1 / span 2;
-  width: auto;
-  border-radius: 1em;
-  animation-delay: 1.6s;
-}
-.pv-btns svg.ico {
-  width: 1.2em;
-  height: 1.2em;
-  fill: currentColor;
-}
-@keyframes pvBtn {
-  0%,
-  25%,
-  100% {
-    background: rgba(34, 57, 74, 0.95);
-    color: var(--text);
-  }
-  8% {
-    background: #ffb347;
-    color: #201405;
-  }
-}
-.pv-track {
-  position: relative;
-  width: 9em;
-  height: 4.6em;
-  border-radius: 0.5em;
-  background: repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.05) 0 0.8em, transparent 0.8em 1.6em);
-}
-.pv-box {
-  position: absolute;
-  left: 0.6em;
-  top: 0.9em;
-  width: 2.2em;
-  height: 1.4em;
-  border-radius: 0.2em;
-  background: #d8463b;
-  box-shadow: inset 0 0 0 0.12em rgba(0, 0, 0, 0.25);
-  animation: pvBox 2.6s ease-in-out infinite;
-}
-.pv-hand {
-  position: absolute;
-  left: 1.2em;
-  top: 1.6em;
-  width: 2.4em;
-  height: 2.4em;
-  animation: pvBox 2.6s ease-in-out infinite;
-}
-.pv-hand svg.ico {
-  width: 100%;
-  height: 100%;
-  fill: #fff;
-  filter: drop-shadow(0 0.1em 0.15em rgba(0, 0, 0, 0.6));
-}
-@keyframes pvBox {
-  0%,
-  10% {
-    transform: translate(0, 0);
-  }
-  55%,
-  70% {
-    transform: translate(5.2em, 0.6em);
-  }
-  76% {
-    transform: translate(5.2em, 0.85em) scale(0.92);
-  }
-  85%,
-  100% {
-    transform: translate(5.2em, 0.6em);
-  }
 }
 
 #keysintro {
@@ -4601,4 +4363,231 @@ body.touch.portrait.ctl-manual:not(.hud0) .hud-tc {
   display: flex !important;
   top: calc(var(--pad) + var(--st));
   font-size: 0.84em;
+}
+
+/* the job line: what to load and how long there is, from the first frame of a run */
+#jobline {
+  position: absolute;
+  left: 50%;
+  top: calc(9.4em + var(--st));
+  right: auto;
+  bottom: auto;
+  width: auto;
+  height: auto;
+  z-index: 17;
+  transform: translateX(-50%);
+  padding: 0.5em 1.3em 0.55em;
+  border-radius: 0.7em;
+  background: rgba(6, 12, 18, 0.72);
+  box-shadow: inset 0 0 0 0.12em rgba(255, 179, 71, 0.55), 0 0.5em 1.4em rgba(0, 0, 0, 0.45);
+  text-align: center;
+  white-space: nowrap;
+  pointer-events: none;
+  animation: jobIn 0.35s ease-out both;
+  transition: opacity 0.45s, transform 0.45s;
+}
+#jobline .j1 {
+  font-family: 'Bungee', sans-serif;
+  font-size: 1.6em;
+  letter-spacing: 0.04em;
+  color: #ffc566;
+}
+#jobline .j2 {
+  margin-top: 0.15em;
+  font-weight: 700;
+  font-size: 0.9em;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+#jobline.out {
+  opacity: 0;
+  transform: translate(-50%, -0.8em);
+}
+@keyframes jobIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -0.6em);
+  }
+}
+body.touch #jobline {
+  top: calc(5.2em + var(--st));
+  font-size: 0.92em;
+}
+@media (orientation: portrait) {
+  body.touch #jobline {
+    top: calc(7.6em + var(--st));
+  }
+}
+/* the first box: its DROP (the desktop button, the pad's round button) pulses hard from frame one */
+body.firstcue .dropbtn,
+body.firstcue #touch .tbtn.lock {
+  animation: firstCue 0.55s ease-in-out infinite alternate !important;
+}
+@keyframes firstCue {
+  from {
+    box-shadow: 0 0 0 0.2em rgba(8, 14, 20, 0.85), 0 0 0 0.35em rgba(255, 197, 102, 0.55), 0 0 1.2em rgba(255, 179, 71, 0.45);
+    transform: scale(1);
+  }
+  to {
+    box-shadow: 0 0 0 0.2em rgba(8, 14, 20, 0.85), 0 0 0 0.85em rgba(255, 197, 102, 0.2), 0 0 2.6em rgba(255, 179, 71, 0.8);
+    transform: scale(1.07);
+  }
+}
+
+/* ship card: the one named next goal, and this week's record */
+.shipcard .nextgoal {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  column-gap: 0.5em;
+  row-gap: 0.25em;
+  margin-top: 0.6em;
+  padding: 0.5em 0.7em;
+  border-radius: 0.5em;
+  background: rgba(255, 179, 71, 0.1);
+  box-shadow: inset 0 0 0 0.1em rgba(255, 179, 71, 0.35);
+  text-align: left;
+  font-weight: 700;
+}
+.shipcard .nextgoal svg.ico {
+  grid-row: 1 / span 3;
+  width: 1.6em;
+  height: 1.6em;
+  fill: #ffb347;
+}
+.shipcard .nextgoal .gt {
+  font-size: 1.05em;
+  color: #ffe2b0;
+}
+.shipcard .nextgoal .pbar {
+  max-width: none;
+}
+.shipcard .nextgoal small {
+  color: var(--dim);
+  font-size: 0.8em;
+}
+.shipcard .weekrec {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55em;
+  margin-top: 0.45em;
+  font-size: 0.82em;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--dim);
+}
+.shipcard .weekrec svg.ico {
+  width: 1.1em;
+  height: 1.1em;
+  fill: #ffd070;
+}
+.shipcard .weekrec b {
+  color: var(--text);
+}
+.shipcard .weekrec .you {
+  padding: 0.1em 0.45em;
+  border-radius: 0.35em;
+  background: rgba(255, 255, 255, 0.08);
+}
+@media (max-height: 420px) {
+  .shipcard .nextgoal {
+    margin-top: 0.35em;
+    padding: 0.3em 0.55em;
+  }
+  .shipcard .nextgoal small {
+    display: none;
+  }
+  .shipcard .weekrec {
+    margin-top: 0.25em;
+  }
+}
+
+/* workshop: the port fund, the berth, story perks */
+.fundshop .fundhead {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  margin-bottom: 0.3em;
+  color: var(--dim);
+  font-weight: 700;
+}
+.fundshop .fundhead b {
+  font-size: 1.3em;
+  color: #7fe8ff;
+}
+.fundshop .fundhead svg.ico {
+  width: 1.3em;
+  height: 1.3em;
+  fill: #7fe8ff;
+}
+.extras .perks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4em;
+  margin-top: 0.4em;
+}
+.extras .perk {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
+  padding: 0.25em 0.55em;
+  border-radius: 0.4em;
+  background: rgba(127, 232, 255, 0.1);
+  font-size: 0.85em;
+  color: var(--dim);
+}
+.extras .perk b {
+  color: var(--text);
+}
+.extras .perk svg.ico {
+  width: 1em;
+  height: 1em;
+  fill: #7fe8ff;
+}
+.strip .row.unlock .amt {
+  color: #7ee08a;
+}
+
+/* the storm ship: telegraphed on the card before her, marked while she is alongside */
+.shipcard .stormnext {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45em;
+  margin-top: 0.45em;
+  padding: 0.35em 0.6em;
+  border-radius: 0.45em;
+  background: rgba(255, 90, 70, 0.16);
+  box-shadow: inset 0 0 0 0.1em rgba(255, 110, 90, 0.6);
+  color: #ffb4a6;
+  font-size: 0.85em;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+.shipcard .stormnext svg.ico {
+  width: 1.2em;
+  height: 1.2em;
+  fill: #ff8a70;
+}
+body.stormship .timer {
+  color: #ff9a85;
+  box-shadow: inset 0 0 0 0.12em rgba(255, 110, 90, 0.75);
+}
+body.stormship #ui::after {
+  content: 'STORM SHIP · 2 LOST AND SHE SAILS';
+  position: absolute;
+  left: 50%;
+  top: calc(6.4em + var(--st));
+  transform: translateX(-50%);
+  padding: 0.2em 0.7em;
+  border-radius: 0.4em;
+  background: rgba(120, 20, 10, 0.7);
+  color: #ffd2c8;
+  font-size: 0.72em;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  pointer-events: none;
+  white-space: nowrap;
 }

@@ -1,4 +1,5 @@
 // Shift (level) definitions, the endless "Overtime" generator and upgrade catalogue.
+import { applyPerks } from './rewards.js';
 import { CARGO_TYPES, SCORE } from '../config.js';
 import { makeRng } from '../core/util.js';
 import { SHIP_NAMES } from '../world/ship.js';
@@ -246,6 +247,18 @@ const ENDLESS_WEATHER = [
 ];
 
 /** Definition for the n-th ship (0-based) of an Overtime run. */
+/**
+ * The storm ship: every fifth ship of a night (ships 5, 10, 15 …). The one ship that can be lost:
+ * two boxes overboard, or the clock out before she is full, and she sails without the bonus. Full,
+ * she pays double and a jackpot. Every other ship stays fail-free.
+ */
+export const STORM_EVERY = 5;
+export const STORM_LOSSES = 2;
+export const STORM_JACKPOT = 400;
+export function isStormShip(n) {
+  return n % STORM_EVERY === STORM_EVERY - 1;
+}
+
 export function endlessShip(n, seed) {
   const rng = makeRng(seed + n * 7919);
   const zonesAll = ['ROT', 'SIN', 'NYC', 'OSL'];
@@ -359,11 +372,13 @@ export function endlessShip(n, seed) {
   const stage = Math.floor(n / 2);
   const w = ENDLESS_WEATHER[Math.min(ENDLESS_WEATHER.length - 1, stage)];
   const cycle = stage >= ENDLESS_WEATHER.length ? ENDLESS_WEATHER[2 + ((n * 3) % 4)] : w;
+  const storm = isStormShip(n);
   return {
     id: 'endless',
     endless: true,
+    storm,
     n: n + 1,
-    name: 'Overtime',
+    name: storm ? 'Storm ship' : 'Overtime',
     ship: { rows, bays, tiers: 3, style: n % 5, name: SHIP_NAMES[(n * 5 + 3) % SHIP_NAMES.length], zones },
     manifest,
     preload,
@@ -371,7 +386,7 @@ export function endlessShip(n, seed) {
     // (the first two ships give a newcomer room to learn; after that it is 60-90 seconds a ship)
     roundTime: n < 2 ? 44 + count * 11 : 36 + count * 9,
     bonusTime: 40 + count * 21,
-    weather: stage >= ENDLESS_WEATHER.length ? cycle : w,
+    weather: storm ? ENDLESS_WEATHER[ENDLESS_WEATHER.length - 1] : stage >= ENDLESS_WEATHER.length ? cycle : w,
     strikes: 3,
     quota: count,
   };
@@ -606,7 +621,7 @@ export const RIG_SETUPS = {
   fast: { id: 'fast', name: 'Fast', icon: 'motor', trolley: 1.3, swayMul: 0.62 },
 };
 
-export function upgradeMods(levels = {}, setup = '') {
+export function upgradeMods(levels = {}, setup = '', unlocks = {}, berth = '') {
   const m = baseMods(levels);
   const r = RIG_SETUPS[setup];
   if (r) {
@@ -614,7 +629,8 @@ export function upgradeMods(levels = {}, setup = '') {
     m.gantry *= r.trolley;
     m.swayMul *= r.swayMul;
   }
-  return m;
+  // story perks, the port fund's spotter and Berth B (see rewards.js)
+  return applyPerks(m, unlocks, berth);
 }
 
 function baseMods(levels) {

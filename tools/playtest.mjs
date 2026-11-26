@@ -66,7 +66,7 @@ const look = () =>
     }
     const vis = (sel) => { const el = document.querySelector(sel); if (!el) return null; const r = el.getBoundingClientRect(); const cs = getComputedStyle(el); return r.width > 2 && r.height > 2 && cs.display !== 'none' && cs.visibility !== 'hidden' && el.offsetParent !== null ? { x: r.left + r.width / 2, y: r.top + r.height / 2, w: r.width, h: r.height } : null; };
     const out = { mode: a.mode, picker: !!document.getElementById('picker'), keys: !!document.getElementById('keysintro'), coach: (document.getElementById('coach').textContent || '').trim(), card: !!document.querySelector('.shipcard:not(.out)'), money: N.save.data.money, upgrades: Object.values(N.save.data.upgrades).reduce((x, y) => x + y, 0), rig: N.save.data.rigSetup };
-    out.btn = { drop: vis('.dropbtn'), lock: vis('#touch .tbtn.lock'), up: vis('#touch .tbtn.up'), dn: vis('#touch .tbtn.dn'), stick: vis('#touch .stick'), pause: vis('.hud-btns .btn:last-child'), unlock: vis('.shipcard .btn.teal'), next: vis('.shipcard .btn.primary'), steady: vis('.shipcard .rigopt'), manualCard: vis('.pickcard.manual'), oneCard: vis('.pickcard.onefinger') };
+    out.btn = { drop: vis('.dropbtn'), lock: vis('#touch .tbtn.lock'), up: vis('#touch .tbtn.up'), dn: vis('#touch .tbtn.dn'), stick: vis('#touch .stick'), pause: vis('.hud-btns .btn:last-child'), unlock: vis('.shipcard .btn.teal'), next: vis('.shipcard .btn.primary'), steady: vis('.shipcard .rigopt') };
     if (!s || s.attract) return out;
     const r = s.rig;
     const g = s.wantedGrab();
@@ -194,14 +194,28 @@ const firstInput = (what) => { if (M.firstInput == null) { M.firstInput = now();
 
 // ---------------------------------------------------------------- the play loop
 let st = await look();
-// touch, first launch: the picker
+// touch, first launch: Manual and play at once (no choice screen); a One-finger player switches in
+// the pause menu (pause, Switch controls, Back to work: real taps)
 if (per.scheme !== 'keys') {
-  if (st.picker) {
-    await page.waitForTimeout(900 + Math.random() * 600); // reads the two cards
-    const card = per.pick === 'manual' ? st.btn.manualCard : st.btn.oneCard;
-    if (card) { await tap(card); firstInput('tapped the ' + per.pick + ' card'); }
-    else M.confused.push('picker card not visible');
-  } else M.confused.push('no control picker on first touch launch');
+  if (st.picker) M.confused.push('a choice screen blocks the first launch');
+  if (st.mode !== 'play' || !st.btn.lock) M.confused.push('touch launch: not straight into play with the pad');
+  if (per.pick === 'onefinger') {
+    await page.waitForTimeout(700 + Math.random() * 500); // looks for the setting
+    if (st.btn.pause) {
+      await tap(st.btn.pause);
+      firstInput('tapped pause to change the controls');
+      await page.waitForTimeout(300);
+      const sw = await ev(() => { const b = document.querySelector('.btn.switchctl'); if (!b) return null; const r = b.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+      if (sw) await tap(sw);
+      else M.confused.push('no Switch controls in the pause menu');
+      await page.waitForTimeout(250);
+      const back = await ev(() => { const b = document.querySelector('#screens .btn.primary'); if (!b) return null; const r = b.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+      if (back) await tap(back);
+      await page.waitForTimeout(400);
+      st = await look();
+      if (!st.btn.drop) M.confused.push('One-finger: no DROP button after switching');
+    } else M.confused.push('pause button not visible');
+  }
 } else {
   await page.waitForTimeout(1500); // a first look at the screen
   st = await look();

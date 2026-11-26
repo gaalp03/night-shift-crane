@@ -1,6 +1,7 @@
 // Bundles src/main.js (three.js + rapier included, no CDN) into build/game.js
 import { build, context } from 'esbuild';
 import { copyFileSync, mkdirSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { gzipSync, constants as zc } from 'node:zlib';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -31,8 +32,12 @@ const rapierWasm = {
       const m = src.match(/(\w+)\.toByteArray\("([A-Za-z0-9+/=]{10000,})"\)(\.buffer)?/);
       if (!m) return { contents: src, loader: 'js' };
       mkdirSync(resolve(root, 'build'), { recursive: true });
-      writeFileSync(resolve(root, 'build/rapier.wasm'), Buffer.from(m[2], 'base64'));
-      src = src.replace(m[0], 'new URL("build/rapier.wasm", document.baseURI)');
+      const wasm = Buffer.from(m[2], 'base64');
+      writeFileSync(resolve(root, 'build/rapier.wasm'), wasm);
+      // a gzip copy (a third of the size): the page inflates it itself, so the saving does not depend
+      // on the host compressing .wasm (see src/game/physics.js); the plain file stays as the fallback
+      writeFileSync(resolve(root, 'build/rapier.wasm.gz'), gzipSync(wasm, { level: zc.Z_BEST_COMPRESSION }));
+      src = src.replace(m[0], '(typeof window !== "undefined" && window.__nscWasm ? window.__nscWasm() : new URL("build/rapier.wasm", document.baseURI))');
       return { contents: src, loader: 'js' };
     });
   },

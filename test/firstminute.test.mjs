@@ -82,7 +82,7 @@ test('first load, desktop: the opening close-up pulls back while play is live; o
   });
 });
 
-test('first load, phone: after the control picker the first box is still a PERFECT (the wait never costs it)', { skip, timeout: 300000 }, async () => {
+test('first load, phone: no choice screen, and the first box is a PERFECT', { skip, timeout: 300000 }, async () => {
   await withPage({ device: 'Pixel 5', until: 'frame' }, async (page) => {
     await page.waitForFunction(() => window.__nsc.app.mode === 'play', null, { timeout: 30000 });
     const r = await page.evaluate(() => {
@@ -174,7 +174,7 @@ test('automatic quality: a phone that cannot hold the frame rate drops resolutio
     assert.ok(r.end.particles < 1 && r.end.rain < 1, 'fewer particles and rain drops');
     assert.equal(r.fx, r.end.particles, 'the particle system follows');
     assert.equal(r.saved, 6, 'remembered for the next visit');
-    await page.waitForTimeout(600);
+    await page.waitForFunction(() => /FPS/.test((document.getElementById('fpsmeter') || {}).textContent || ''), null, { timeout: 10000 }).catch(() => {});
     const meter = await page.evaluate(() => (document.getElementById('fpsmeter') || {}).textContent || '');
     assert.match(meter, /\d+ FPS · MEDIUM L6 · 0\.\d+x · no shadows/, 'the counter: ' + meter);
     assert.deepEqual(page.errors, []);

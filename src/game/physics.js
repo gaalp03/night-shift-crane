@@ -4,6 +4,34 @@ import { TUNE } from '../config.js';
 
 export { RAPIER };
 
+/**
+ * The physics wasm: the gzip copy (~0.5 MB instead of ~1.4 MB), inflated with DecompressionStream and
+ * compiled as it streams in (WebAssembly.compileStreaming). If the browser cannot inflate, the file
+ * is missing, or the host already decoded it, the plain wasm is compiled instead.
+ */
+async function loadWasm() {
+  const plainURL = new URL('build/rapier.wasm', document.baseURI);
+  const plain = async () => {
+    const r = await fetch(plainURL);
+    if (WebAssembly.compileStreaming) {
+      try {
+        return await WebAssembly.compileStreaming(r.clone());
+      } catch (e) {}
+    }
+    return WebAssembly.compile(await r.arrayBuffer());
+  };
+  if (typeof DecompressionStream !== 'function' || !WebAssembly.compileStreaming) return plain();
+  try {
+    const r = await fetch(new URL('build/rapier.wasm.gz', document.baseURI));
+    if (!r.ok || !r.body) return plain();
+    const body = r.body.pipeThrough(new DecompressionStream('gzip'));
+    return await WebAssembly.compileStreaming(new Response(body, { headers: { 'Content-Type': 'application/wasm' } }));
+  } catch (e) {
+    return plain();
+  }
+}
+if (typeof window !== 'undefined') window.__nscWasm = loadWasm;
+
 let ready = null;
 export function initPhysics() {
   if (!ready) ready = RAPIER.init();
@@ -63,12 +91,7 @@ export class Phys {
   }
 
   dynamicBody(x, y, z, { canSleep = true, linDamp = 0.02, angDamp = 0.08, ccd = false } = {}) {
-    const d = RAPIER.RigidBodyDesc.dynamic()
-      .setTranslation(x, y, z)
-      .setLinearDamping(linDamp)
-      .setAngularDamping(angDamp)
-      .setCanSleep(canSleep)
-      .setCcdEnabled(ccd);
+    const d = RAPIER.RigidBodyDesc.dynamic().setTranslation(x, y, z).setLinearDamping(linDamp).setAngularDamping(angDamp).setCanSleep(canSleep).setCcdEnabled(ccd);
     return this.world.createRigidBody(d);
   }
 
@@ -82,9 +105,7 @@ export class Phys {
     if (o.rot) d = d.setRotation(o.rot);
     if (o.density != null) d = d.setDensity(o.density);
     if (o.events) {
-      d = d
-        .setActiveEvents(RAPIER.ActiveEvents.CONTACT_FORCE_EVENTS)
-        .setContactForceEventThreshold(o.eventThreshold == null ? 30 : o.eventThreshold);
+      d = d.setActiveEvents(RAPIER.ActiveEvents.CONTACT_FORCE_EVENTS).setContactForceEventThreshold(o.eventThreshold == null ? 30 : o.eventThreshold);
     }
     const c = o.body ? this.world.createCollider(d, o.body) : this.world.createCollider(d);
     if (o.tag) this.tag(c, o.tag);

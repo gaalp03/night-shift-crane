@@ -12,6 +12,19 @@ export const PAINTS = {
   teal: { name: 'Sea Teal', main: 0x2c8f85, accent: 0xe2ddd0, trim: 0xe8a61c, cost: 14 },
   white: { name: 'Arctic White', main: 0xe2ddd0, accent: 0x34609f, trim: 0xc23d2b, cost: 24 },
   navy: { name: 'Midnight Navy', main: 0x2a3f66, accent: 0xe8a61c, trim: 0xe2ddd0, cost: 34 },
+  // daily ladder and port fund paints (unlocked, never bought with stars or money)
+  dawn: { name: 'Dawn Orange', main: 0xe2702a, accent: 0x1f2529, trim: 0xe2ddd0, unlock: 'paint_dawn' },
+  ice: { name: 'Ice Blue', main: 0x8cc4e0, accent: 0x1f2529, trim: 0xe8a61c, unlock: 'paint_ice' },
+  owl: { name: 'Night Owl', main: 0x1c2228, accent: 0x5fe0e8, trim: 0x5fe0e8, unlock: 'rig_owl' },
+  gold: { name: 'Gold Leaf', main: 0xc9a23a, accent: 0x1f2529, trim: 0xf3efe6, unlock: 'paint_gold' },
+};
+
+/** The trolley's work lamp: sodium by default, others unlocked. */
+export const LAMPS = {
+  sodium: { name: 'Sodium', color: null },
+  led: { name: 'LED', color: 0xe8f2ff, unlock: 'lamp_led' },
+  cyan: { name: 'Night Owl', color: 0x7fe8ff, unlock: 'rig_owl' },
+  amber: { name: 'Amber', color: 0xffa040, unlock: 'lamp_amber' },
 };
 
 const _a = new THREE.Vector3();
@@ -507,21 +520,41 @@ export class CraneView {
   }
 
   /** Paint the operator's name onto the cab plate. */
+  /** Work lamp colour (LAMPS id). */
+  setLamp(id) {
+    const w = this.workLight;
+    if (!w) return;
+    if (this._lampBase == null) this._lampBase = w.color.getHex();
+    const l = LAMPS[id] || LAMPS.sodium;
+    const c = l.color == null ? this._lampBase : l.color;
+    w.color.setHex(c);
+    const u = this.workCone && this.workCone.material && this.workCone.material.uniforms;
+    if (u && u.uColor) u.uColor.value.setHex(c);
+    this.lampId = id;
+  }
+
+  /** The cab plate in gold (a daily-ladder reward). */
+  setPlateGold(on) {
+    this._plateGold = !!on;
+    if (this._plateCanvas) this.setOperator(this._operator);
+  }
+
   setOperator(name) {
     this._operator = name;
     const c = this._plateCanvas;
     if (!c) return;
     const g = c.getContext('2d');
-    g.fillStyle = '#14191d';
+    const gold = this._plateGold;
+    g.fillStyle = gold ? '#c9a23a' : '#14191d';
     g.fillRect(0, 0, c.width, c.height);
-    g.strokeStyle = '#ffb347';
+    g.strokeStyle = gold ? '#fff2c0' : '#ffb347';
     g.lineWidth = 5;
     g.strokeRect(5, 5, c.width - 10, c.height - 10);
     g.textBaseline = 'middle';
-    g.fillStyle = '#ffb347';
+    g.fillStyle = gold ? '#1c1408' : '#ffb347';
     g.font = '400 34px "Saira Stencil One", "Barlow Condensed", sans-serif';
     g.fillText('07', 22, c.height / 2 + 2);
-    g.fillStyle = '#f3efe6';
+    g.fillStyle = gold ? '#1c1408' : '#f3efe6';
     let size = 42;
     const label = String(name || 'Guest').toUpperCase();
     do {
