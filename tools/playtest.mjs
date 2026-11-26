@@ -24,6 +24,7 @@ const PERSONAS = {
   5: { name: 'Desktop · WASD · experienced, 3+ ships, upgrades', ctx: { viewport: { width: 1366, height: 768 } }, scheme: 'keys', keys: 'wasd', patience: 90, ships: 3, buys: true },
 };
 const per = PERSONAS[P];
+if (process.env.SHIPS) per.ships = Number(process.env.SHIPS); // (e.g. SHIPS=6: play on through the storm ship)
 const log = [];
 const note = (t, m) => log.push(`${(t / 1000).toFixed(1)}s ${m}`);
 const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--mute-audio'] });
@@ -366,6 +367,7 @@ const out = {
   errors: errors.slice(0, 8),
   fps,
   losses: await ev(() => window.__losses || []),
+  storm: await ev(() => { const st = window.__nsc.app.session && window.__nsc.app.session.stats; return st ? { met: st.storms || 0, won: st.stormsWon || 0 } : null; }),
 };
 console.log(JSON.stringify(out, null, 1));
 console.log(log.join('\n'));
