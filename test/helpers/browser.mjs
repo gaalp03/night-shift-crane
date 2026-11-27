@@ -89,11 +89,12 @@ export async function startGame() {
       if (device === 'ipad') await page.addInitScript(() => Object.defineProperty(Navigator.prototype, 'maxTouchPoints', { get: () => 5 }));
       // init: a function, or [function, argument] (closures do not reach the page)
       if (init) await (Array.isArray(init) ? page.addInitScript(init[0], init[1]) : page.addInitScript(init));
-      await page.goto(base + 'index.html');
+      // (the first frame is what counts: the load event can wait on long-lived media requests)
+      await page.goto(base + 'index.html', { waitUntil: 'domcontentloaded', timeout: 120000 });
       await page.waitForFunction((until) => window.__nsc && window.__nscFirstFrame && (until === 'frame' || window.__nsc.app.mode === 'play'), until, { timeout: 120000, polling: 100 });
       pages.push(ctx);
       page.reopen = async () => {
-        await page.reload();
+        await page.reload({ waitUntil: 'domcontentloaded', timeout: 120000 });
         await page.waitForFunction(() => window.__nsc && window.__nscFirstFrame, null, { timeout: 120000, polling: 100 });
       };
       return page;

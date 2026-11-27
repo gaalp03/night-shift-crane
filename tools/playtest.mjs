@@ -34,6 +34,8 @@ const errors = [];
 page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
 page.on('console', (m) => { if ((m.type() === 'error' || m.type() === 'warning') && !/ERR_FAILED|net::|GPU stall|GL Driver|KHR_parallel/.test(m.text())) errors.push(m.type() + ': ' + m.text().slice(0, 200)); });
 if (per.points) await page.addInitScript((n) => Object.defineProperty(Navigator.prototype, 'maxTouchPoints', { get: () => n }), per.points);
+// RETURNING=1: a player who has played before (no box pre-hung: the first lock is a box fetched from a truck)
+if (process.env.RETURNING) await page.addInitScript((c) => { if (!localStorage.getItem('night-shift-crane.save.v1')) localStorage.setItem('night-shift-crane.save.v1', JSON.stringify({ v: 2, money: 60, flags: { played: true, hud: 3, coach: 4, rookie: 5, keysIntro: true, introSeen: true }, settings: { controls: c }, stats: { placed: 12 } })); }, per.pick || '');
 // frame meter (rAF intervals)
 await page.addInitScript(() => {
   window.__ft = [];
@@ -199,8 +201,8 @@ let st = await look();
 // the pause menu (pause, Switch controls, Back to work: real taps)
 if (per.scheme !== 'keys') {
   if (st.picker) M.confused.push('a choice screen blocks the first launch');
-  if (st.mode !== 'play' || !st.btn.lock) M.confused.push('touch launch: not straight into play with the pad');
-  if (per.pick === 'onefinger') {
+  if (st.mode !== 'play' || (per.pick !== 'onefinger' && !st.btn.lock)) M.confused.push('touch launch: not straight into play with the controls');
+  if (per.pick === 'onefinger' && !process.env.RETURNING) {
     await page.waitForTimeout(700 + Math.random() * 500); // looks for the setting
     if (st.btn.pause) {
       await tap(st.btn.pause);
@@ -220,7 +222,7 @@ if (per.scheme !== 'keys') {
 } else {
   await page.waitForTimeout(1500); // a first look at the screen
   st = await look();
-  if (!st.keys) M.confused.push('no key intro on first desktop launch');
+  if (!st.keys && !process.env.RETURNING) M.confused.push('no key intro on first desktop launch');
   else note(now(), 'key intro on screen');
 }
 await page.waitForTimeout(400);

@@ -1740,7 +1740,8 @@ export class Session extends Emitter {
       if (l1.cool <= 0 && this.manifestIdx < this.manifest.length) {
         const spec = this.manifest[this.manifestIdx++];
         const c = this._newCargo(spec);
-        const quick = this._firstNight && !this._quickTruck;
+        // (a session's first truck is already on its way in: the first box is in reach in seconds)
+        const quick = this.endless && !this._quickTruck;
         const tr = new Truck(this.ctx.scene, this.phys, { laneX: l1.x, stopZ: l1.z, purpose: 'deliver', color: this.manifestIdx + this.shipIndex, livery: c.black ? 'unmarked' : null, long: c.long, startZ: quick ? l1.z - 50 : undefined });
         if (quick) {
           this._quickTruck = true;
