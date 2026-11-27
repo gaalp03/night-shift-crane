@@ -176,8 +176,8 @@ export class Coach {
       }
     }
     const coming = rig.vr > 0.05;
-    // (hovering: parked over it, not on the way past)
-    const parked = Math.hypot(rig.vx, rig.vz) < 0.4;
+    // (hovering: more or less parked over it — small corrections count, passing over does not)
+    const parked = Math.hypot(rig.vx, rig.vz) < 1.0;
     this._hoverT = over && !coming && parked ? (this._hoverT || 0) + dt : 0;
     if (!over || coming) this._lowerUntil = 0;
     if (this._hoverT > HOVER.after && s.elapsed - (this._lowerAt == null ? -1e9 : this._lowerAt) > HOVER.every) {
