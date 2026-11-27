@@ -369,6 +369,9 @@ export class Session extends Emitter {
       }
     }
     if (lower) return -1;
+    // a finger nudging the crane a little (fine adjustment over the target) holds the height: only a
+    // real move lifts the load clear
+    if (this.target && this.target.held && Math.hypot(this.target.x - rig.x, this.target.z - rig.z) < 0.8 && Math.abs(ctl.x) + Math.abs(ctl.z) < 0.6) return 0;
     return rig.rope > clear + 0.2 ? 1 : 0;
   }
 
@@ -632,8 +635,10 @@ export class Session extends Emitter {
     const steer = Math.hypot(ctl.x, ctl.z);
     // steering hard away cancels it; it engages once the player lowers within reach of the slot
     const away = steer > 0.6 && (ctl.x * dx + ctl.z * dz) / (steer * Math.max(d, 1e-3)) < -0.2;
-    if (this._snap && (away || d > R * 1.4 || gap > SNAP.height + 2)) this._snap = null;
-    if (!this._snap && !away && d < R && gap < SNAP.height + k && ctl.hoist < -0.05) {
+    // (the player's own lift — E / the up button — takes it back too)
+    const lift = this.allow.hoist && input.hoist > 0.3;
+    if (this._snap && (away || lift || d > R * 1.4 || gap > SNAP.height + 2)) this._snap = null;
+    if (!this._snap && !away && !lift && d < R && gap < SNAP.height + k && ctl.hoist < -0.05) {
       this._snap = { t: 0 };
       this.emit('snapStart', { k });
     }
@@ -647,8 +652,9 @@ export class Session extends Emitter {
     this.target = T;
     this._steer(ctl);
     this.target = keep;
-    // and down, once it is over the slot (never onto a neighbour)
-    ctl.hoist = d < SNAP.align ? Math.min(ctl.hoist, -0.7) : Math.max(ctl.hoist, 0);
+    // and down once it is over the slot (never onto a neighbour); while it slides it holds its height
+    // (the one-finger automation would otherwise lift it clear for the 'move' and undo the snap)
+    ctl.hoist = d < SNAP.align ? Math.min(ctl.hoist, -0.7) : 0;
     const seat = this.seat;
     if (seat && seat.kind === 'ship' && seat.seated && seat.valid && seat.zoneOk && !seat.problem && d < SNAP.align) this._snapReady = true;
   }

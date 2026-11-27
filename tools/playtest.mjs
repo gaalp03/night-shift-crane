@@ -285,14 +285,15 @@ while (simNow() < MAX) {
   }
   if (st.phase !== 'play' && st.phase !== 'swap') { await ev(() => window.__nsc.sim(0.1)); sim += 0.1; continue; }
   const tgt = st.tgt;
-  if (process.env.TRACE && Math.round(sim * 10) % 20 === 0) note(now(), `sim ${sim.toFixed(1)} x=${st.x.toFixed(2)} z=${st.z.toFixed(2)} rope=${st.rope.toFixed(1)} alt=${st.alt.toFixed(1)} carry=${st.carry} grab=${st.grabReady}/${st.grabOff && st.grabOff.toFixed(2)} tgt=${tgt ? tgt.kind + '@' + tgt.x.toFixed(1) + ',' + tgt.z.toFixed(1) : '-'} touches=${[...touches.keys()].join('+')} coach="${st.coach}" phase=${st.phase} check=${st.check} mm=${st.mismatch} seat=${st.seated}/${st.seatValid}/${st.seatErr && st.seatErr.toFixed(2)} swing=${st.swing.toFixed(2)} ${st.dbg3} ${st.dbg || ''}`);
+  if (process.env.TRACE && Math.round(sim * 10) % 20 === 0) note(now(), `sim ${sim.toFixed(1)} x=${st.x.toFixed(2)} z=${st.z.toFixed(2)} rope=${st.rope.toFixed(1)} alt=${st.alt.toFixed(1)} carry=${st.carry} grab=${st.grabReady}/${st.grabOff && st.grabOff.toFixed(2)} tgt=${tgt ? tgt.kind + '@' + tgt.x.toFixed(1) + ',' + tgt.z.toFixed(1) : '-'} touches=${[...touches.keys()].join('+')} coach="${st.coach}" phase=${st.phase} check=${st.check} mm=${st.mismatch} seat=${st.seated}/${st.seatValid}/${st.seatErr && st.seatErr.toFixed(2)} swing=${st.swing.toFixed(2)} spr=${st.spr.x.toFixed(2)},${st.spr.z.toFixed(2)} mxz=${tgt ? (tgt.x - (st.swing < 0.6 ? st.spr.x : st.x)).toFixed(2) + "/" + (tgt.z - (st.swing < 0.6 ? st.spr.z : st.z)).toFixed(2) : "-"} ${st.dbg3} ${st.dbg || ''}`);
   // ---------------- decide
-  let mx = 0, mz = 0, hoist = 0, act = false;
+  let mx = 0, mz = 0, hoist = 0, act = false, nearTgt = false;
   if (tgt) {
     // aim the spreader, not the trolley: once it hangs still, lean into any steady offset (wind)
     const lean = st.swing < 0.6;
     const ex = tgt.x - (lean ? st.spr.x : st.x), ez = tgt.z - (lean ? st.spr.z : st.z);
     const near = Math.abs(ex) < 0.35 && Math.abs(ez) < 0.35;
+    nearTgt = near;
     mx = axisTo(ex, st.vx, 6.2);
     mz = axisTo(ez, st.vz, 3.6);
     if (!near) { hoist = st.alt < 3.2 ? 1 : 0; lowered.since = 0; }
@@ -333,7 +334,8 @@ while (simNow() < MAX) {
   } else {
     // one finger: drag toward the target's screen spot (the crane follows), tap DROP to let go
     if (st.carry && st.seated && st.seatValid && st.btn.drop) { await touchUp('finger'); await tap(st.btn.drop); firstInput('DROP'); await page.waitForTimeout(300); }
-    else if (tgt && st.tgtScreen && !st.tgtScreen.behind && (mx || mz)) {
+    // (close enough: hands off, the automation sets it down — a person does not keep re-touching)
+    else if (tgt && st.tgtScreen && !st.tgtScreen.behind && (mx || mz) && !(nearTgt && !touches.has('finger'))) {
       if (!touches.has('finger')) { await touchDown('finger', st.rigScreen.x, st.rigScreen.y + 30); await page.waitForTimeout(40); }
       await touchMove('finger', st.tgtScreen.x, st.tgtScreen.y);
       firstInput('drag');
@@ -377,6 +379,7 @@ const out = {
   snaps: st.snaps || 0,
   lowerHints: st.lowerHints || 0,
   countered: st.countered || 0,
+  hotBoxes: await ev(() => (window.__nsc.app.session && window.__nsc.app.session.stats.hot) || 0),
   storm: await ev(() => { const st = window.__nsc.app.session && window.__nsc.app.session.stats; return st ? { met: st.storms || 0, won: st.stormsWon || 0 } : null; }),
 };
 console.log(JSON.stringify(out, null, 1));

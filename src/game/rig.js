@@ -14,8 +14,10 @@ const _v = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 
 // paying out cable: share of the load's weight the winch brake carries, how hard it holds the load to
-// the drum's speed, and how far the load may lag behind it (rope life)
-const PAYOUT = { carry: 0.9, gain: 7, lag: 0.04, speed: 0.8 };
+// the drum's speed, how far the load may lag behind it (rope life), the pay-out speed (x hoist speed)
+// and the pay-out rate (m/s) below which it leaves the load alone (a slow creep has no stutter, and an
+// automatic set-down must be able to settle the load onto its seat)
+const PAYOUT = { carry: 0.9, gain: 7, lag: 0.04, speed: 0.8, from: 1.0 };
 
 export class Rig {
   constructor(phys, { x = DIM.LANE_X, z = 0, rope = 8, mods = {} } = {}) {
@@ -165,7 +167,7 @@ export class Rig {
     // paying out: the winch lets the load down at the drum's speed rather than dropping it onto the
     // end of the cable every step (that stop-start was the stutter); some give is left in it
     let fy = 0;
-    if (this.vr > 0.02 && this.slack < 0.6 && !this.frozen) {
+    if (this.vr > PAYOUT.from && this.slack < 0.6 && !this.frozen) {
       const want = -this.vr * (1 - PAYOUT.lag);
       fy = Math.max(0, mass * (-TUNE.gravity * PAYOUT.carry + PAYOUT.gain * (want - v.y)));
     }
