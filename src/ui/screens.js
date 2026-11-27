@@ -285,7 +285,7 @@ export class Screens {
     const when = fmtDay(level.date, { weekday: 'long', day: 'numeric', month: 'long' });
     const body = h(
       'div.card-body',
-      h('div.brief-top', h('div.blurb', 'Every crane on the coast works this same shift today. A new one comes in at midnight — keep the run of nights going.')),
+      h('div.brief-top', h('div.blurb', `${rec.task}. One ship, the same for everyone today. Your first run is the scored one${rec.scored ? ' — that is done: this one is practice' : ''}. A new challenge in ${rec.next}.`)),
       h('div.twists', ...level.twists.map((t) => h('div.feature.twist', h('b', { html: icon(t.icon) + ' ' + t.name }), t.text))),
       h('div.section-label', `Manifest · ${level.manifest.length} to load${level.checks ? ` · ${level.checks} spot check${level.checks === 1 ? '' : 's'}` : ''}`),
       chips,
@@ -297,13 +297,14 @@ export class Screens {
       h(
         'div.goalrow',
         ...th.map((t, i) => h(`span.goal.pill${i < rec.stars ? '.got' : ''}`, { html: icon('star').repeat(i + 1) + ' ' + fmtNum(t) })),
-        rec.best ? h('span.pill', `Best ${fmtNum(rec.best)}`) : null,
-        h('span.pill.streak', { html: icon('moon') + ` ${rec.streak} night${rec.streak === 1 ? '' : 's'} worked` })
+        rec.scored ? h('span.pill', `Today ${fmtNum(rec.best)}`) : null,
+        rec.allBest ? h('span.pill', `Best ${fmtNum(rec.allBest)}`) : null,
+        h('span.pill.streak', { html: icon('moon') + ` ${rec.streak}-day streak` })
       )
     );
     const card = h(
       'div.card.mid',
-      h('div.card-head', h('h2', 'Tonight’s shift'), h('span.tag', when + ' · ' + level.ship.name)),
+      h('div.card-head', h('h2', rec.scored ? 'Daily challenge · practice' : 'Daily challenge'), h('span.tag', when + ' · ' + level.ship.name)),
       body,
       h(
         'div.card-foot',
@@ -756,7 +757,7 @@ export class Screens {
           { style: { width: '100%' } },
           h('button.btn.primary', { 'data-sound': 'ui_confirm', onclick: () => app.resume(), html: icon('play') + '<span class="grow">Back to work</span>' }),
           app.session && app.session.endless ? null : h('button.btn', { onclick: () => app.retry(), html: icon('retry') + '<span class="grow">Restart shift</span>' }),
-          app.dailyUnlocked() && !(app.level && app.level.daily) ? h('button.btn.night', { onclick: () => app.startDaily(), html: icon('moon') + `<span class="grow">Daily ship</span><span class="badge">${app.dailyRecord().best ? fmtNum(app.dailyRecord().best) : 'NEW'}</span>` }) : null,
+          app.dailyUnlocked() && !(app.level && app.level.daily) ? h('button.btn.night', { onclick: () => app.startDaily(), html: icon('moon') + `<span class="grow">Daily challenge</span><span class="badge">${app.dailyRecord().scored ? 'PRACTICE' : 'NEW'}</span>` }) : null,
           touch
             ? h('button.btn.switchctl', {
                 onclick: (ev) => {
@@ -829,9 +830,10 @@ export class Screens {
       if (st.falseAlarm) R('False alarms', String(st.falseAlarm), '.neg', true);
       if (st.smuggled) R('Mis-declared boxes shipped', `${st.smuggled} · customs found ${st.smuggled === 1 ? 'it' : 'them'}`, '.neg');
       if (meta.order) R('Foreman’s order', meta.order.done ? (meta.order.cash ? 'Done · +$' + fmtNum(meta.order.cash) : 'Done') : 'Missed', meta.order.done ? '.good' : '.neg');
-      if (meta.level.daily && ok) {
+      if (meta.level.daily) {
         const rec = this.app.dailyRecord();
-        R('Nights worked', String(rec.streak), '.good');
+        R('Daily challenge', meta.practice ? `Practice · today’s ${fmtNum(rec.best)} stands` : 'Scored · today’s attempt', meta.practice ? '' : '.good');
+        R('Streak', `${rec.streak} day${rec.streak === 1 ? '' : 's'} · next in ${rec.next}`, rec.streak ? '.good' : '');
       }
       if (meta.level.daily) R('Port fund', meta.fund ? `+${meta.fund} · ${(save.data.fund || {}).n} saved` : `today's ${FUND_CAP} earned`, meta.fund ? '.good' : '');
       if (res.black) R('Unlisted box', { ship: 'Sailed with the ship', customs: 'Handed to customs', sea: 'Lost overboard', left: 'Left on the quay' }[res.black] || '—', '.hush');
@@ -845,7 +847,7 @@ export class Screens {
     const stars = [0, 1, 2].map(() => h('div.star', { html: `<svg viewBox="0 0 24 24"><path d="M12 1.8l3 6.6 7.2.8-5.4 4.9 1.5 7.1L12 17.6 5.700 21.200l1.500-7.100L1.800 9.200 9 8.400z"/></svg>` }));
     const failText = { strikes: 'Too many boxes lost — the foreman pulled you off the crane.', time: endless ? 'The clock ran out.' : 'The ship sailed before the manifest was loaded.', complete: 'Not enough of the manifest made it on board.' };
     const title = endless ? 'Overtime slip' : ok ? 'Shift report' : 'Incident report';
-    const mark = h(`div.stampmark${ok || endless ? '' : '.bad'}`, endless ? (meta.newBest ? 'NEW RECORD' : 'PAID') : ok ? (res.stars >= 3 ? 'FLAWLESS' : 'APPROVED') : 'REJECTED');
+    const mark = h(`div.stampmark${ok || endless || meta.practice ? '' : '.bad'}`, meta.practice ? 'PRACTICE' : endless ? (meta.newBest ? 'NEW RECORD' : 'PAID') : ok ? (res.stars >= 3 ? 'FLAWLESS' : 'APPROVED') : 'REJECTED');
     const report = h(
       'div.report',
       h('h2', title),

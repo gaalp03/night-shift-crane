@@ -19,7 +19,7 @@ import { Crew } from './world/crew.js';
 import { CameraRig } from './game/cameras.js';
 import { Session } from './game/session.js';
 import { Tutorial } from './game/tutorial.js';
-import { SHIFTS, UPGRADES, endlessShip, upgradeMods, dailyShift, todayKey, dayBefore, weekKey, weekDaysLeft, portLevel, PORT_STEPS, STORM_LOSSES, SHIFT_SHIPS } from './game/levels.js';
+import { SHIFTS, UPGRADES, endlessShip, upgradeMods, dailyShift, todayKey, dayBefore, weekKey, weekDaysLeft, portLevel, PORT_STEPS, STORM_LOSSES, SHIFT_SHIPS, utcDayKey, nextChallengeIn, dailyTask, recordDaily } from './game/levels.js';
 import { Coach } from './game/coach.js';
 import { DAILY_LADDER, ladderAt, claimLadder, awardFund, FUND_CAP, unlockEpisodePerk, EPISODE_PERKS } from './game/rewards.js';
 import { analytics } from './core/analytics.js';
@@ -85,9 +85,11 @@ const app = {
   /** Today's record (empty if the stored one is from another day). */
   dailyRecord() {
     const dd = save.data.daily;
-    const today = todayKey();
+    const today = utcDayKey();
     const fresh = dd.date === today;
-    return { date: today, best: fresh ? dd.best : 0, stars: fresh ? dd.stars : 0, order: dd.order === today, streak: dd.streak || 0, bestStreak: dd.bestStreak || 0, plays: dd.plays || 0 };
+    // (a streak survives today until the day is over: it only breaks if yesterday was missed)
+    const alive = dd.last === today || dd.last === dayBefore(today);
+    return { date: today, best: fresh ? dd.best : 0, stars: fresh ? dd.stars : 0, order: dd.order === today, scored: fresh && !!dd.scored, streak: alive ? dd.streak || 0 : 0, bestStreak: dd.bestStreak || 0, allBest: dd.allBest || 0, plays: dd.plays || 0, task: dailyTask(dailyShift(today)), next: nextChallengeIn() };
   },
 
   /** Touch controls follow the device actually in use: a finger shows them, a key press hides them. */
@@ -196,7 +198,7 @@ const app = {
     app.screens.endlessBriefing();
   },
   openDailyBriefing() {
-    app.screens.dailyBriefing(dailyShift(todayKey()));
+    app.screens.dailyBriefing(dailyShift(utcDayKey()));
   },
   openLogbook() {
     app.screens.logbook();
@@ -210,7 +212,7 @@ const app = {
     return beginRun(level);
   },
   startDaily(level) {
-    return beginRun(level || dailyShift(todayKey()));
+    return beginRun(level || dailyShift(utcDayKey()));
   },
   startEndless(first = false, boot = false, seedIn = null) {
     const seed = seedIn == null ? Math.floor(Math.random() * 1e9) : seedIn;
@@ -923,8 +925,23 @@ function showShiftReport(s, e, cash, rep) {
     h('div.srows', { html: R('Ships worked', rep.ships) + R('Boxes placed', rep.placed) + R('Perfects', rep.perfects) + R('Takings', '$' + fmtNum(rep.takings)) }),
     h('div.nextgoal', { html: icon(goal.icon) + `<span class="gt">${goal.text}</span>` + bar(goal.k, goal.k >= 1 ? ' ok' : '') }),
     h('div.teaser', `Night ${rep.night + 1}: ${teaser}`),
+    dailyRow(),
     h('div.wkladder', { html: `<div class="lhead">${icon('gift')}<span>DAILY LADDER · TOMORROW: DAY ${tomorrow}</span></div>` + ladderRow(tomorrow) }),
-    h('div.acts', h('button.btn.primary.big', { onclick: () => close(), html: icon('next') + `<span>Night ${rep.night + 1}</span>` }))
+    h(
+      'div.acts',
+      app.dailyUnlocked()
+        ? h('button.btn.night.big', {
+            onclick: () => {
+              if (done) return;
+              done = true;
+              card.remove();
+              app.startDaily();
+            },
+            html: icon('moon') + `<span>${app.dailyRecord().scored ? 'Practice' : 'Daily'}</span>`,
+          })
+        : null,
+      h('button.btn.primary.big', { onclick: () => close(), html: icon('next') + `<span>Night ${rep.night + 1}</span>` })
+    )
   );
   root.appendChild(card);
   audio.play('ui_open');
@@ -937,12 +954,21 @@ function showShiftReport(s, e, cash, rep) {
   }, 250);
 }
 
-/** Boot: the 7-day ladder for a moment, tomorrow's item lit (over the game, never in the way). */
-function showLadderStrip(dur = 2300) {
+/** The daily challenge in one row: today's task, today's result or not yet, the streak and the countdown. */
+function dailyRow() {
+  const r = app.dailyRecord();
+  const state = !app.dailyUnlocked() ? 'after your first ship' : r.scored ? `today ${fmtNum(r.best)}` : 'not played yet';
+  return h('div.dailyrow', {
+    html: `<div class="dh">${icon('moon')}<b>DAILY CHALLENGE</b><span>New challenge in ${r.next}</span></div><div class="dt">${r.task}</div><div class="dm"><span>${state}</span>${r.allBest ? `<span>best ${fmtNum(r.allBest)}</span>` : ''}<span class="stk">${icon('flame')}${r.streak}-day streak</span></div>`,
+  });
+}
+
+/** Boot: the daily challenge and the 7-day ladder for a moment, tomorrow's item lit (never in the way). */
+function showLadderStrip(dur = 3000) {
   if ($('ladderstrip')) return;
   const L = save.data.login || { streak: 1 };
   const tomorrow = Math.min(7, (L.streak || 1) + 1);
-  const el = h('div#ladderstrip', { html: `<div class="lhead">${icon('gift')}<span>COME BACK TOMORROW · DAY ${tomorrow}</span></div>` + ladderRow(tomorrow) });
+  const el = h('div#ladderstrip', { html: dailyRow().outerHTML + `<div class="lhead">${icon('gift')}<span>COME BACK TOMORROW · DAY ${tomorrow}</span></div>` + ladderRow(tomorrow) });
   $('ui').appendChild(el);
   setTimeout(() => {
     el.classList.add('out');
@@ -1419,6 +1445,22 @@ function bindSession(s) {
       s._gustArmed = true;
     }
   });
+  // STEADY: a damped swing (by the player's hand or by itself) — the falls flash green
+  s.on('steady', (e) => {
+    j.burst({ text: 'STEADY', pos: e.pos, kind: 'good', sub: e.countered ? '' : '' });
+    audio.play('ui_star', { vol: 0.5, rate: 1.1 });
+    app._steadyFlash = 1;
+  });
+  // the snap assist set a box down: a heavy clunk and a nudge (the PERFECT burst comes with the award)
+  s.on('snapLock', () => {
+    audio.play('lock', { rate: 0.68, vol: 1 });
+    audio.play('impact_heavy', { vol: 0.55, rate: 0.9 });
+    app.cams.punch(0, -0.22, 0);
+    app.cams.shake(0.2);
+    app.hitStop = Math.max(app.hitStop, 0.1);
+    buzz([16, 30, 22]);
+    analytics.trackOnce('first_snap_lock', { ship: s.shipIndex + 1, t: Math.round(s.elapsed) });
+  });
   // the opening's second box: a gust (telegraphed), and the counter-swing shown
   s.on('gustWarn', () => {
     app.weather.triggerGust(0.9);
@@ -1465,6 +1507,7 @@ async function onFinish(s, res) {
   let newBest = false;
   let newStars = 0;
   let fund = 0;
+  let practice = false;
   if (endless) {
     payout = 0; // (the main shift pays as it goes)
     d.endless.runs++;
@@ -1482,25 +1525,18 @@ async function onFinish(s, res) {
     sdk.submitScore(res.score);
     week = { label: sdk.hasLeaderboard ? 'Weekly tournament · your best' : 'This week’s port record', best: d.week.best, fresh: fresh && res.score > 0 };
   } else if (level.daily) {
-    const dd = d.daily;
-    if (dd.date !== level.date) Object.assign(dd, { date: level.date, best: 0, stars: 0 });
-    dd.plays = (dd.plays || 0) + 1;
-    if (res.success) {
-      newBest = res.score > dd.best;
-      if (newBest) dd.best = res.score;
-      newStars = Math.max(0, res.stars - dd.stars);
-      dd.stars = Math.max(dd.stars, res.stars);
-      // a completed shift on a new date extends (or restarts) the run of nights
-      if (dd.last !== level.date) {
-        dd.streak = (dd.streak || 0) + 1; // nights worked: a missed day costs nothing
-        dd.last = level.date;
-        dd.bestStreak = Math.max(dd.bestStreak || 0, dd.streak);
-      }
-      payout = Math.round(res.score * 0.3) + newStars * 60;
-    } else payout = Math.round(res.score * 0.1);
-    // the port fund: only the daily ship pays it, capped per day
-    fund = awardFund(d, res, level.date);
-    if (fund) analytics.track('fund_earned', { n: fund, total: d.fund.n });
+    // the daily challenge: the day's first attempt is the scored one; after that it is practice
+    const rd = recordDaily(d.daily, level.date, res);
+    practice = rd.practice;
+    if (!practice) {
+      newBest = rd.newBest;
+      newStars = rd.newStars;
+      payout = res.success ? Math.round(res.score * 0.3) + newStars * 60 : Math.round(res.score * 0.1);
+      // the port fund: only the daily ship pays it, capped per day
+      fund = awardFund(d, res, level.date);
+      if (fund) analytics.track('fund_earned', { n: fund, total: d.fund.n });
+    }
+    analytics.track('daily_result', { practice: practice ? 1 : 0, success: res.success ? 1 : 0, score: res.score, streak: d.daily.streak || 0 });
   } else if (res.success) {
     const r = save.recordShift(level.id, res.stars, res.score);
     newStars = r.gainedStars;
@@ -1550,7 +1586,7 @@ async function onFinish(s, res) {
   const fresh = checkAwards(d, res, level);
   save.checkpoint();
   const idx = SHIFTS.indexOf(level);
-  const meta = { level, payout, newStars, newBest, endless, hush, ending, order, week, fund, nextLevel: !endless && res.success && idx >= 0 && idx < SHIFTS.length - 1 ? SHIFTS[idx + 1] : null };
+  const meta = { level, payout, newStars, newBest, endless, hush, ending, order, week, fund, practice, nextLevel: !endless && res.success && idx >= 0 && idx < SHIFTS.length - 1 ? SHIFTS[idx + 1] : null };
   app.lastResult = { res, meta };
   showHud(false);
   setCab(false, true);
@@ -1983,6 +2019,44 @@ function showFpsMeter(on) {
   app._fpsTimer = setInterval(upd, 250);
 }
 
+const SWAY_RED = new THREE.Color(0xff4a36);
+const SWAY_AMBER = new THREE.Color(0xffb347);
+const SWAY_GREEN = new THREE.Color(0x5fe07a);
+const _swayC = new THREE.Color();
+/**
+ * Sway feedback: while a carried load swings, the falls go red (a big swing) through amber to green
+ * (nearly steady); countering it ticks, higher as it calms; STEADY flashes them green.
+ */
+function updateSway(s, raw) {
+  if (!app.crane || !app.crane.setRopeTint) return;
+  let k = 0;
+  if (s && !s.attract && app.mode === 'play' && s.rig.carry) {
+    const off = Math.hypot(s.rig.sprPos.x - s.rig.x, s.rig.sprPos.z - s.rig.z);
+    const w = s._cw;
+    if (w || off > 0.55) {
+      const t = clamp((off - 0.3) / 0.9, 0, 1);
+      if (t > 0.5) _swayC.copy(SWAY_AMBER).lerp(SWAY_RED, (t - 0.5) * 2);
+      else _swayC.copy(SWAY_GREEN).lerp(SWAY_AMBER, t * 2);
+      k = 0.95;
+      // countering: a tick every few tenths of a second, rising as the swing dies
+      if (w && w.steering) {
+        app._swayTick = (app._swayTick || 0) - raw;
+        if (app._swayTick <= 0) {
+          app._swayTick = 0.24;
+          audio.play('ui_tick', { vol: 0.35, rate: 0.8 + (1 - t) * 0.9 });
+        }
+      }
+    }
+  }
+  if (app._steadyFlash > 0) {
+    app._steadyFlash = Math.max(0, app._steadyFlash - raw * 1.2);
+    _swayC.copy(SWAY_GREEN);
+    k = Math.max(k, app._steadyFlash);
+  }
+  app._ropeK = damp(app._ropeK || 0, k, 8, raw);
+  app.crane.setRopeTint(_swayC, app._ropeK);
+}
+
 /** Fresh page load: a close-up of the hook pulling back into play, the quay lights coming on. */
 function startOpening(dur, lights, hold = 0) {
   app.cams.intro(dur, hold);
@@ -2088,9 +2162,22 @@ function showWelcomeStrip(idle, login) {
     if (!login.got.length && login.next) rows.push(h('div.row', { html: icon('gift') + `<span class="w">DAY ${login.day}</span>${bar(login.day / login.next.day)}<span class="amt">DAY ${login.next.day}: ${login.next.name}</span>` }));
   }
   const acts = h('div.acts');
+  // straight into today's challenge (the scored run), from the welcome strip
+  if (app.dailyUnlocked() && !app.dailyRecord().scored)
+    acts.appendChild(
+      h('button.btn.small.night.dailygo', {
+        onclick: async () => {
+          await collect(false);
+          app.startDaily();
+        },
+        html: icon('moon') + 'Daily',
+      })
+    );
   if (sdk.adsEnabled && total) acts.appendChild(h('button.btn.small.teal', { onclick: () => collect(true), html: icon('ad') + 'Collect ×2' }));
   acts.appendChild(h('button.btn.small.primary', { onclick: () => collect(false), html: icon(total ? 'coin' : 'check') + (total ? 'Collect' : 'OK') }));
-  const card = h('div.strip', h('div.row', { html: `<b class="sthead">WELCOME BACK</b>` }), ...rows, acts);
+  // the daily challenge first: it is the reason to come back every day
+  const daily = app.dailyUnlocked() ? dailyRow() : null;
+  const card = h('div.strip', h('div.row', { html: `<b class="sthead">WELCOME BACK</b>` }), daily, ...rows, acts);
   root.appendChild(card);
   audio.play('ui_open');
   // collects itself if ignored: the reward is never lost
@@ -2571,6 +2658,7 @@ function tick(raw) {
   // the opening camera move waits while paused, and hurries once the player steers
   updateOpening(raw);
   updateJobLine(raw);
+  updateSway(s, raw);
   if (s && s._gustArmed && app.mode === 'play' && s.phase === 'play' && s.rig.carry && !s.prehooked && s.altitude > 2.6) {
     s._gustArmed = false;
     s.scriptGust();

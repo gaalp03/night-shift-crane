@@ -66,7 +66,7 @@ const look = () =>
       s.on('strike', (e) => window.__losses.push({ reason: e.reason, type: e.cargo && e.cargo.type, t: +s.elapsed.toFixed(1), carry: !!s.rig.carry, x: +s.rig.x.toFixed(1), alt: +s.altitude.toFixed(1) }));
     }
     const vis = (sel) => { const el = document.querySelector(sel); if (!el) return null; const r = el.getBoundingClientRect(); const cs = getComputedStyle(el); return r.width > 2 && r.height > 2 && cs.display !== 'none' && cs.visibility !== 'hidden' && el.offsetParent !== null ? { x: r.left + r.width / 2, y: r.top + r.height / 2, w: r.width, h: r.height } : null; };
-    const out = { mode: a.mode, picker: !!document.getElementById('picker'), keys: !!document.getElementById('keysintro'), coach: (document.getElementById('coach').textContent || '').trim(), card: !!document.querySelector('.shipcard:not(.out)'), shift: !!document.querySelector('.shiftcard:not(.out)'), countered: (a.session && a.session.stats && a.session.stats.countered) || 0, money: N.save.data.money, upgrades: Object.values(N.save.data.upgrades).reduce((x, y) => x + y, 0), rig: N.save.data.rigSetup };
+    const out = { mode: a.mode, picker: !!document.getElementById('picker'), keys: !!document.getElementById('keysintro'), coach: (document.getElementById('coach').textContent || '').trim(), card: !!document.querySelector('.shipcard:not(.out)'), shift: !!document.querySelector('.shiftcard:not(.out)'), snaps: (a.session && a.session.stats && a.session.stats.snaps) || 0, lowerHints: (a.coach && a.coach.lowerShown) || 0, countered: (a.session && a.session.stats && a.session.stats.countered) || 0, money: N.save.data.money, upgrades: Object.values(N.save.data.upgrades).reduce((x, y) => x + y, 0), rig: N.save.data.rigSetup };
     out.btn = { drop: vis('.dropbtn'), lock: vis('#touch .tbtn.lock'), up: vis('#touch .tbtn.up'), dn: vis('#touch .tbtn.dn'), stick: vis('#touch .stick'), pause: vis('.hud-btns .btn:last-child'), unlock: vis('.shipcard .btn.teal'), next: vis('.shipcard .btn.primary'), steady: vis('.shipcard .rigopt') };
     if (!s || s.attract) return out;
     const r = s.rig;
@@ -254,6 +254,8 @@ while (simNow() < MAX) {
     for (const i of await audit()) if (!M.visual.has(i)) { M.visual.add(i); note(now(), 'VISUAL ' + i); }
   }
   if (st.placed > lastPlaced) {
+    // the first box fetched from a truck and locked aboard (the snap assist's job)
+    if (st.placed >= 2 && M.secondLock == null) { M.secondLock = +sim.toFixed(1); note(now(), 'second lock (first fetched box) at sim ' + M.secondLock + 's, snap ' + st.snaps); }
     if (lastPlaced === 0) {
       M.firstCrate = { grade: st.stats.perfect ? 'perfect' : st.stats.great ? 'great' : st.stats.good ? 'good' : st.stats.sloppy ? 'sloppy' : '?', simT: +sim.toFixed(1), pay: st.money };
       note(now(), 'first crate: ' + M.firstCrate.grade + ', wallet $' + st.money + ' (sim ' + sim.toFixed(1) + 's)');
@@ -369,6 +371,9 @@ const out = {
   fps,
   losses: await ev(() => window.__losses || []),
   shiftEnd_s: M.shiftAt == null ? null : M.shiftAt,
+  secondLock_s: M.secondLock == null ? null : M.secondLock,
+  snaps: st.snaps || 0,
+  lowerHints: st.lowerHints || 0,
   countered: st.countered || 0,
   storm: await ev(() => { const st = window.__nsc.app.session && window.__nsc.app.session.stats; return st ? { met: st.storms || 0, won: st.stormsWon || 0 } : null; }),
 };

@@ -5,6 +5,9 @@ import * as THREE from 'three';
 import { h } from '../core/util.js';
 import { icon } from '../ui/icons.js';
 
+// the LOWER hint: after this long hovering (s), shown this long (s), at most once per `every` s
+const HOVER = { after: 4, show: 3.5, every: 15 };
+const _lw = new THREE.Vector3();
 const K = (...keys) => keys.map((k) => `<span class="kbd">${k}</span>`).join('');
 const ARROWS = K('←', '→', '↑', '↓');
 const _a = new THREE.Vector3();
@@ -90,6 +93,9 @@ export class Coach {
         return this._show({ word: 'COUNTER', keys: sc === 'keys' ? K(key) : sc === 'pad' ? icon('move') : '', arrow: null, hand: { mode: 'drag', from, to } }, true);
       }
     }
+    // hovering over the target (a slot, or the box on the truck) without coming down: LOWER + arrow
+    const low = this._lowerHint(s);
+    if (low) return this._show(low, true);
     // a box with no room aboard goes back ashore: always said, always pointed at (never a silent dead end)
     if (s.noSlotCargo && s.rig.carry === s.noSlotCargo) {
       const sd = s.seat;
@@ -141,6 +147,46 @@ export class Coach {
     // nothing pressed for a while on the first boxes: everything pulses harder
     const nudge = !!p && st <= 1 && idle > 4;
     this._show(p, nudge);
+  }
+
+  /**
+   * The hook has hung over its target for more than HOVER.after s without paying out: say LOWER, with
+   * the arrow on the target, for a few seconds; again at most every HOVER.every s.
+   */
+  _lowerHint(s) {
+    const sc = this.scheme();
+    const dt = this._lastE == null ? 0 : Math.max(0, s.elapsed - this._lastE);
+    this._lastE = s.elapsed;
+    if (sc === 'touch') return null; // (one-finger: the hoist works by itself)
+    const rig = s.rig;
+    let over = null;
+    if (rig.carry) {
+      const seat = s.seat;
+      if (seat && seat.err < 1.2 && seat.gap > 1.2 && seat.problem !== 'full' && s.guideSlot) over = s.guideSlot;
+    } else {
+      // (any height: the grab finder only looks a few metres down)
+      const sp = rig.sprPos;
+      for (const k of s.cargos) {
+        if (k.state !== 'truck' || !k.truck || !k.truck.parked || k.truck.purpose !== 'deliver') continue;
+        const p = k.mesh.getWorldPosition(_lw);
+        if (Math.hypot(p.x - sp.x, p.z - sp.z) < 1.0 && sp.y - p.y > 2.4) {
+          over = p;
+          break;
+        }
+      }
+    }
+    const coming = rig.vr > 0.05;
+    // (hovering: parked over it, not on the way past)
+    const parked = Math.hypot(rig.vx, rig.vz) < 0.4;
+    this._hoverT = over && !coming && parked ? (this._hoverT || 0) + dt : 0;
+    if (!over || coming) this._lowerUntil = 0;
+    if (this._hoverT > HOVER.after && s.elapsed - (this._lowerAt == null ? -1e9 : this._lowerAt) > HOVER.every) {
+      this._lowerAt = s.elapsed;
+      this._lowerUntil = s.elapsed + HOVER.show;
+      this.lowerShown = (this.lowerShown || 0) + 1;
+    }
+    if (!over || !(s.elapsed < this._lowerUntil)) return null;
+    return { word: 'LOWER', keys: sc === 'pad' ? icon('down') : K('Q', '↓'), arrow: over };
   }
 
   tick(dt) {

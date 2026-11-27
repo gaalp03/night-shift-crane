@@ -4808,3 +4808,63 @@ body.touch #ladderstrip {
     bottom: calc(13.5em + var(--sb));
   }
 }
+
+/* the daily challenge row (shift report, boot strip) */
+.dailyrow {
+  margin-top: 0.55em;
+  padding: 0.45em 0.7em 0.5em;
+  border-radius: 0.5em;
+  background: rgba(120, 140, 255, 0.12);
+  box-shadow: inset 0 0 0 0.1em rgba(150, 165, 255, 0.45);
+  text-align: left;
+}
+.dailyrow .dh {
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+  font-size: 0.78em;
+  letter-spacing: 0.1em;
+  color: var(--dim);
+}
+.dailyrow .dh b {
+  color: #b9c4ff;
+}
+.dailyrow .dh span {
+  margin-left: auto;
+  font-weight: 700;
+}
+.dailyrow .dh svg.ico {
+  width: 1.1em;
+  height: 1.1em;
+  fill: #b9c4ff;
+}
+.dailyrow .dt {
+  margin-top: 0.15em;
+  font-weight: 700;
+  font-size: 1.05em;
+  color: #e6eaff;
+}
+.dailyrow .dm {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35em 0.9em;
+  margin-top: 0.15em;
+  font-size: 0.82em;
+  color: var(--dim);
+}
+.dailyrow .stk {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25em;
+  color: #ffb070;
+  font-weight: 700;
+}
+.dailyrow .stk svg.ico {
+  width: 1em;
+  height: 1em;
+  fill: currentColor;
+}
+#ladderstrip .dailyrow {
+  margin: 0.5em 0 0;
+  min-width: 19em;
+}

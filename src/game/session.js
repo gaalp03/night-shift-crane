@@ -35,6 +35,10 @@ const CLANGS = ['CLANG!', 'BONG!', 'KLONK!', 'WHAM!', 'CRUNCH!'];
 
 // countering a swing: armed when the load is this far out (m), paid when it is back under this,
 // with at least minHold s of steering towards it within window s
+// snap assist: engage radius (m, at full strength), height above the slot it engages from (m) and how
+// close it must be over the slot before it lowers
+const SNAP = { radius: 2.6, height: 3.2, align: 0.32 };
+const _vs = new THREE.Vector3();
 const COUNTER = { armAt: 0.85, quietAt: 0.35, quietSpeed: 0.6, quietHold: 0.45, minHold: 0.22, window: 6, cooldown: 7, bonus: 40, gust: 7.5 };
 
 export class Session extends Emitter {
@@ -587,7 +591,61 @@ export class Session extends Emitter {
       hoist = Math.max(hoist, -lerp(cap, 1, clamp((this.altitude - 0.4) / 1.9, 0, 1)));
     }
     ctl.hoist = hoist;
+    // snap assist: lowered near a legal slot, the box slides over it, sits down and locks by itself
+    const k = this.snapK();
+    if (k > 0) this._snapAssist(ctl, k);
+    else this._snap = null;
     return ctl;
+  }
+
+  /**
+   * How strong the snap assist is now: full on a session's first ship (and for its very first box,
+   * whatever the mode), half on the second ship, then gone — the skill is the player's from ship 3.
+   */
+  snapK() {
+    if (this.attract) return 0;
+    if (!this._firstLockDone) return 1;
+    if (!this.endless) return 0;
+    return this.shipIndex === 0 ? 1 : this.shipIndex === 1 ? 0.5 : 0;
+  }
+
+  _snapAssist(ctl, k) {
+    const rig = this.rig;
+    const c = rig.carry;
+    const slot = this.guideSlot;
+    // (boxes with their own rules keep them: outbound, unlisted, spot checks, returns)
+    if (!c || !slot || this.phase !== 'play' || c.discharge || c.black || c.returning || c.weighed === 'mismatch' || (c.check && !c.weighed) || c === this.prehooked) {
+      this._snap = null;
+      return;
+    }
+    const b = rig.bottomWorld(_vs);
+    const dx = slot.x - b.x;
+    const dz = slot.z - b.z;
+    const d = Math.hypot(dx, dz);
+    const gap = b.y - (slot.y - c.hy);
+    const R = SNAP.radius * k;
+    const steer = Math.hypot(ctl.x, ctl.z);
+    // steering hard away cancels it; it engages once the player lowers within reach of the slot
+    const away = steer > 0.6 && (ctl.x * dx + ctl.z * dz) / (steer * Math.max(d, 1e-3)) < -0.2;
+    if (this._snap && (away || d > R * 1.4 || gap > SNAP.height + 2)) this._snap = null;
+    if (!this._snap && !away && d < R && gap < SNAP.height + k && ctl.hoist < -0.05) {
+      this._snap = { t: 0 };
+      this.emit('snapStart', { k });
+    }
+    if (!this._snap) return;
+    this._snap.t += 1 / 60;
+    // slide: the trolley and gantry carry the box over the slot
+    const T = (this._snapT || (this._snapT = { x: 0, z: 0 }));
+    T.x = clamp(rig.x + dx, DIM.TROLLEY_MIN_X, DIM.TROLLEY_MAX_X);
+    T.z = clamp(rig.z + dz, -DIM.GANTRY_RANGE, DIM.GANTRY_RANGE);
+    const keep = this.target;
+    this.target = T;
+    this._steer(ctl);
+    this.target = keep;
+    // and down, once it is over the slot (never onto a neighbour)
+    ctl.hoist = d < SNAP.align ? Math.min(ctl.hoist, -0.7) : Math.max(ctl.hoist, 0);
+    const seat = this.seat;
+    if (seat && seat.kind === 'ship' && seat.seated && seat.valid && seat.zoneOk && !seat.problem && d < SNAP.align) this._snapReady = true;
   }
 
   _fixedStep(h, warm = false) {
@@ -865,7 +923,9 @@ export class Session extends Emitter {
     w.peak = Math.max(w.peak, off);
     // driving the trolley under the load (towards where it has swung) takes the energy out
     const steer = Math.hypot(ctl.x, ctl.z);
-    if (steer > 0.25 && off > 0.25 && (ctl.x * ox + ctl.z * oz) / (steer * off) > 0.35) w.held += h;
+    w.off = off;
+    w.steering = steer > 0.25 && off > 0.25 && (ctl.x * ox + ctl.z * oz) / (steer * off) > 0.35;
+    if (w.steering) w.held += h;
     // quiet means hanging still under the trolley, not just swinging through the middle
     const rv = Math.hypot(rig.sprVel.x - rig.vx, rig.sprVel.z - rig.vz);
     w.quiet = off < COUNTER.quietAt && rv < COUNTER.quietSpeed ? (w.quiet || 0) + h : 0;
@@ -875,6 +935,12 @@ export class Session extends Emitter {
       this.score += COUNTER.bonus;
       this.stats.countered = (this.stats.countered || 0) + 1;
       this.emit('countered', { pts: COUNTER.bonus, pos: rig.sprPos.clone(), peak: w.peak });
+      this.emit('steady', { pos: rig.sprPos.clone(), countered: true });
+    } else if (w.quiet >= COUNTER.quietHold) {
+      // damped without the player's help: still a STEADY, but nothing paid
+      this._cw = null;
+      this._counterCool = 2;
+      this.emit('steady', { pos: rig.sprPos.clone(), countered: false });
     } else if (w.t > COUNTER.window) this._cw = null;
   }
 
@@ -889,6 +955,16 @@ export class Session extends Emitter {
 
   _handleActions() {
     if (this.controlsLocked) return;
+    // the snap assist sets the box down: it locks with a clunk
+    if (this._snapReady) {
+      this._snapReady = false;
+      this._snap = null;
+      if (this.rig.carry) {
+        this.rig.carry.snapLock = true;
+        this.release();
+        if (this.rig.carry) this.rig.carry.snapLock = false;
+      }
+    }
     if (this.calm && (input.action('lock') || Math.abs(input.axisX) + Math.abs(input.axisZ) + Math.abs(input.hoist) > 0.05 || this.target)) this.calm = false;
     if (input.action('lock') && this.allow.lock) {
       if (this.rig.carry) this.release();
@@ -1092,8 +1168,14 @@ export class Session extends Emitter {
     // (set down where it hung: carried off and slammed in elsewhere, it is graded like any other)
     const pc = this._prehookCell;
     const first = c === this.prehooked && !c.scored && !!pc && seat.r === pc.r && seat.b === pc.b;
-    const grade = first ? 'perfect' : dropped ? 'good' : seat.grade === 'off' ? 'good' : seat.grade;
-    this._award(c, grade, { soft: first || (!dropped && touchDv < TUNE.softLanding), pos: wp.clone(), dropped: dropped && !first, big: first, sub: first ? 'FIRST BOX' : undefined });
+    const snapped = !!c.snapLock && !dropped;
+    const grade = first || snapped ? 'perfect' : dropped ? 'good' : seat.grade === 'off' ? 'good' : seat.grade;
+    this._firstLockDone = true;
+    this._award(c, grade, { soft: first || snapped || (!dropped && touchDv < TUNE.softLanding), pos: wp.clone(), dropped: dropped && !first, big: first || snapped, sub: first ? 'FIRST BOX' : undefined });
+    if (snapped) {
+      this.stats.snaps = (this.stats.snaps || 0) + 1;
+      this.emit('snapLock', { cargo: c, pos: wp.clone() });
+    }
     if (first) {
       this.prehooked = null;
       this.ctx.fx.confetti(wp.x - 1.2, wp.y + c.hy + 0.4, wp.z, [0xffd070, 0xfff2c0, 0x7ee08a]);

@@ -427,6 +427,59 @@ function hashKey(str) {
 /**
  * Twists: each night gets two. `kind` keeps the pair sensible (one cargo twist, one sky twist at most).
  */
+/** The daily challenge's day: the UTC calendar date, so everyone plays the same ship on the same day. */
+export function utcDayKey(d = new Date()) {
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())}`;
+}
+
+/** Milliseconds until the next UTC midnight (a new challenge). */
+export function msToNextUtcDay(d = new Date()) {
+  const next = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1);
+  return Math.max(0, next - d.getTime());
+}
+
+/** "HH:MM" until the next challenge. */
+export function nextChallengeIn(d = new Date()) {
+  const m = Math.ceil(msToNextUtcDay(d) / 60000);
+  return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+}
+
+const PIERS = { gale: 'Gale Pier', fog: 'Fog Pier', storm: 'Storm Pier', snow: 'Snow Pier', swell: 'Swell Pier', glass: 'Glass Pier', heavy: 'Steel Pier', cold: 'Cold Pier', haz: 'Hazmat Pier', long: 'Long Pier', customs: 'Customs Pier', brownout: 'Blackout Pier' };
+
+/** The challenge in one line: "Storm Pier: load 6 in 90 s". */
+export function dailyTask(def) {
+  const t = def.twists && def.twists[0];
+  const pier = (t && PIERS[t.id]) || 'Pier Seven';
+  return `${pier}: load ${def.quota} in ${def.time} s`;
+}
+
+/**
+ * One scored attempt per day, then practice. `dd` is the save's daily record, `key` the challenge day.
+ * The streak counts consecutive days with a finished (successful) scored attempt.
+ */
+export function recordDaily(dd, key, res) {
+  if (dd.date !== key) Object.assign(dd, { date: key, best: 0, stars: 0, scored: false, practice: 0, practiceBest: 0 });
+  dd.plays = (dd.plays || 0) + 1;
+  if (dd.scored) {
+    dd.practice = (dd.practice || 0) + 1;
+    dd.practiceBest = Math.max(dd.practiceBest || 0, res.score || 0);
+    return { practice: true, newBest: false, newStars: 0 };
+  }
+  dd.scored = true;
+  dd.best = Math.max(0, res.score || 0);
+  dd.stars = res.success ? res.stars || 0 : 0;
+  dd.success = !!res.success;
+  const newBest = dd.best > (dd.allBest || 0);
+  dd.allBest = Math.max(dd.allBest || 0, dd.best);
+  if (res.success && dd.last !== key) {
+    dd.streak = dd.last === dayBefore(key) ? (dd.streak || 0) + 1 : 1;
+    dd.last = key;
+    dd.bestStreak = Math.max(dd.bestStreak || 0, dd.streak);
+  }
+  return { practice: false, newBest, newStars: dd.stars };
+}
+
 export const DAILY_TWISTS = [
   { id: 'gale', kind: 'sky', icon: 'wind', name: 'Gale warning', text: 'Wind far above the usual, gusting hard.', apply: (d, r) => Object.assign(d.weather, { wind: r.range(1.5, 1.85), gusts: 0.85, windDir: r.range(0, 6.28) }) },
   { id: 'fog', kind: 'sky', icon: 'fog', name: 'Pea soup', text: 'Fog so thick the ship is more rumour than vessel.', apply: (d) => Object.assign(d.weather, { fog: 0.032, clouds: 1, rain: 0.15 }) },

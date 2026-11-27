@@ -421,6 +421,8 @@ export class CraneView {
     const geo = new THREE.CylinderGeometry(0.045, 0.045, 1, 5, 1, true);
     geo.translate(0, 0.5, 0);
     const mat = new THREE.MeshBasicMaterial({ color: 0x3c444b, fog: true });
+    this.ropeMat = mat;
+    this.ropeBase = new THREE.Color(0x3c444b);
     this.ropeSegs = [];
     for (let i = 0; i < 8; i++) {
       const m = new THREE.Mesh(geo, mat);
@@ -522,6 +524,12 @@ export class CraneView {
   }
 
   /** Paint the operator's name onto the cab plate. */
+  /** Sway feedback: the falls tinted towards `color` by k (0 = their own steel grey). */
+  setRopeTint(color, k) {
+    if (!this.ropeMat) return;
+    this.ropeMat.color.copy(this.ropeBase).lerp(color, Math.max(0, Math.min(1, k)));
+  }
+
   /** Work lamp colour (LAMPS id). */
   setLamp(id) {
     const w = this.workLight;
