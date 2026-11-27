@@ -1445,6 +1445,13 @@ function bindSession(s) {
       s._gustArmed = true;
     }
   });
+  // the hot box went in right: a bonus (in the score; the main shift also pays it out)
+  s.on('hotBox', (e) => {
+    j.burst({ text: 'HOT BOX', pos: e.pos, kind: 'perfect', sub: `+${e.pts}` });
+    audio.play('ui_cash', { vol: 0.8, delay: 0.15 });
+    if (s.endless) earn(Math.round(e.pts * 0.3), e.pos);
+    analytics.trackOnce('first_hot_box', { ship: s.shipIndex + 1 });
+  });
   // STEADY: a damped swing (by the player's hand or by itself) — the falls flash green
   s.on('steady', (e) => {
     j.burst({ text: 'STEADY', pos: e.pos, kind: 'good', sub: e.countered ? '' : '' });

@@ -1,6 +1,7 @@
 // Menus and overlays: title, shift board, briefing, workshop, settings, credits, pause, results.
 import { h, fmtNum, fmtTime, clamp } from '../core/util.js';
-import { ZONES, GAME_VERSION } from '../config.js';
+import { ZONES, GAME_VERSION, SCORE } from '../config.js';
+const SCORE_HOT = SCORE.hot;
 import { SHIFTS, UPGRADES, RIG_SETUPS, starThresholds } from '../game/levels.js';
 import { PAINTS, LAMPS } from '../world/crane.js';
 import { DAILY_LADDER, FUND_SHOP, FUND_CAP, EPISODE_PERKS, buyWithFund } from '../game/rewards.js';
@@ -287,6 +288,7 @@ export class Screens {
       'div.card-body',
       h('div.brief-top', h('div.blurb', `${rec.task}. One ship, the same for everyone today. Your first run is the scored one${rec.scored ? ' — that is done: this one is practice' : ''}. A new challenge in ${rec.next}.`)),
       h('div.twists', ...level.twists.map((t) => h('div.feature.twist', h('b', { html: icon(t.icon) + ' ' + t.name }), t.text))),
+      level.manifest.some((m) => m.hot) ? h('div.feature.twist.hotnote', h('b', { html: icon('flame') + ' Hot box' }), `One box carries a flashing amber beacon: set it down in the right bay for +${SCORE_HOT} on today’s score.`) : null,
       h('div.section-label', `Manifest · ${level.manifest.length} to load${level.checks ? ` · ${level.checks} spot check${level.checks === 1 ? '' : 's'}` : ''}`),
       chips,
       h('div.section-label', 'Conditions'),

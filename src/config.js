@@ -108,6 +108,7 @@ export const TUNE = {
 };
 
 export const SCORE = {
+  hot: 250, // the ship's hot box, set down in the right bay (no extra input: just place it well)
   perfect: 300,
   great: 210,
   good: 130,
@@ -124,4 +125,4 @@ export const SCORE = {
   handover: 260, // unlisted box handed to customs
 };
 
-export const GAME_VERSION = '2.9.0';
+export const GAME_VERSION = '2.10.0';

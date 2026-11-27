@@ -47,3 +47,17 @@ test('one scored attempt per day, then practice; the streak counts consecutive d
   assert.equal(f.streak || 0, 0, 'a failed scored attempt keeps no streak');
   assert.equal(recordDaily(f, '2026-11-25', { success: true, score: 999, stars: 3 }).practice, true, 'and the retry is practice');
 });
+
+test('hot box: exactly one per ship (never the first box, never sealed, unlisted or forty-foot); the daily’s is the same for everyone', async () => {
+  const { endlessShip } = await import('../src/game/levels.js');
+  for (let n = 0; n < 12; n++) {
+    const m = endlessShip(n, 777).manifest;
+    const hot = m.map((x, i) => (x.hot ? i : -1)).filter((i) => i >= 0);
+    assert.equal(hot.length, 1, `ship ${n + 1}: one hot box`);
+    const b = m[hot[0]];
+    assert.ok(hot[0] > 0 && !b.check && !b.black && b.type !== 'long', `ship ${n + 1}: a fair one (${b.type})`);
+  }
+  const a = dailyShift('2026-11-27').manifest.findIndex((x) => x.hot);
+  const b = dailyShift('2026-11-27').manifest.findIndex((x) => x.hot);
+  assert.ok(a > 0 && a === b, 'the daily’s hot box is fixed by the day');
+});

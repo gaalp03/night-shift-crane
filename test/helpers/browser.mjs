@@ -67,7 +67,8 @@ export async function startGame() {
      *                which reports itself as a Mac with touch points)
      * @param until   'play' (default) or 'frame' (just the first frame: e.g. the control picker is up)
      */
-    async open({ width = 800, height = 450, mobile = false, device = null, init, until = 'play' } = {}) {
+    /** @param sdk  optional source of a stand-in CrazyGames SDK script (otherwise the SDK is blocked) */
+    async open({ width = 800, height = 450, mobile = false, device = null, init, until = 'play', sdk = null } = {}) {
       const IPAD = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15';
       const opts =
         device === 'ipad'
@@ -85,7 +86,7 @@ export async function startGame() {
         if (m.type() === 'error' && !/ERR_FAILED|net::/.test(m.text())) page.errors.push(m.text());
       });
       await page.route('**/build/game.js', (r) => r.continue({ url: base + 'build/game.dev.js' }));
-      await page.route('**/sdk.crazygames.com/**', (r) => r.abort());
+      await page.route('**/sdk.crazygames.com/**', (r) => (sdk ? r.fulfill({ contentType: 'text/javascript', body: sdk }) : r.abort()));
       if (device === 'ipad') await page.addInitScript(() => Object.defineProperty(Navigator.prototype, 'maxTouchPoints', { get: () => 5 }));
       // init: a function, or [function, argument] (closures do not reach the page)
       if (init) await (Array.isArray(init) ? page.addInitScript(init[0], init[1]) : page.addInitScript(init));

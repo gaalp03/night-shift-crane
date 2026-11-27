@@ -357,6 +357,8 @@ class AudioEngine {
     this.limiter.release.value = 0.18;
     this.master.connect(this.limiter);
     this.limiter.connect(ctx.destination);
+    // (anything that muted us before the graph existed — e.g. the platform's setting — holds)
+    if (this.muteReasons.size) this.master.gain.value = 0;
 
     const mk = (dest) => {
       const g = ctx.createGain();
@@ -641,12 +643,20 @@ class AudioEngine {
   }
 
   /** Reasons stack: 'hidden', 'ad', 'platform'. Audio resumes when all are cleared. */
+  /** Muted for any reason: the player's toggle, the platform's setting (CrazyGames muteAudio), an ad, a hidden tab. */
+  get muted() {
+    return this.muteReasons.size > 0;
+  }
+
   setMuted(muted, reason = 'user') {
-    if (!this.ctx) return;
+    // (the reason is kept even before / without WebAudio: it applies as soon as there is sound)
     if (muted) this.muteReasons.add(reason);
     else this.muteReasons.delete(reason);
     const hard = this.muteReasons.has('hidden') || this.muteReasons.has('ad');
     const any = this.muteReasons.size > 0;
+    // (the streamed music element too, in case it ever plays outside the WebAudio graph)
+    if (this.music && this.music.el) this.music.el.muted = any;
+    if (!this.ctx || !this.master) return;
     this.master.gain.setTargetAtTime(any ? 0 : 1, this.ctx.currentTime, 0.03);
     this.music.hold(hard);
     if (hard) {

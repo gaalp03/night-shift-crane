@@ -12,7 +12,7 @@ export function cargoChip(spec, cls = '') {
   if (isReefer) sw.style.color = zone.css;
   const label = (spec.zone === 'ANY' ? 'GEN' : zone.id) + (type !== 'std' ? ' · ' + CARGO_TYPES[type].label.toUpperCase() : '');
   // amber seal = customs want it weighed
-  return h(`span.chip${spec.check ? '.sealed' : ''}${cls}`, sw, label, spec.check ? h('span.seal', '?') : null);
+  return h(`span.chip${spec.check ? '.sealed' : ''}${spec.hot ? '.hot' : ''}${cls}`, sw, label, spec.check ? h('span.seal', '?') : null, spec.hot ? h('span.hottag', 'HOT') : null);
 }
 
 export class Hud {

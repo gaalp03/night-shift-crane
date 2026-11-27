@@ -175,7 +175,7 @@ export class Session extends Emitter {
   }
 
   _newCargo(spec, brand, look) {
-    const c = new Cargo({ zone: spec.zone, type: spec.type, brand: (brand == null ? this.cargos.length : brand) % BRAND_COUNT, mobile: this.ctx.mobile, check: !!spec.check, look });
+    const c = new Cargo({ zone: spec.zone, type: spec.type, brand: (brand == null ? this.cargos.length : brand) % BRAND_COUNT, mobile: this.ctx.mobile, check: !!spec.check, look, hot: !!spec.hot });
     c.spec = spec;
     c.mass = c.typeDef.mass;
     if (spec.episode) c.episode = spec.episode;
@@ -555,6 +555,8 @@ export class Session extends Emitter {
   }
 
   _controls() {
+    this._pAxes = this._pAxes || { x: 0, z: 0 };
+    this._pAxes.x = this._pAxes.z = 0;
     // while ships change over the crane is free after a moment (fetch the next box), but over the
     // water the spreader stays clear of the passing wheelhouse
     if (this.phase === 'swap') {
@@ -578,6 +580,9 @@ export class Session extends Emitter {
   /** What the player (or the one-touch helpers) ask of the crane this step. */
   _playerControls() {
     const ctl = { x: this.allow.x ? input.axisX : 0, z: this.allow.z ? input.axisZ : 0, hoist: 0 };
+    // (what the player's own hands asked for, before any automation steers: only this can counter)
+    this._pAxes.x = ctl.x;
+    this._pAxes.z = ctl.z;
     // a finger (or any manual axis input, which cancels it) steers the crane to a point
     if (this.target) {
       if (Math.abs(ctl.x) + Math.abs(ctl.z) > 0.2) this.target = null;
@@ -682,7 +687,8 @@ export class Session extends Emitter {
       } else rig.mods.sway = base;
     }
     this._computeAssist(ctl);
-    if (!warm) this._watchCounter(h, ctl);
+    // (countering is judged on the player's own steering, never on the one-finger or snap automation)
+    if (!warm) this._watchCounter(h, this._pAxes || ctl);
     rig.fixedUpdate(h, ctl, this.env);
     this.gantryBody.setNextKinematicTranslation({ x: 0, y: 0, z: rig.z });
     this.ship.fixedUpdate(this.simT, h);
@@ -1295,6 +1301,13 @@ export class Session extends Emitter {
       pts += sp;
       if (sp > SCORE.speedMax * 0.8) parts.push('FAST');
     }
+    let hot = 0;
+    if (c.hot && !c.hotPaid && !discharge && grade !== 'sloppy') {
+      hot = SCORE.hot;
+      c.hotPaid = true;
+      pts += hot;
+      parts.push('HOT');
+    }
     if (c.typeDef.value && grade !== 'sloppy') {
       let v = c.typeDef.value;
       if (c.type === 'reefer') v = Math.round(v * (0.25 + 0.75 * c.temp));
@@ -1328,6 +1341,10 @@ export class Session extends Emitter {
       if (this.combo >= 3 && this.combo % 3 === 0) audio.play('sax_combo', { delay: 0.25 });
     }
     this.emit('placed', { cargo: c, grade, pts });
+    if (hot) {
+      this.stats.hot = (this.stats.hot || 0) + 1;
+      this.emit('hotBox', { cargo: c, pts: Math.round(hot * mult), pos });
+    }
   }
 
   _uncount(c) {
@@ -1834,6 +1851,7 @@ export class Session extends Emitter {
 
   /** Unlisted boxes: the glow in the seams, and whatever keeps knocking from the inside. */
   _updateBlack(dt) {
+    for (const c of this.cargos) if (c.hot && c.state !== 'gone') c.updateHot(dt);
     if (!this.blackSeen) return;
     for (const c of this.cargos) {
       if (!c.black || c.state === 'gone') continue;

@@ -4868,3 +4868,18 @@ body.touch #ladderstrip {
   margin: 0.5em 0 0;
   min-width: 19em;
 }
+
+/* the hot box in the manifest queue */
+.chip.hot {
+  box-shadow: inset 0 0 0 0.12em #ff8a2a;
+}
+.chip .hottag {
+  margin-left: 0.3em;
+  padding: 0 0.3em;
+  border-radius: 0.25em;
+  background: #ff8a2a;
+  color: #201006;
+  font-size: 0.75em;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}

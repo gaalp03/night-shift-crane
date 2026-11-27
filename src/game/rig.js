@@ -13,6 +13,10 @@ const SLACK = 0.22;
 const _v = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 
+// paying out cable: share of the load's weight the winch brake carries, how hard it holds the load to
+// the drum's speed, and how far the load may lag behind it (rope life)
+const PAYOUT = { carry: 0.9, gain: 7, lag: 0.04, speed: 0.8 };
+
 export class Rig {
   constructor(phys, { x = DIM.LANE_X, z = 0, rope = 8, mods = {} } = {}) {
     this.phys = phys;
@@ -119,7 +123,9 @@ export class Rig {
 
     // --- hoist: positive input = up = shorter cable
     const maxVr = TUNE.hoistSpeed * m.hoist;
-    const target = -ctl.hoist * maxVr;
+    // (paying out runs a little slower than hauling in: with the load following the drum it would
+    // otherwise come down faster than it ever did when it fell stop-start)
+    const target = -ctl.hoist * maxVr * (ctl.hoist < 0 ? PAYOUT.speed : 1);
     this.vr = approach(this.vr, target, TUNE.hoistAccel * h);
     let len = this.rope + this.vr * h;
     const used = this.anchorDistance();
@@ -156,7 +162,14 @@ export class Rig {
         fz += env.assist.z * mass;
       }
     }
-    spr.addForce({ x: fx, y: 0, z: fz }, true);
+    // paying out: the winch lets the load down at the drum's speed rather than dropping it onto the
+    // end of the cable every step (that stop-start was the stutter); some give is left in it
+    let fy = 0;
+    if (this.vr > 0.02 && this.slack < 0.6 && !this.frozen) {
+      const want = -this.vr * (1 - PAYOUT.lag);
+      fy = Math.max(0, mass * (-TUNE.gravity * PAYOUT.carry + PAYOUT.gain * (want - v.y)));
+    }
+    spr.addForce({ x: fx, y: fy, z: fz }, true);
     // keep the spreader square to the quay (the four falls resist yaw; this adds a little authority)
     const r = spr.rotation();
     const yaw = Math.atan2(2 * (r.w * r.y + r.x * r.z), 1 - 2 * (r.y * r.y + r.x * r.x));

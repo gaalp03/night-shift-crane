@@ -370,6 +370,7 @@ export function endlessShip(n, seed) {
   }
   const rank = (m) => (m.type === 'heavy' ? 0 : m.type === 'long' ? 1 : 2);
   manifest.sort((a, b) => rank(a) - rank(b));
+  markHot(manifest, rng);
   // weather turns slowly: a new stage every two ships, the storm not before the eleventh
   const stage = Math.floor(n / 2);
   const w = ENDLESS_WEATHER[Math.min(ENDLESS_WEATHER.length - 1, stage)];
@@ -427,6 +428,23 @@ function hashKey(str) {
 /**
  * Twists: each night gets two. `kind` keeps the pair sensible (one cargo twist, one sky twist at most).
  */
+/**
+ * One hot box per ship: a priority consignment, worth SCORE.hot when it goes into the right bay. Chosen
+ * from the seeded generator (the daily's is the same for everyone); never the first box, never a sealed,
+ * unlisted or forty-foot one.
+ */
+export function markHot(manifest, rng) {
+  const ok = [];
+  for (let i = 1; i < manifest.length; i++) {
+    const m = manifest[i];
+    if (!m.black && !m.check && !m.discharge && m.type !== 'long') ok.push(i);
+  }
+  if (!ok.length) return -1;
+  const i = rng.pick(ok);
+  manifest[i].hot = true;
+  return i;
+}
+
 /** The daily challenge's day: the UTC calendar date, so everyone plays the same ship on the same day. */
 export function utcDayKey(d = new Date()) {
   const p = (n) => String(n).padStart(2, '0');
@@ -592,6 +610,7 @@ export function dailyShift(key = todayKey()) {
     plain[i].check = true;
     plain[i].contra = r.chance(0.5);
   }
+  markHot(manifest, r);
   def.manifest = manifest;
   // --- a little cargo already aboard (at most one per bay, never heavy)
   const preload = [];

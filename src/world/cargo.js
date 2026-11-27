@@ -648,9 +648,10 @@ function materialFor(zoneId, type, brandIdx, mobile, sealed, look) {
 }
 
 let nextId = 1;
+let hotGeo = null;
 
 export class Cargo {
-  constructor({ zone = 'ANY', type = 'std', brand = 0, mobile = false, check = false, look = '' }) {
+  constructor({ zone = 'ANY', type = 'std', brand = 0, mobile = false, check = false, look = '', hot = false }) {
     this.id = nextId++;
     this.zone = zone;
     this.type = type;
@@ -695,6 +696,32 @@ export class Cargo {
     this.box = box;
     this.mesh.userData.cargo = this;
     if (this.black) this._seam();
+    this.hot = !!hot;
+    if (this.hot) this._hotBeacon();
+  }
+
+  /** The hot box: an amber beacon on its roof, flashing (no input needed, just set it down well). */
+  _hotBeacon() {
+    const mat = new THREE.MeshBasicMaterial({ color: 0xff8a2a, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false, fog: true });
+    const g = new THREE.Group();
+    const lamp = new THREE.Mesh(hotGeo || (hotGeo = new THREE.CylinderGeometry(0.16, 0.2, 0.26, 10)), mat);
+    lamp.position.set(0, this.hy + 0.14, this.hz * 0.55);
+    g.add(lamp);
+    const stripe = new THREE.Mesh(seamGeo || (seamGeo = new THREE.BoxGeometry(1, 1, 1)), mat);
+    stripe.scale.set(DIM.CONT_W + 0.02, 0.12, 0.05);
+    stripe.position.set(0, this.hy - 0.35, this.hz + 0.02);
+    g.add(stripe);
+    this.box.add(g);
+    this.hotMat = mat;
+    this.hotT = Math.random() * 3;
+  }
+
+  /** The hot box's beacon flashes (called every frame while it is about). */
+  updateHot(dt) {
+    if (!this.hotMat) return;
+    this.hotT += dt;
+    const f = (this.hotT * 1.6) % 1;
+    this.hotMat.opacity = this.state === 'locked' ? 0.25 : f < 0.5 ? 0.95 : 0.25;
   }
 
   /** A cold light leaking from the door seam and under the floor of a black box. */
