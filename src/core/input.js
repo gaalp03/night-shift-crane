@@ -9,8 +9,12 @@ const KEYS_Z_NEAR = ['KeyS', 'ArrowDown'];
 const KEYS_UP = ['KeyE', 'KeyR', 'ShiftLeft', 'ShiftRight', 'PageUp'];
 const KEYS_DOWN = ['KeyQ', 'KeyF', 'PageDown'];
 
+// (frames: a press from a second device this soon after the last is the same press seen twice)
+export const LOCK_DEBOUNCE = 15;
+
 class Input {
   constructor() {
+    this.frame = 0;
     this.keys = new Set();
     this.pressed = new Set(); // edge-triggered this frame
     this.touch = { x: 0, z: 0, hoist: 0, active: false };
@@ -25,6 +29,12 @@ class Input {
 
   _bind() {
     window.addEventListener('keydown', (e) => {
+      // a game button that kept the focus after a tap (the pad, DROP) must not also "click" on a key:
+      // that was the same press arriving twice
+      if (this._onGameButton(e)) {
+        e.preventDefault();
+        e.target.blur();
+      }
       if (e.repeat) {
         if (this._isGameKey(e.code)) e.preventDefault();
         return;
@@ -37,11 +47,17 @@ class Input {
     });
     window.addEventListener('keyup', (e) => {
       this.keys.delete(e.code);
+      if (this._onGameButton(e)) e.preventDefault();
     });
     window.addEventListener('blur', () => this.clear());
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) this.clear();
     });
+  }
+
+  _onGameButton(e) {
+    const t = e.target;
+    return !!(t && t.closest && (e.code === 'Space' || e.code === 'Enter' || e.code === 'NumpadEnter') && t.closest('#touch, .dropbtn'));
   }
 
   _isGameKey(code) {
@@ -96,6 +112,7 @@ class Input {
         if (down && !this._padButtons[idx]) {
           this.touchPressed.add(map[idx]);
           this.lastDevice = 'gamepad';
+          if (map[idx] === 'lock') this._fireDev = 'gamepad';
         }
         this._padButtons[idx] = down;
       }
@@ -126,10 +143,9 @@ class Input {
   }
 
   action(name) {
+    if (name === 'lock') return this._lock();
     if (this.touchPressed.has(name)) return true;
     switch (name) {
-      case 'lock':
-        return this.enabled && this.hit('Space', 'Enter', 'NumpadEnter');
       case 'camera':
         return this.enabled && this.hit('KeyC', 'KeyV', 'Tab');
       case 'pause':
@@ -143,15 +159,39 @@ class Input {
     }
   }
 
+  /**
+   * Lock / release, once per real press. The same answer for every read within a frame, and a press from
+   * another device within a quarter second of the last one is the same press arriving twice (a tap and
+   * the key that followed it on a hybrid, a focused button "clicked" by the key) — not a second toggle.
+   */
+  _lock() {
+    if (this._lockAt === this.frame) return this._lockVal;
+    this._lockAt = this.frame;
+    const touch = this.touchPressed.has('lock');
+    const key = this.enabled && this.hit('Space', 'Enter', 'NumpadEnter');
+    let v = touch || key;
+    if (v) {
+      const dev = key ? 'keyboard' : this._fireDev || 'touch';
+      const last = this._lastLock;
+      if (last && last.dev !== dev && this.frame - last.frame < LOCK_DEBOUNCE) v = false;
+      else this._lastLock = { dev, frame: this.frame };
+    }
+    this._lockVal = v;
+    return v;
+  }
+
   /** Touch UI calls this to fire an edge-triggered action. */
-  fire(name) {
+  fire(name, dev = 'touch') {
     this.touchPressed.add(name);
-    this.lastDevice = 'touch';
+    this.lastDevice = dev === 'mouse' ? this.lastDevice : dev;
+    if (name === 'lock') this._fireDev = dev;
   }
 
   endFrame() {
     this.pressed.clear();
     this.touchPressed.clear();
+    this._fireDev = null;
+    this.frame++;
   }
 }
 

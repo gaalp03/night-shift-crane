@@ -66,7 +66,7 @@ test('phone, first launch: no choice screen; Manual, the HUD and the job line fr
     assert.ok(v.mode === 'play' && !v.picker, 'playing at once: ' + JSON.stringify(v));
     assert.equal(v.controls, 'manual');
     assert.ok(v.playing && v.hud && v.stick, 'gameplay started (no gameplayStop), HUD and the pad on screen: ' + JSON.stringify(v));
-    assert.match(v.job, /LOAD 4 BOXES · SHIP 1/, 'the job before the first drop');
+    assert.match(v.job, /LOAD\s4\sBOXES\s·\sSHIP\s1/, 'the job before the first drop');
     assert.ok(v.jobSeen, 'the job line is on screen');
     assert.equal(v.placed, 0, 'and it is there before anything is dropped');
     assert.ok(v.cue && v.lockAnim === 'firstCue', 'the pad’s DROP button pulses from frame one: ' + v.lockAnim);
@@ -85,7 +85,7 @@ test('phone, first launch: no choice screen; Manual, the HUD and the job line fr
 test('desktop, first launch: the job line and a pulsing DROP with its SPACE key from the first frame', { skip, timeout: 300000 }, async () => {
   await withPage({ width: 1280, height: 720 }, async (page) => {
     const v = await firstFrame(page);
-    assert.match(v.job, /LOAD 4 BOXES · SHIP 1/);
+    assert.match(v.job, /LOAD\s4\sBOXES\s·\sSHIP\s1/);
     assert.ok(v.drop && v.dropAnim === 'firstCue' && /DROP/.test(v.dropText) && /SPACE/.test(v.dropText), 'DROP + SPACE, pulsing: ' + JSON.stringify(v));
     assert.ok(await page.evaluate(() => window.__nsc.app.cams.introOn), 'all during the opening camera move');
     assert.deepEqual(page.errors, []);

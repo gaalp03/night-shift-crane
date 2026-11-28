@@ -224,9 +224,10 @@ export class CameraRig {
       cam.fov = this.fov;
       cam.updateProjectionMatrix();
     }
-    const shift = cam.aspect < 1 && (this.mode === 'chase' || this.mode === 'cab') ? this.lensShift : 0;
+    // (upright: lifted clear of the pad; sideways: eased down a touch while the job line is up top)
+    const shift = this.mode === 'chase' || this.mode === 'cab' ? (cam.aspect < 1 ? this.lensShift : this.lensShiftWide || 0) : 0;
     this._shiftNow = Math.abs(shift - this._shiftNow) < 0.002 ? shift : damp(this._shiftNow, shift, 4, dt);
-    if (this._shiftNow > 0.001) {
+    if (Math.abs(this._shiftNow) > 0.001) {
       // (setViewOffset sets the aspect from its full size: pass the real one)
       if (!cam.view || !cam.view.enabled || Math.abs(cam.view.offsetY - this._shiftNow) > 1e-4) cam.setViewOffset(cam.aspect, 1, 0, this._shiftNow, cam.aspect, 1);
     } else if (cam.view && cam.view.enabled) cam.clearViewOffset();

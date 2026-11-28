@@ -133,6 +133,22 @@ test('seabirds: a real body, head and two-part wings that beat and fold; smooth 
       return [s.x, s.y, s.z];
     };
     const geo = { body: B.body.geometry.attributes.position.count, bodySize: box(B.body.geometry), wing: box(B.inL.geometry), tip: box(B.outL.geometry) };
+    // the wings: cambered two-layer surfaces, grey above and white below, black finger primaries
+    const layers = (g) => {
+      const n = g.attributes.normal;
+      const c = g.attributes.color;
+      let upGrey = 0;
+      let downWhite = 0;
+      let black = 0;
+      for (let i = 0; i < n.count; i++) {
+        if (n.getY(i) > 0.5 && c.getX(i) < 0.75) upGrey++;
+        if (n.getY(i) < -0.5 && c.getX(i) > 0.9) downWhite++;
+        if (c.getX(i) < 0.15) black++;
+      }
+      return { n: n.count, upGrey, downWhite, black };
+    };
+    geo.inner = layers(B.inR.geometry);
+    geo.outer = layers(B.outR.geometry);
     // wing beats: each bird's right inner wing relative to its body, sampled over 6 s
     const q = new T.Quaternion();
     const p = new T.Vector3();
@@ -172,6 +188,41 @@ test('seabirds: a real body, head and two-part wings that beat and fold; smooth 
       } else prev = prevDir = null;
     }
     const swing = Math.max(...hi.map((h, k) => h - lo[k]));
+    // one bird beating steadily: the downstroke is quicker than the upstroke (an arc, not a see-saw)
+    const fb = B.birds[1];
+    fb.mode = 'soar';
+    fb.flapAmp = 1;
+    let down = 0;
+    let up = 0;
+    let last = null;
+    for (let i = 0; i < 240; i++) {
+      fb.burst = -0.5;
+      N.sim(1 / 60);
+      const a = wingAngle(1);
+      if (last != null) {
+        if (a < last - 1e-4) down++;
+        else if (a > last + 1e-4) up++;
+      }
+      last = a;
+    }
+    // glide phases and curving paths: over 30 s, a good share of the time on still wings, and the
+    // heading of a soaring bird keeps turning
+    let still = 0;
+    let all = 0;
+    let turn = 0;
+    let hd = null;
+    const gb = B.birds[2];
+    for (let i = 0; i < 900; i++) {
+      N.sim(1 / 30);
+      for (const b of B.birds) if (b.mode === 'soar') (all++, b.flapAmp < 0.3 && still++);
+      const v = gb.pos.clone().sub(gb.prev);
+      if (v.lengthSq() > 1e-6) {
+        const h = Math.atan2(v.x, v.z);
+        if (hd != null) turn += Math.abs(Math.atan2(Math.sin(h - hd), Math.cos(h - hd)));
+        hd = h;
+      }
+    }
+    const beat = { down, up, glide: still / Math.max(1, all), turn };
     // they land on the lamps and bollards (wings folded) within a couple of minutes
     let perched = null;
     for (let i = 0; i < 240 && !perched; i++) {
@@ -185,13 +236,18 @@ test('seabirds: a real body, head and two-part wings that beat and fold; smooth 
         perched = { onPerch: B.perches.some((pp) => pp.pos.distanceTo(pb.pos) < 0.05), folded: sc.x < 0.8, t: i * 0.5 };
       }
     }
-    return { n: B.birds.length, visible: B.body.visible, geo, swing, maxStep, maxTurn, perched };
+    return { n: B.birds.length, visible: B.body.visible, geo, swing, maxStep, maxTurn, perched, beat };
   });
   assert.ok(r.n >= 4 && r.visible, 'a few birds about: ' + r.n);
   assert.ok(r.geo.body > 40, 'a shaped body (not a plank): ' + r.geo.body + ' vertices');
   assert.ok(r.geo.bodySize[1] > 0.15 && r.geo.bodySize[2] > 0.6, 'body has depth and length: ' + r.geo.bodySize.map((v) => v.toFixed(2)));
   assert.ok(r.geo.wing[0] > 0.35 && r.geo.tip[0] > 0.25, 'inner wing and wing tip are separate panels');
   assert.ok(r.swing > 0.4, `the wings beat (swing ${r.swing.toFixed(2)} rad)`);
+  assert.ok(r.geo.inner.n >= 30 && r.geo.inner.upGrey > 6 && r.geo.inner.downWhite > 6, 'a cambered wing, grey above, white below: ' + JSON.stringify(r.geo.inner));
+  assert.ok(r.geo.outer.n >= 40 && r.geo.outer.black >= 12, 'a swept hand with black finger primaries: ' + JSON.stringify(r.geo.outer));
+  assert.ok(r.beat.down > 0 && r.beat.down < r.beat.up * 0.85, `a quick downstroke, an easier upstroke (frames down ${r.beat.down} / up ${r.beat.up})`);
+  assert.ok(r.beat.glide > 0.3, `glide phases on still wings (${(r.beat.glide * 100).toFixed(0)} % of soaring)`);
+  assert.ok(r.beat.turn > 1, `curving paths (${r.beat.turn.toFixed(1)} rad of turning in 30 s)`);
   assert.ok(r.maxStep < 0.6, `smooth flight, no jumps (max ${r.maxStep.toFixed(2)} m per frame)`);
   assert.ok(r.maxTurn < 0.35, `no sudden turns (max ${r.maxTurn.toFixed(2)} rad per frame)`);
   assert.ok(r.perched && r.perched.onPerch && r.perched.folded, 'a bird lands and perches, wings folded: ' + JSON.stringify(r.perched));

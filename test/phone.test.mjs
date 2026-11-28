@@ -1,6 +1,7 @@
-// Phones, upright and sideways (headless Chromium, emulated devices): nothing on screen overlaps or is
-// cut off, all text is readable (11 px+), the box, its slot and the spreader are never under the
-// interface, and on an upright phone the pad is in thumb reach at the bottom.
+// Phones, upright and sideways (headless Chromium, emulated devices and 360x640 / 390x844 / 640x360
+// viewports): nothing on screen overlaps or is cut off, all text is readable (11 px+), the box, its slot
+// and the spreader are never under the interface, on an upright phone the pad is one low row in thumb
+// reach, and the goal line and the clock never clip or shrink — radio talking or not.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { startGame, injectDriver, findPlaywright } from './helpers/browser.mjs';
@@ -38,6 +39,8 @@ const AUDIT = () => {
   add('money', '.hud-tr .wallet, .hud-tr .money');
   add('upgrade', '.hud-tr .upgrade');
   add('job', '#jobline');
+  add('wind', '.hud-bl');
+  add('goals', '.hud-tl .goals');
   add('ladder', '#ladderstrip');
   add('strip', '#strip .strip');
   add('toast', '#toasts .toast');
@@ -82,6 +85,35 @@ const AUDIT = () => {
   }
   return { W, H, at, issues, small: [...new Set(small)].slice(0, 8), covered, items: items.map((i) => `${i.name}:${Math.round(i.t)}-${Math.round(i.b)}`) };
 };
+
+/** The goal line, the job line and the clock: on screen, not clipped, not shrunk. */
+const HUDTEXT = () => {
+  const res = [];
+  const W = innerWidth;
+  for (const el of document.querySelectorAll('#hud *, #jobline, #jobline *')) {
+    const r = el.getBoundingClientRect();
+    if (r.width < 2 || r.height < 2) continue;
+    const cs = getComputedStyle(el);
+    let p = el;
+    let hidden = false;
+    while (p && p !== document.body) {
+      const c = getComputedStyle(p);
+      if (c.display === 'none' || c.visibility === 'hidden' || +c.opacity < 0.05) hidden = true;
+      p = p.parentElement;
+    }
+    if (hidden) continue;
+    const txt = [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim());
+    if (r.left < -1 || r.right > W + 1) res.push('off-screen: ' + (el.id || el.className));
+    if (txt && el.scrollWidth > el.clientWidth + 1 && cs.overflow !== 'visible') res.push('clipped: ' + (el.id || el.className || el.tagName));
+    if (txt && parseFloat(cs.fontSize) < 12) res.push('small: ' + (el.className || el.tagName) + ' ' + cs.fontSize);
+  }
+  const fs = (q) => {
+    const e = document.querySelector(q);
+    return e && e.getClientRects().length ? parseFloat(getComputedStyle(e).fontSize) : null;
+  };
+  return { res: [...new Set(res)], clock: fs('.hud-tc .timer'), job: fs('#jobline .j1') };
+};
+
 const returning = () =>
   localStorage.setItem(
     'night-shift-crane.save.v1',
@@ -115,9 +147,11 @@ const check = (where, a) => {
   assert.deepEqual(a.covered, [], where + ': the action is covered');
 };
 
-for (const dev of ['iPhone SE', 'iPhone 13', 'iPhone 14 Pro Max', 'iPhone 13 landscape']) {
+for (const dev of ['iPhone SE', 'iPhone 13', 'iPhone 14 Pro Max', 'iPhone 13 landscape', '360x640', '390x844', '640x360']) {
+  const sz = /^(\d+)x(\d+)$/.exec(dev);
+  const where = sz ? { device: 'Pixel 5', viewport: { width: +sz[1], height: +sz[2] } } : { device: dev };
   test(`${dev}: the opening and play are clear — no overlaps, readable text, box / slot / spreader never under the UI`, { skip, timeout: 300000 }, async () => {
-    let page = await game.open({ device: dev, until: 'frame' });
+    let page = await game.open({ ...where, until: 'frame' });
     try {
       await page.waitForTimeout(900);
       check(dev + ' opening', await page.evaluate(AUDIT));
@@ -127,7 +161,7 @@ for (const dev of ['iPhone SE', 'iPhone 13', 'iPhone 14 Pro Max', 'iPhone 13 lan
     } finally {
       await page.context().close().catch(() => {});
     }
-    page = await game.open({ device: dev, init: returning });
+    page = await game.open({ ...where, init: returning });
     try {
       await injectDriver(page);
       await page.evaluate(carry);
@@ -137,9 +171,41 @@ for (const dev of ['iPhone SE', 'iPhone 13', 'iPhone 14 Pro Max', 'iPhone 13 lan
       if (a.H > a.W) {
         // upright: the pad is at the bottom, in thumb reach; the action sits above it
         const pad = await page.evaluate(() => Math.min(...['.stick', '.tbtn.lock', '.tbtn.up'].map((s) => document.querySelector('#touch ' + s).getBoundingClientRect().top)));
-        assert.ok(pad > a.H * 0.7, `the pad is in the bottom 30% (${Math.round(pad)} of ${a.H})`);
+        assert.ok(pad > a.H * 0.78, `the pad is one low row, in the bottom 22% (${Math.round(pad)} of ${a.H})`);
         for (const at of a.at) assert.ok(+at.split('@')[1] < pad - 20, 'above the pad: ' + at);
       }
+      assert.deepEqual(page.errors, []);
+    } finally {
+      await page.context().close().catch(() => {});
+    }
+  });
+}
+
+for (const dev of ['360x640', '390x844', '640x360', 'iPhone SE']) {
+  const sz = /^(\d+)x(\d+)$/.exec(dev);
+  const where = sz ? { device: 'Pixel 5', viewport: { width: +sz[1], height: +sz[2] } } : { device: dev };
+  test(`${dev}: the goal line and the clock never clip or shrink, with the radio talking (a long shift job line)`, { skip, timeout: 300000 }, async () => {
+    const page = await game.open({ ...where, init: returning });
+    try {
+      await page.evaluate(() => {
+        const N = window.__nsc;
+        window.__old = N.app.session;
+        N.app.startShift(N.SHIFTS[N.SHIFTS.length - 1]);
+      });
+      // (past the shift's fly-over, into play)
+      await page.waitForFunction(() => {
+        const A = window.__nsc.app;
+        if (A.mode === 'intro' && A._skipTour) A._skipTour();
+        return A.mode === 'play' && A.session && A.session !== window.__old && A.session.level && !A.session.level.endless;
+      }, null, { timeout: 30000, polling: 250 });
+      await page.waitForTimeout(800);
+      await page.evaluate(() => window.__nsc.app.radio.say([{ who: 'customs', text: 'Seven, customs here. That reefer stays on the quay until we have seen the papers, understood?', dur: 9000 }], { urgent: true }));
+      await page.waitForTimeout(1400);
+      const r = await page.evaluate(HUDTEXT);
+      assert.deepEqual(r.res, [], dev + ': ' + JSON.stringify(r));
+      assert.ok(r.clock >= 20, 'the clock is big enough: ' + r.clock);
+      assert.ok(r.job == null || r.job >= 16, 'the job line is big enough: ' + r.job);
+      check(dev + ' shift + radio', await page.evaluate(AUDIT));
       assert.deepEqual(page.errors, []);
     } finally {
       await page.context().close().catch(() => {});

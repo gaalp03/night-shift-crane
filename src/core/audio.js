@@ -399,7 +399,7 @@ class AudioEngine {
   unlock() {
     const ctx = this.ctx;
     if (!ctx) return;
-    if (ctx.state !== 'running' && !this.muteReasons.has('hidden') && !this.muteReasons.has('ad')) {
+    if (ctx.state !== 'running' && !this.muteReasons.size) {
       const p = ctx.resume();
       if (p && p.catch) p.catch(() => {});
     }
@@ -550,6 +550,7 @@ class AudioEngine {
       pan = clamp((dx * l.rx + dy * l.ry + dz * l.rz) / d, -1, 1) * 0.7;
     }
     if (vol <= 0.003) return null;
+    if (def.duck) this.duck(def.duck);
     const rv = def.rateVar == null ? 0.05 : def.rateVar;
     const rate = (opts.rate || 1) * (def.rate || 1) * (1 + rand(-rv, rv));
     const t = ctx.currentTime + (opts.delay || 0);
@@ -657,13 +658,45 @@ class AudioEngine {
     // (the streamed music element too, in case it ever plays outside the WebAudio graph)
     if (this.music && this.music.el) this.music.el.muted = any;
     if (!this.ctx || !this.master) return;
-    this.master.gain.setTargetAtTime(any ? 0 : 1, this.ctx.currentTime, 0.03);
-    this.music.hold(hard);
-    if (hard) {
-      if (this.ctx.state === 'running') this.ctx.suspend().catch(() => {});
+    // a short linear ramp that ends on exactly 0 (an exponential approach never quite gets there), then
+    // the whole graph is suspended: no residue of the sea loop on any browser
+    this._ramp(this.master.gain, any ? 0 : 1, 0.04);
+    this.music.hold(any);
+    clearTimeout(this._suspendT);
+    if (any) {
+      if (hard) this.ctx.suspend().catch(() => {});
+      else
+        this._suspendT = setTimeout(() => {
+          if (this.muted && this.ctx.state === 'running') this.ctx.suspend().catch(() => {});
+        }, 90);
     } else if (this.ctx.state !== 'running' && this.unlocked) {
       this.ctx.resume().catch(() => {});
     }
+  }
+
+  /** Cancel what is scheduled and ramp linearly to v (exactly), or set it at once when not running. */
+  _ramp(param, v, dur) {
+    const t = this.ctx.currentTime;
+    param.cancelScheduledValues(t);
+    if (this.ctx.state !== 'running') {
+      param.value = v;
+      return;
+    }
+    param.setValueAtTime(param.value, t);
+    param.linearRampToValueAtTime(v, t + dur);
+  }
+
+  /** The sea and the rest of the ambience dip under a big moment (the lock, the drop, a horn). */
+  duck(depth = 0.5, hold = 0.9) {
+    if (!this.ctx || this.ctx.state !== 'running' || !this.buses.amb) return;
+    const g = this.buses.amb.gain;
+    const t = this.ctx.currentTime;
+    g.cancelScheduledValues(t);
+    g.setValueAtTime(g.value, t);
+    g.linearRampToValueAtTime(depth, t + 0.06);
+    g.setValueAtTime(depth, t + 0.06 + hold);
+    g.linearRampToValueAtTime(1, t + 0.06 + hold + 0.8);
+    this.ducks = (this.ducks || 0) + 1;
   }
 }
 

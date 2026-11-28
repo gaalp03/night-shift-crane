@@ -3369,9 +3369,8 @@ body.touch .coachpill {
   flex: 1;
   min-width: 0;
   font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  /* (a long goal wraps onto a second line: never cut off with an ellipsis) */
+  overflow-wrap: anywhere;
 }
 .goal .rew {
   flex: none;
@@ -5062,5 +5061,114 @@ body.touch #ladderstrip {
   body.touch.ctl-manual #ladderstrip .lhead {
     margin-top: 0.3em;
     font-size: 0.92em;
+  }
+}
+/* ==================================================================== 2.13: phones
+   The goal line and the clock never clip or shrink below readable: the job line wraps between its
+   parts on a narrow screen (never off the edge), its second line and the clock have a floor. */
+#jobline {
+  white-space: normal;
+  max-width: calc(100vw - 1.4em - var(--sl) - var(--sr));
+  text-wrap: balance;
+}
+#jobline .j2 {
+  font-size: max(0.9em, 12.5px);
+}
+.hud-tc .timer {
+  font-size: max(1.9em, 21px);
+}
+.goal .gl {
+  font-size: max(0.88em, 12px);
+}
+/* upright phones: the pad hugs the bottom corners, one row high — the hoist pair is no taller than the
+   lock button, so nothing reaches up into the crane and the slot; all of it in the right thumb's arc */
+@media (orientation: portrait) {
+  body.touch.ctl-manual .tbtns {
+    right: calc(0.9em + var(--sr));
+    bottom: calc(0.9em + var(--sb));
+    gap: 0.45em 0.7em;
+  }
+  body.touch.ctl-manual .tbtn.up,
+  body.touch.ctl-manual .tbtn.dn {
+    height: 4.3em;
+    width: 5.4em;
+  }
+  body.touch.ctl-manual .tbtn.up svg.ico,
+  body.touch.ctl-manual .tbtn.dn svg.ico {
+    width: 1.8em;
+    height: 1.8em;
+  }
+  body.touch.ctl-manual .stick {
+    left: calc(1em + var(--sl));
+    bottom: calc(0.9em + var(--sb));
+  }
+  body.touch.portrait.ctl-manual {
+    --padh: calc(9.8em + var(--sb));
+  }
+}
+@media (orientation: portrait) and (max-height: 700px) {
+  body.touch.portrait.ctl-manual {
+    --padh: calc(8.6em + var(--sb));
+  }
+}
+/* sideways phones: the right-hand controls get room — the overtime score steps out of their column
+   (it is on every ship card), the cluster sits off the edge with air between the buttons */
+@media (orientation: landscape) and (max-height: 480px) {
+  body.touch .scoreplate {
+    display: none !important;
+  }
+  body.touch.ctl-manual .tbtns {
+    right: calc(1.6em + var(--sr));
+    bottom: calc(1.1em + var(--sb));
+    gap: 0.75em 1.25em;
+  }
+  body.touch.ctl-manual .tbtn.lock {
+    margin-right: 0.2em;
+  }
+}
+/* toasts step aside when the box, the spreader or the slot would be under them */
+#toasts.dodgeL {
+  align-items: flex-start;
+  padding-left: calc(0.9em + var(--sl));
+}
+#toasts.dodgeR {
+  align-items: flex-end;
+  padding-right: calc(0.9em + var(--sr));
+}
+#toasts.dodgeL .toast,
+#toasts.dodgeR .toast {
+  max-width: min(44vw, 20em);
+}
+@media (orientation: landscape) {
+  body.touch #toasts.dodgeL,
+  body.touch #toasts.dodgeR {
+    padding-top: calc(9.6em + var(--st));
+  }
+  body.touch #toasts.dodgeL {
+    padding-left: calc(1em + var(--sl));
+  }
+}
+/* the boot ladder's day numbers and item names stay readable at any size */
+body.touch #ladderstrip .lday b {
+  font-size: max(11px, 1em);
+}
+body.touch #ladderstrip .lday em {
+  font-size: max(11px, 0.85em);
+}
+/* upright phones: the job line starts under the upgrade chip (it may wrap to two lines), the toasts
+   under it */
+@media (orientation: portrait) {
+  body.touch #jobline {
+    top: calc(10.3em + var(--st));
+  }
+  body.touch #toasts {
+    padding-top: calc(15.2em + var(--st));
+  }
+}
+/* sideways phones: while the job line is up it says what the ship count says: the count steps aside
+   for it rather than the two overlapping under the clock */
+@media (orientation: landscape) {
+  body.touch #ui:has(> #jobline:not(.out)) .hud-tc .progress {
+    visibility: hidden;
   }
 }

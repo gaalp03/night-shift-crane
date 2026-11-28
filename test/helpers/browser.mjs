@@ -68,7 +68,7 @@ export async function startGame() {
      * @param until   'play' (default) or 'frame' (just the first frame: e.g. the control picker is up)
      */
     /** @param sdk  optional source of a stand-in CrazyGames SDK script (otherwise the SDK is blocked) */
-    async open({ width = 800, height = 450, mobile = false, device = null, init, until = 'play', sdk = null } = {}) {
+    async open({ width = 800, height = 450, mobile = false, device = null, viewport = null, init, until = 'play', sdk = null } = {}) {
       const IPAD = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15';
       const opts =
         device === 'ipad'
@@ -78,6 +78,8 @@ export async function startGame() {
             : mobile
               ? { ...pw.devices['Pixel 5'] }
               : { viewport: { width, height } };
+      // (a phone of another size: the device's touch, user agent and pixel ratio, this viewport)
+      if (viewport) Object.assign(opts, { viewport, screen: viewport });
       const ctx = await browser.newContext(opts);
       const page = await ctx.newPage();
       page.errors = [];

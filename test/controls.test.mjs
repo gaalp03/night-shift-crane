@@ -2,7 +2,7 @@
 // screen), One-finger from the pause menu and remembered, the desktop key intro, every button on screen.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { startGame, findPlaywright } from './helpers/browser.mjs';
+import { startGame, injectDriver, findPlaywright } from './helpers/browser.mjs';
 
 const skip = findPlaywright() ? false : 'Playwright not installed (npm i -D playwright && npx playwright install chromium)';
 let game = null;
@@ -209,3 +209,65 @@ for (const [name, opts, mode, ships] of [
     });
   });
 }
+
+test('lock fires once per press when switching between touch and keyboard: a tap then the key a moment later, or a focused button + Enter, is one toggle; a later press is a second', { skip, timeout: 300000 }, async () => {
+  const page = await game.open({ device: 'Pixel 5', init: () => localStorage.setItem('night-shift-crane.save.v1', JSON.stringify({ v: 2, money: 260, flags: { played: true, hud: 3, coach: 4, rookie: 5, keysIntro: true, introSeen: true }, settings: { controls: 'manual' }, stats: { placed: 30 } })) });
+  try {
+    await injectDriver(page);
+    const count = () => page.evaluate(() => window.__locks);
+    // (switching the controls to the keyboard re-lays the screen out: let the game run a few frames on)
+    const settle = async () => {
+      const f0 = await page.evaluate(() => window.__nsc.input.frame);
+      await page.waitForFunction((f) => window.__nsc.input.frame > f + 20, f0, { timeout: 60000, polling: 100 });
+    };
+    await page.evaluate(() => {
+      const s = Q.s();
+      window.__locks = 0;
+      const tg = s.tryGrab.bind(s);
+      const rl = s.release.bind(s);
+      s.tryGrab = (...a) => (window.__locks++, tg(...a));
+      s.release = (...a) => (window.__locks++, rl(...a));
+    });
+    // a tap on the pad's lock button, then Space on the keyboard straight after (the same intent)
+    await page.tap('#touch .tbtn.lock');
+    await page.keyboard.press('Space');
+    await settle();
+    assert.equal(await count(), 1, 'tap + key a moment later: one toggle');
+    // the button kept the focus: Enter must not "click" it as well as count as the key
+    await page.evaluate(() => document.querySelector('#touch .tbtn.lock').focus());
+    await page.keyboard.press('Enter');
+    await settle();
+    assert.equal(await count(), 2, 'a focused pad button + Enter: one toggle');
+    // and the same in the same frame from the engine's side: touch fire + Space keydown
+    const same = await page.evaluate(() => {
+      const N = window.__nsc;
+      N.app.warming = true;
+      const before = window.__locks;
+      // the same frame: a touch and the key
+      N.input.fire('lock', 'touch');
+      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space' }));
+      N.sim(1 / 60);
+      window.dispatchEvent(new KeyboardEvent('keyup', { code: 'Space' }));
+      const one = window.__locks - before;
+      N.sim(0.5);
+      // a touch, then the key three frames on
+      N.input.fire('lock', 'touch');
+      N.sim(3 / 60);
+      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space' }));
+      N.sim(1 / 60);
+      window.dispatchEvent(new KeyboardEvent('keyup', { code: 'Space' }));
+      const mid = window.__locks - before - one;
+      N.sim(0.5);
+      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space' }));
+      N.sim(1 / 60);
+      window.dispatchEvent(new KeyboardEvent('keyup', { code: 'Space' }));
+      return { one, mid, later: window.__locks - before - one - mid };
+    });
+    assert.equal(same.one, 1, 'touch + key in the same frame: one toggle');
+    assert.equal(same.mid, 1, 'touch, then the key a few frames on: one toggle');
+    assert.equal(same.later, 1, 'a deliberate press half a second later still counts');
+    assert.deepEqual(page.errors, []);
+  } finally {
+    await page.context().close();
+  }
+});

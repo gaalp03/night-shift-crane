@@ -613,8 +613,10 @@ function showJobLine(s, level, tag) {
   const old = $('jobline');
   if (old) old.remove();
   const quota = s.endless ? level.manifest.filter((m) => !m.black).length : s.quota;
-  const t1 = `LOAD ${quota} BOXES · ${tag || (s.endless ? 'SHIP ' + (s.shipIndex + 1) : level.daily ? 'TONIGHT' : 'SHIFT ' + level.n)}`;
-  const t2 = s.endless ? `${fmtTime(s.timeTotal)} on the clock · ${s.ship.name}` : `before ${level.clock || '06:00'} · ${level.name || s.ship.name}`;
+  // (it may wrap on a narrow phone, but only between its parts: never mid-phrase, never off the edge)
+  const nb = (...parts) => parts.map((p) => String(p).replace(/ /g, '\u00a0')).join(' · ');
+  const t1 = nb(`LOAD ${quota} BOXES`, tag || (s.endless ? 'SHIP ' + (s.shipIndex + 1) : level.daily ? 'TONIGHT' : 'SHIFT ' + level.n));
+  const t2 = s.endless ? nb(`${fmtTime(s.timeTotal)} on the clock`, s.ship.name) : nb(`before ${level.clock || '06:00'}`, level.name || s.ship.name);
   const el = h('div#jobline', h('div.j1', t1), h('div.j2', t2));
   $('ui').appendChild(el);
   app._job = { el, s, t: 0, after: null };
@@ -634,6 +636,47 @@ function updateJobLine(raw) {
     setTimeout(() => j.el.remove(), 500);
     app._job = null;
   }
+}
+
+/**
+ * Toasts never sit on the action: when the box, the spreader or the slot would be under them, they
+ * step aside to the far side of the screen (held a moment, so they do not flicker back and forth).
+ */
+const _dv = new THREE.Vector3();
+function dodgeToasts(raw) {
+  const el = $('toasts');
+  const s = app.session;
+  const D = app._dodge || (app._dodge = { side: '', hold: 0, rect: null });
+  if (!el || !el.firstChild || !s || app.mode !== 'play') {
+    if (D.side) el && el.classList.remove('dodgeL', 'dodgeR');
+    D.side = '';
+    D.rect = null;
+    return;
+  }
+  D.hold -= raw;
+  // (the centred spot they would take, measured while they are there)
+  if (!D.side) {
+    const a = el.firstChild.getBoundingClientRect();
+    const b = el.lastChild.getBoundingClientRect();
+    D.rect = { l: Math.min(a.left, b.left) - 12, r: Math.max(a.right, b.right) + 12, t: Math.min(a.top, b.top) - 12, b: Math.max(a.bottom, b.bottom) + 12 };
+  }
+  const R = D.rect;
+  if (!R) return;
+  let hitX = null;
+  const test = (v) => {
+    if (!v || hitX != null) return;
+    const p = app.juice.project(v);
+    if (!p.behind && p.x > R.l && p.x < R.r && p.y > R.t && p.y < R.b) hitX = p.x;
+  };
+  test(s.rig.sprPos);
+  if (s.rig.carry) test(s.rig.carry.mesh.getWorldPosition(_dv));
+  if (s.guideSlot) test(s.guideSlot);
+  const want = hitX == null ? '' : hitX > window.innerWidth / 2 ? 'dodgeL' : 'dodgeR';
+  if (want === D.side || (D.hold > 0 && !want)) return;
+  el.classList.remove('dodgeL', 'dodgeR');
+  if (want) el.classList.add(want);
+  D.side = want;
+  D.hold = 1.5;
 }
 
 /** The big DROP button: the only control on screen in the first minute and on portrait phones. */
@@ -1879,7 +1922,7 @@ async function boot() {
     app.lastInput = performance.now();
     // a mouse on the big button is a mouse player: steer like a finger from here on
     if (ev && ev.pointerType !== 'touch' && !app.touchMode && ev.detail > 0) app.setMouseMode(true);
-    input.fire('lock');
+    input.fire('lock', ev && ev.pointerType === 'mouse' ? 'mouse' : 'touch');
   }, touch: app.touchMode });
   app.coach = new Coach(
     save,
@@ -2315,7 +2358,7 @@ function bindGlobalInput() {
     if (finger && e.pointerId === finger.id) {
       const s = app.session;
       if (s && app.mode === 'play') {
-        if (!finger.moved && performance.now() - finger.t < 450) input.fire('lock');
+        if (!finger.moved && performance.now() - finger.t < 450) input.fire('lock', e.pointerType === 'mouse' ? 'mouse' : 'touch');
         else {
           // let go: settle on whatever the finger was obviously aiming for
           const p = pickGround(e.clientX, e.clientY);
@@ -2675,13 +2718,19 @@ function tick(raw) {
   // the opening camera move waits while paused, and hurries once the player steers
   updateOpening(raw);
   updateJobLine(raw);
+  dodgeToasts(raw);
   updateSway(s, raw);
   if (s && s._gustArmed && app.mode === 'play' && s.phase === 'play' && s.rig.carry && !s.prehooked && s.altitude > 2.6) {
     s._gustArmed = false;
     s.scriptGust();
   }
   app.cams.introHold = app.mode !== 'play';
-  app.cams.lensShift = app.mode === 'play' && app.touchMode ? (manualTouch() ? 0.1 : 0.05) : 0;
+  // (upright phone: the action is lifted clear of the pad — a little less while the job line is still up
+  // there under the HUD, so a high spreader is not under it)
+  // (only with an empty spreader up high: in the opening the first box already hangs low, by its slot)
+  const jobUp = !!app._job && !!app.session && !app.session.prehooked;
+  app.cams.lensShift = app.mode === 'play' && app.touchMode ? (manualTouch() ? 0.1 : 0.05) - (jobUp ? 0.06 : 0) : 0;
+  app.cams.lensShiftWide = app.mode === 'play' && app.touchMode && jobUp ? -0.045 : 0;
   if (app.cams.introOn && app.mode === 'play' && (Math.abs(input.axisX) + Math.abs(input.axisZ) + Math.abs(input.hoist) > 0.1 || (s && s.target))) app.cams.hurryIntro();
   if (s && !frozen) {
     // (touch players get the stronger anti-sway)

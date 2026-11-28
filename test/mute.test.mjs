@@ -73,3 +73,55 @@ test('CrazyGames muteAudio: muted from the start when the platform says so, foll
     await page.context().close();
   }
 });
+
+test('mute is total: the master lands on exactly 0 and the audio graph is suspended (no sea residue), sound comes back on unmute; the sea dips under a lock, a drop and a horn', { skip, timeout: 300000 }, async () => {
+  const page = await game.open({ width: 1280, height: 720 });
+  try {
+    // a real gesture unlocks the audio
+    await page.mouse.click(640, 360);
+    await page.waitForFunction(() => window.__nsc.audio.ctx && window.__nsc.audio.ctx.state === 'running', null, { timeout: 10000 });
+    await page.waitForTimeout(300);
+    const st = () =>
+      page.evaluate(() => {
+        const a = window.__nsc.audio;
+        return { state: a.ctx.state, gain: a.master.gain.value, amb: a.buses.amb.gain.value, ducks: a.ducks || 0 };
+      });
+    // the duck: the lock clunk pulls the ambience bus down, then it comes back
+    const d = await page.evaluate(async () => {
+      const a = window.__nsc.audio;
+      a.play('lock');
+      await new Promise((r) => setTimeout(r, 160));
+      const dip = a.buses.amb.gain.value;
+      a.play('horn_ship');
+      await new Promise((r) => setTimeout(r, 160));
+      const dip2 = a.buses.amb.gain.value;
+      await new Promise((r) => setTimeout(r, 2600));
+      return { dip, dip2, back: a.buses.amb.gain.value, ducks: a.ducks };
+    });
+    assert.ok(d.dip < 0.65 && d.dip2 < 0.65, 'the sea ducks under the lock and the horn: ' + JSON.stringify(d));
+    assert.ok(d.back > 0.95, 'and comes back: ' + d.back);
+    // in-game mute
+    await page.keyboard.press('KeyM');
+    await page.waitForTimeout(250);
+    const m = await st();
+    assert.equal(m.gain, 0, 'master at exactly 0: ' + JSON.stringify(m));
+    assert.equal(m.state, 'suspended', 'the graph is suspended: nothing reaches the speakers');
+    // a tap while muted does not wake it
+    await page.mouse.click(640, 360);
+    await page.waitForTimeout(250);
+    assert.equal((await st()).state, 'suspended', 'a tap does not wake a muted game');
+    await page.keyboard.press('KeyM');
+    await page.waitForFunction(() => window.__nsc.audio.ctx.state === 'running', null, { timeout: 5000 });
+    await page.waitForTimeout(150);
+    const u = await st();
+    assert.ok(u.gain > 0.95, 'sound back: ' + JSON.stringify(u));
+    // the platform's mute (CrazyGames muteAudio) takes the same path
+    await page.evaluate(() => window.__nsc.audio.setMuted(true, 'platform'));
+    await page.waitForTimeout(250);
+    const p = await st();
+    assert.ok(p.gain === 0 && p.state === 'suspended', 'platform mute is total too: ' + JSON.stringify(p));
+    assert.deepEqual(page.errors, []);
+  } finally {
+    await page.context().close();
+  }
+});

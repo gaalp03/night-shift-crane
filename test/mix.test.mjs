@@ -19,3 +19,8 @@ test('sea and waves sit at least 10 dB (rain 6 dB) under the lock clunk and the 
   // and clearly quieter than it was (sea 0.7, waves 0.6)
   assert.ok(dB(0.7, def('sea_loop').vol) >= 6 && dB(0.6, def('waves_loop').vol) >= 6, 'at least 6 dB down from 2.11');
 });
+
+test('the sea sits lower again (below 2.12) and every lock, drop and horn ducks the ambience under it', () => {
+  assert.ok(dB(0.3, def('sea_loop').vol) >= 1.5 && dB(0.28, def('waves_loop').vol) >= 1.5, 'sea and waves at least 1.5 dB under 2.12');
+  for (const n of ['lock', 'unlock', 'horn_ship', 'horn_crane', 'horn_truck']) assert.ok(def(n).duck > 0 && def(n).duck <= 0.6, n + ' ducks the ambience: ' + def(n).duck);
+});

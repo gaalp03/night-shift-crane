@@ -203,7 +203,7 @@ test('06:00: after eight ships dawn comes up and the shift report has the nightâ
     assert.ok(r.input, 'nothing blocks the controls');
     assert.equal(r.after.phase, 'play', 'one tap: the next night is on');
     assert.equal(r.after.dawn, 0, 'night again');
-    assert.match(r.after.job, /NIGHT 2/);
+    assert.match(r.after.job, /NIGHT\s2/);
     assert.match(r.next, /^NIGHT 2 Â· /, 'night 2 counts its own ships: ' + r.next);
     assert.deepEqual(page.errors, []);
   });
