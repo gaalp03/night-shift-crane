@@ -178,8 +178,13 @@ test('sway feedback: the falls go red while the load swings and flash green with
       N.input.keys.add('KeyD');
       N.sim(1.2);
       N.input.keys.clear();
-      N.sim(0.4);
-      const c1 = N.app.crane.ropeMat.color.clone();
+      // (the reddest the falls get during the swing: the load passes through the middle twice a period)
+      let c1 = N.app.crane.ropeMat.color.clone();
+      for (let i = 0; i < 30; i++) {
+        N.sim(1 / 30);
+        const c = N.app.crane.ropeMat.color;
+        if (c.r - c.g > c1.r - c1.g) c1 = c.clone();
+      }
       let c2 = null;
       for (let i = 0; i < 400 && !c2; i++) {
         N.sim(1 / 30);

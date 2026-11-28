@@ -5,6 +5,7 @@ import { DIM, PAL } from '../config.js';
 import { clamp } from '../core/util.js';
 
 export const ROPE = { X: 0.95, Z: 2.5, TOP_Y: -0.35, SPR_Y: DIM.SPR_H / 2 + 0.5 };
+const ROPE_STEEL = 0x8a949b; // the falls: light steel, readable against the night
 
 export const PAINTS = {
   yellow: { name: 'Safety Yellow', main: 0xe8a61c, accent: 0x1f2529, trim: 0xc23d2b, cost: 0 },
@@ -90,6 +91,7 @@ export class CraneView {
       if (m.parent) m.parent.remove(m);
       if (m.geometry) m.geometry.dispose();
     }
+    for (const f of this.flaps || []) if (f.g.parent) f.g.parent.remove(f.g);
     this.beacons.length = 0;
     this.travelBeacons.length = 0;
     this.leds.length = 0;
@@ -339,8 +341,9 @@ export class CraneView {
   _buildSpreader(P) {
     const v = new Vox();
     const dark = 0x23292e;
-    const hw = DIM.CONT_W / 2 - 0.05;
-    const hl = DIM.CONT_L / 2 - 0.05;
+    // (flush with the box: the twist-locks sit on its corner castings, nothing overhangs)
+    const hw = DIM.CONT_W / 2;
+    const hl = DIM.CONT_L / 2;
     const hy = DIM.SPR_H / 2;
     // perimeter frame
     for (const sx of [-1, 1]) v.box(sx * (hw - 0.2), 0, 0, 0.4, DIM.SPR_H, hl * 2, P.main);
@@ -349,12 +352,11 @@ export class CraneView {
     // headblock + sheaves
     v.box(0, hy + 0.3, 0, 1.5, 0.5, 5.4, dark);
     for (const sx of [-1, 1]) for (const sz of [-1, 1]) v.cyl(sx * ROPE.X, hy + 0.5, sz * ROPE.Z, 0.3, 0.22, 0x59646d, 8, 1, [0, 0, Math.PI / 2]);
-    // twist-lock housings + flippers
+    // twist-lock housings over the corner castings, a shackle block where each fall meets the frame
     for (const sx of [-1, 1]) {
       for (const sz of [-1, 1]) {
         v.box(sx * (hw - 0.14), -hy - 0.06, sz * (hl - 0.16), 0.3, 0.14, 0.34, 0x101315);
-        v.box(sx * (hw + 0.1), -hy - 0.2, sz * (hl - 0.5), 0.1, 0.6, 0.5, P.trim, [0, 0, sx * 0.3]);
-        v.box(sx * (hw - 0.5), -hy - 0.2, sz * (hl + 0.1), 0.5, 0.6, 0.1, P.trim, [-sz * 0.3, 0, 0]);
+        v.box(sx * ROPE.X, hy + 0.14, sz * ROPE.Z, 0.34, 0.28, 0.34, dark);
       }
     }
     // hazard stripes on the end beams
@@ -362,7 +364,7 @@ export class CraneView {
     this.spreaderMesh = v.mesh(MAT.vox);
     this.spreader.add(this.spreaderMesh);
 
-    this._buildFlippers(P);
+    this._buildFlaps(P);
 
     // telescopic ends: they slide out to forty-foot length when a long box is near
     const EXT = (DIM.L40 - DIM.CONT_L) / 2;
@@ -374,7 +376,6 @@ export class CraneView {
       for (const sx of [-1, 1]) {
         tv.box(sx * (hw - 0.6), -0.03, sz * (hl - 0.22 - EXT / 2), 0.26, DIM.SPR_H * 0.55, EXT, 0x59646d);
         tv.box(sx * (hw - 0.14), -hy - 0.06, sz * (hl - 0.16), 0.3, 0.14, 0.34, 0x101315);
-        tv.box(sx * (hw - 0.5), -hy - 0.2, sz * (hl + 0.1), 0.5, 0.6, 0.1, P.trim, [-sz * 0.3, 0, 0]);
       }
       const m = tv.mesh(MAT.vox);
       m.visible = false;
@@ -386,12 +387,12 @@ export class CraneView {
     this.extTarget = this.extTarget || 0;
     this.extLen = EXT;
 
-    // status LEDs (corner lamps): red = free, amber = landed, green = locked
-    const ledGeo = new THREE.BoxGeometry(0.22, 0.16, 0.22);
+    // status lamps, seated on the side beams near the corners: red = free, amber = landed, green = locked
+    const ledGeo = new THREE.BoxGeometry(0.18, 0.08, 0.18);
     for (const sx of [-1, 1]) {
       for (const sz of [-1, 1]) {
-        const m = new THREE.Mesh(ledGeo, new THREE.MeshBasicMaterial({ color: 0xff3b2e, fog: false }));
-        m.position.set(sx * (hw - 0.14), hy + 0.1, sz * (hl - 0.16));
+        const m = new THREE.Mesh(ledGeo, new THREE.MeshBasicMaterial({ color: 0xff3b2e, fog: true }));
+        m.position.set(sx * (hw - 0.2), hy + 0.03, sz * (hl - 0.42));
         m.userData.z0 = m.position.z;
         m.userData.sz = sz;
         this.spreader.add(m);
@@ -399,8 +400,8 @@ export class CraneView {
         this.extraDisposables.push(m);
       }
     }
-    this.ledGlow = glowSprite(0xff3b2e, 3.0, 0.55);
-    this.ledGlow.position.set(0, hy + 0.2, 0);
+    this.ledGlow = glowSprite(0xff3b2e, 1.7, 0.3);
+    this.ledGlow.position.set(0, hy + 0.05, 0);
     this.spreader.add(this.ledGlow);
     this.extraDisposables.push(this.ledGlow);
   }
@@ -409,20 +410,21 @@ export class CraneView {
     if (state === this.ledState) return;
     this.ledState = state;
     const col = state === 'locked' ? 0x4dff88 : state === 'ready' ? 0xffb020 : state === 'error' ? 0xff2a1e : 0xff5a3c;
-    const k = this.mobile ? 1.4 : 2.0;
+    // (lit, not blooming: they read as lamps on the frame, not as floating flares)
+    const k = this.mobile ? 1.0 : 1.15;
     for (const l of this.leds) l.material.color.setHex(col).multiplyScalar(k);
     this.ledGlow.material.color.setHex(col);
-    this.ledGlow.material.opacity = state === 'idle' ? 0.3 : 0.7;
+    this.ledGlow.material.opacity = state === 'idle' ? 0.1 : 0.26;
   }
 
   // ---------------------------------------------------------------- cables
 
   _buildRopes() {
-    const geo = new THREE.CylinderGeometry(0.045, 0.045, 1, 5, 1, true);
+    const geo = new THREE.CylinderGeometry(0.075, 0.075, 1, 6, 1, true);
     geo.translate(0, 0.5, 0);
-    const mat = new THREE.MeshBasicMaterial({ color: 0x3c444b, fog: true });
+    const mat = new THREE.MeshBasicMaterial({ color: ROPE_STEEL, fog: true });
     this.ropeMat = mat;
-    this.ropeBase = new THREE.Color(0x3c444b);
+    this.ropeBase = new THREE.Color(ROPE_STEEL);
     this.ropeSegs = [];
     for (let i = 0; i < 8; i++) {
       const m = new THREE.Mesh(geo, mat);
@@ -585,34 +587,63 @@ export class CraneView {
     this.trolley.position.x = trolleyX;
   }
 
-  /** Wide Spreader upgrade: longer, splayed guide flippers at the four corners. */
+  /** Wide Spreader upgrade: longer guide flaps at the four corners. */
   setFlippers(level) {
     if (level === this.flipLevel) return;
     this.flipLevel = level;
-    this._buildFlippers(PAINTS[this.paintId] || PAINTS.yellow);
+    this._buildFlaps(PAINTS[this.paintId] || PAINTS.yellow);
   }
 
-  _buildFlippers(P) {
-    if (this.flipMesh) {
-      this.spreader.remove(this.flipMesh);
-      this.flipMesh.geometry.dispose();
-      this.flipMesh = null;
+  /**
+   * Corner flaps: an L of two plates at each corner, under the frame's bottom edge. Clamped (a box on
+   * the hook, or landed on one) they reach straight down hugging the box's corner; free they draw up
+   * to a stub, so an empty spreader never looks as if it held something.
+   */
+  _buildFlaps(P) {
+    for (const f of this.flaps || []) {
+      if (f.g.parent) f.g.parent.remove(f.g);
+      f.m.geometry.dispose();
     }
-    const l = this.flipLevel || 0;
-    if (!l) return;
-    const v = new Vox();
-    const hw = DIM.CONT_W / 2 - 0.05;
-    const hl = DIM.CONT_L / 2 - 0.05;
+    this.flaps = [];
+    const hw = DIM.CONT_W / 2;
+    const hl = DIM.CONT_L / 2;
     const hy = DIM.SPR_H / 2;
-    const len = 0.5 + l * 0.32;
+    const l = this.flipLevel || 0;
+    const len = 0.55 + l * 0.22; // (the upgrade: longer plates, catching the box from further out)
+    const span = 0.62 + l * 0.08;
+    const t = 0.07;
     for (const sx of [-1, 1]) {
       for (const sz of [-1, 1]) {
-        v.box(sx * (hw + 0.14 + l * 0.05), -hy - len / 2 + 0.05, sz * (hl - 0.5), 0.12, len, 0.62, P.trim, [0, 0, sx * (0.32 + l * 0.05)]);
-        v.box(sx * (hw - 0.5), -hy - len / 2 + 0.05, sz * (hl + 0.14 + l * 0.05), 0.62, len, 0.12, P.trim, [-sz * (0.32 + l * 0.05), 0, 0]);
+        const v = new Vox();
+        // side plate (against the long side) and end plate (against the door / front end)
+        v.box(sx * (t / 2 + 0.02), -len / 2, -sz * (span / 2), t, len, span, P.trim);
+        v.box(-sx * (span / 2), -len / 2, sz * (t / 2 + 0.02), span, len, t, P.trim);
+        // a dark hinge rail along the top
+        v.box(sx * 0.03, -0.04, -sz * (span / 2), 0.1, 0.08, span, 0x23292e);
+        v.box(-sx * (span / 2), -0.04, sz * 0.03, span, 0.08, 0.1, 0x23292e);
+        const m = v.mesh(MAT.vox);
+        const g = new THREE.Group();
+        g.position.set(sx * hw, -hy + 0.02, sz * hl);
+        g.userData = { sx, sz, z0: sz * hl };
+        g.add(m);
+        this.spreader.add(g);
+        this.flaps.push({ g, m, sx, sz });
       }
     }
-    this.flipMesh = v.mesh(MAT.vox);
-    this.spreader.add(this.flipMesh);
+    this.fold = this.fold == null ? 1 : this.fold;
+    this.foldTarget = this.foldTarget == null ? 1 : this.foldTarget;
+    this._applyFold();
+  }
+
+  /** Clamped (true): flaps down around the box. Free (false): folded up. */
+  setClamp(on) {
+    this.foldTarget = on ? 0 : 1;
+  }
+
+  _applyFold() {
+    // (free: the plates draw up under the frame to a short stub; clamped: they reach down the corner)
+    const k = 1 - this.fold * 0.86;
+    for (const f of this.flaps || []) f.g.scale.y = k;
   }
 
   /** Telescope the spreader out to forty feet (true) or back to twenty (false). */
@@ -622,6 +653,11 @@ export class CraneView {
 
   /** Cosmetic per-frame animation. `moving` 0..1 = gantry travel activity. */
   update(dt, t, gantryMoving) {
+    if (this.flaps && Math.abs(this.fold - this.foldTarget) > 1e-3) {
+      this.fold += (this.foldTarget - this.fold) * Math.min(1, dt * 9);
+      if (Math.abs(this.fold - this.foldTarget) < 0.004) this.fold = this.foldTarget;
+      this._applyFold();
+    }
     if (this.teleEnds) {
       const was = this.ext;
       this.ext += (this.extTarget - this.ext) * Math.min(1, dt * 5);
@@ -634,6 +670,7 @@ export class CraneView {
           e.m.position.z = e.sz * off;
         }
         for (const l of this.leds) l.position.z = l.userData.z0 + l.userData.sz * off;
+        for (const f of this.flaps || []) f.g.position.z = f.g.userData.z0 + f.sz * off;
         if (this.onExtend && (was < 0.5) !== (this.ext < 0.5)) this.onExtend(this.ext >= 0.5);
       }
     }

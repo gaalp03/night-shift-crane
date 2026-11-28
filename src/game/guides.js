@@ -226,8 +226,9 @@ export class Guides {
     this.reticleMat.color.copy(this.color);
     this.fillMat.color.copy(this.color);
     this.beamMat.color.copy(this.color);
-    const spread = 1 + clamp(o.height / 9, 0, 1) * 0.55;
-    const pulse = o.state === 'good' ? 1 + Math.sin(this.t * 9) * 0.03 : 1;
+    // (exactly the box's footprint: a bigger outline under a hanging box reads as a second box)
+    const spread = 1;
+    const pulse = o.state === 'good' ? 1 + Math.sin(this.t * 9) * 0.015 : 1;
     const lz = o.long ? DIM.L40 / DIM.CONT_L : 1;
     for (const c of this.corners) {
       c.position.copy(c.userData.base).multiplyScalar(spread * pulse);
@@ -243,18 +244,14 @@ export class Guides {
     this.shadowMat.opacity = clamp(0.62 - o.height * 0.03, 0.3, 0.62);
     this.fillMat.opacity = o.state === 'good' ? 0.32 + Math.sin(this.t * 9) * 0.08 : bad ? 0.16 : 0.08;
     this.reticleMat.opacity = clamp(0.55 + o.height * 0.05, 0.55, 0.95);
-    // four plumb lines from the load's lower corners
-    let k = 0;
-    const hw = DIM.CONT_W / 2;
-    const hl = (o.long ? DIM.L40 : DIM.CONT_L) / 2;
-    for (const sx of [-1, 1]) {
-      for (const sz of [-1, 1]) {
-        const b = this.beams[k++];
-        b.visible = o.height > 0.25;
-        b.position.set(sx * hw, 0, sz * hl).applyQuaternion(o.fromQuat).add(o.from);
-        b.scale.set(1, Math.max(0.01, o.height), 1);
-        b.quaternion.identity();
-      }
+    // one plumb line from the centre of the load's underside (four corner lines drew a second box)
+    for (let k = 0; k < this.beams.length; k++) {
+      const b = this.beams[k];
+      b.visible = k === 0 && o.height > 0.25;
+      if (!b.visible) continue;
+      b.position.copy(o.from);
+      b.scale.set(1, Math.max(0.01, o.height), 1);
+      b.quaternion.identity();
     }
     this.beamMat.opacity = 0.22 + 0.25 * clamp(1 - o.height / 14, 0, 1);
   }

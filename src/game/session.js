@@ -39,6 +39,9 @@ const CLANGS = ['CLANG!', 'BONG!', 'KLONK!', 'WHAM!', 'CRUNCH!'];
 // close it must be over the slot before it lowers
 const SNAP = { radius: 2.6, height: 3.2, align: 0.32 };
 const _vs = new THREE.Vector3();
+// keyboard (digital) steering: trolley / gantry acceleration and braking x this — a tap moves the crane
+// a useful step and it stops where the key is let go
+const KEY_ACCEL = 1.9;
 const COUNTER = { armAt: 0.85, quietAt: 0.35, quietSpeed: 0.6, quietHold: 0.45, minHold: 0.22, window: 6, cooldown: 7, bonus: 40, gust: 7.5 };
 
 export class Session extends Emitter {
@@ -695,6 +698,7 @@ export class Session extends Emitter {
     this._computeAssist(ctl);
     // (countering is judged on the player's own steering, never on the one-finger or snap automation)
     if (!warm) this._watchCounter(h, this._pAxes || ctl);
+    ctl.accel = this.keyboardFeel && !warm ? KEY_ACCEL : 1;
     rig.fixedUpdate(h, ctl, this.env);
     this.gantryBody.setNextKinematicTranslation({ x: 0, y: 0, z: rig.z });
     this.ship.fixedUpdate(this.simT, h);
@@ -2156,6 +2160,8 @@ export class Session extends Emitter {
     // LED state
     if (this._ledT > 0) this._ledT -= dt;
     else crane.setLed(c ? 'locked' : this.grab && this.grab.ready ? 'ready' : 'idle');
+    // (the flaps and the HUD always tell the same story: down on a box only when it is held or landed on)
+    if (crane.setClamp) crane.setClamp(!!c || !!(this.grab && this.grab.ready));
     this.ship.syncVisual(this.simT);
     const P = this.ship;
     this.ctx.water.setHull(P.pose.x, P.pose.z + (P.zBow + P.zStern) / 2, P.halfBeam * 0.96, (P.zBow - P.zStern) / 2 - 2, 1);

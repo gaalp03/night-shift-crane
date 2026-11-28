@@ -110,7 +110,7 @@ export class Rig {
     const edge = 2.2;
     if (tx > 0) tx *= clamp((DIM.TROLLEY_MAX_X - this.x) / edge, 0, 1);
     if (tx < 0) tx *= clamp((this.x - DIM.TROLLEY_MIN_X) / edge, 0, 1);
-    this.vx = approach(this.vx, tx, TUNE.trolleyAccel * m.trolley * h);
+    this.vx = approach(this.vx, tx, TUNE.trolleyAccel * m.trolley * (ctl.accel || 1) * h);
     this.x = clamp(this.x + this.vx * h, DIM.TROLLEY_MIN_X, DIM.TROLLEY_MAX_X);
 
     // --- gantry (Z)
@@ -118,7 +118,7 @@ export class Rig {
     let tz = ctl.z * maxVz;
     if (tz > 0) tz *= clamp((DIM.GANTRY_RANGE - this.z) / edge, 0, 1);
     if (tz < 0) tz *= clamp((this.z + DIM.GANTRY_RANGE) / edge, 0, 1);
-    this.vz = approach(this.vz, tz, TUNE.gantryAccel * m.gantry * h);
+    this.vz = approach(this.vz, tz, TUNE.gantryAccel * m.gantry * (ctl.accel || 1) * h);
     this.z = clamp(this.z + this.vz * h, -DIM.GANTRY_RANGE, DIM.GANTRY_RANGE);
 
     this.trolleyBody.setNextKinematicTranslation({ x: this.x, y: DIM.RAIL_Y, z: this.z });

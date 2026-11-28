@@ -34,7 +34,7 @@ import { Screens } from './ui/screens.js';
 import { Radio } from './ui/radio.js';
 import { DeepLight } from './world/deep.js';
 import { WetShine } from './world/shine.js';
-import { Tug, Gulls } from './world/harborlife.js';
+import { Tug } from './world/harborlife.js';
 import { BLACK_ORDER, CLIFFHANGERS, episodeFor, SHIFT_OPEN, SHIFT_BEATS, CHECK_INTRO, LONG_INTRO, BLACK_BOXES, BLACKOUT, SMUGGLE_FOUND, epilogue, OPENING_CALL, OPENING_NOTED, NIGHT_TEASERS } from './game/story.js';
 
 const $ = (id) => document.getElementById(id);
@@ -1863,7 +1863,6 @@ async function boot() {
   app.radio = new Radio();
   app.deep = new DeepLight(scene);
   app.tug = new Tug(scene);
-  app.gulls = new Gulls(scene, mobile ? 4 : 7);
   app.wet = new WetShine(scene, { y: DIM.QUAY_Y, bounds: { minX: -90, maxX: -0.3, halfZ: 160 }, count: mobile ? 12 : 22 });
   app.hud = new Hud({ onPause: () => app.pause(), onCamera: toggleCamera, onUpgrade: () => app.openWorkshopInPlay(), onMute: () => app.toggleMute(), isMuted: () => !!save.data.settings.muted, onDrop: (ev) => {
     app.lastInput = performance.now();
@@ -2676,6 +2675,8 @@ function tick(raw) {
   if (s && !frozen) {
     // (touch players get the stronger anti-sway)
     s.touchAssist = !!app.touchMode && save.data.settings.touchSteady !== false;
+    // (arrow keys / WASD are all-or-nothing: the crane answers them with a quicker start and stop)
+    s.keyboardFeel = !app.touchMode && !app.mouseMode;
     s.update(dt);
     if (app.tutorial) app.tutorial.update(dt);
   }
@@ -2698,10 +2699,8 @@ function tick(raw) {
   app.tweens.update(dt);
   app.radio.update(frozen ? 0 : raw);
   app.deep.update(dt, app.time);
-  // the tug comes out whenever a ship is being moved; gulls keep off in a storm
+  // the tug comes out whenever a ship is being moved
   app.tug.update(dt, s && s.ship, !!(s && s.ship && Math.abs(s.ship.offsetZ) > 0.3), app.water);
-  app.gulls.setVisible(app.weather.cur.storm < 0.4 && app.weather.cur.snow < 0.5);
-  app.gulls.update(dt, app.time, app.weather.wind);
   app.crane.setPower(app.harbor.powerNow);
   if (app.timers.length && dt > 0) {
     for (const tm of [...app.timers]) {
