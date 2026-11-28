@@ -1,6 +1,6 @@
 // What the crane shows (headless Chromium): the spreader is the box's size, its flaps and lamps match
-// its state, the falls end on it, the footprint guide is exactly the box, no birds, and the arrow keys
-// get a quick start and stop.
+// its state, the falls end on it, the footprint guide is exactly the box, the seabirds fly, glide and
+// perch like birds, and the arrow keys get a quick start and stop.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { startGame, injectDriver, freshRun, findPlaywright } from './helpers/browser.mjs';
@@ -92,7 +92,7 @@ test('footprint guide: exactly the box’s size under it, one plumb line (no sec
   assert.equal(r.beams, 1, 'one plumb line');
 });
 
-test('no birds; arrow keys: a tap moves the trolley a useful step and it stops promptly', { skip, timeout: 300000 }, async () => {
+test('arrow keys: a tap moves the trolley a useful step and it stops promptly', { skip, timeout: 300000 }, async () => {
   await freshRun(page, 5);
   await injectDriver(page);
   const r = await page.evaluate(() => {
@@ -111,10 +111,89 @@ test('no birds; arrow keys: a tap moves the trolley a useful step and it stops p
       N.sim(2);
       return { during: s.rig.x - x0, brake: s.rig.x - x1 };
     };
-    return { gulls: N.app.gulls === undefined, tap: run(0.2), hold: run(1) };
+    return { tap: run(0.2), hold: run(1) };
   });
-  assert.ok(r.gulls, 'the birds are gone');
   assert.ok(r.tap.during > 0.45, `a 0.2 s tap moves it ${r.tap.during.toFixed(2)} m`);
   assert.ok(r.hold.brake < 2.5, `it stops within ${r.hold.brake.toFixed(2)} m of letting go`);
+  assert.deepEqual(page.errors, []);
+});
+
+test('seabirds: a real body, head and two-part wings that beat and fold; smooth gliding paths; they land and perch', { skip, timeout: 300000 }, async () => {
+  await freshRun(page, 5);
+  const r = await page.evaluate(() => {
+    const N = window.__nsc;
+    const T = N.THREE;
+    const B = N.app.birds;
+    N.app.warming = true;
+    N.app.weather.cur.storm = 0;
+    N.app.weather.cur.snow = 0;
+    const box = (g) => {
+      g.computeBoundingBox();
+      const s = g.boundingBox.getSize(new T.Vector3());
+      return [s.x, s.y, s.z];
+    };
+    const geo = { body: B.body.geometry.attributes.position.count, bodySize: box(B.body.geometry), wing: box(B.inL.geometry), tip: box(B.outL.geometry) };
+    // wing beats: each bird's right inner wing relative to its body, sampled over 6 s
+    const q = new T.Quaternion();
+    const p = new T.Vector3();
+    const sc = new T.Vector3();
+    const mb = new T.Matrix4();
+    const mw = new T.Matrix4();
+    const wingAngle = (k) => {
+      B.body.getMatrixAt(k, mb);
+      B.inR.getMatrixAt(k, mw);
+      const rel = mb.invert().multiply(mw);
+      const x = new T.Vector3(1, 0, 0).transformDirection(rel);
+      return Math.atan2(x.y, Math.hypot(x.x, x.z));
+    };
+    const lo = B.birds.map(() => 9);
+    const hi = B.birds.map(() => -9);
+    let maxStep = 0;
+    let maxTurn = 0;
+    let prev = null;
+    let prevDir = null;
+    const b0 = B.birds[0];
+    for (let i = 0; i < 360; i++) {
+      N.sim(1 / 60);
+      B.birds.forEach((b, k) => {
+        if (b.mode === 'perched') return;
+        const a = wingAngle(k);
+        lo[k] = Math.min(lo[k], a);
+        hi[k] = Math.max(hi[k], a);
+      });
+      if (b0.mode !== 'perched') {
+        if (prev) {
+          const d = b0.pos.clone().sub(prev);
+          maxStep = Math.max(maxStep, d.length());
+          if (prevDir && d.length() > 1e-3 && prevDir.length() > 1e-3) maxTurn = Math.max(maxTurn, d.clone().normalize().angleTo(prevDir.clone().normalize()));
+          prevDir = d;
+        }
+        prev = b0.pos.clone();
+      } else prev = prevDir = null;
+    }
+    const swing = Math.max(...hi.map((h, k) => h - lo[k]));
+    // they land on the lamps and bollards (wings folded) within a couple of minutes
+    let perched = null;
+    for (let i = 0; i < 240 && !perched; i++) {
+      N.sim(0.5);
+      const pb = B.birds.find((b) => b.mode === 'perched');
+      if (pb) {
+        const k = B.birds.indexOf(pb);
+        B.body.getMatrixAt(k, mb);
+        B.inR.getMatrixAt(k, mw);
+        mb.invert().multiply(mw).decompose(p, q, sc);
+        perched = { onPerch: B.perches.some((pp) => pp.pos.distanceTo(pb.pos) < 0.05), folded: sc.x < 0.8, t: i * 0.5 };
+      }
+    }
+    return { n: B.birds.length, visible: B.body.visible, geo, swing, maxStep, maxTurn, perched };
+  });
+  assert.ok(r.n >= 4 && r.visible, 'a few birds about: ' + r.n);
+  assert.ok(r.geo.body > 40, 'a shaped body (not a plank): ' + r.geo.body + ' vertices');
+  assert.ok(r.geo.bodySize[1] > 0.15 && r.geo.bodySize[2] > 0.6, 'body has depth and length: ' + r.geo.bodySize.map((v) => v.toFixed(2)));
+  assert.ok(r.geo.wing[0] > 0.35 && r.geo.tip[0] > 0.25, 'inner wing and wing tip are separate panels');
+  assert.ok(r.swing > 0.4, `the wings beat (swing ${r.swing.toFixed(2)} rad)`);
+  assert.ok(r.maxStep < 0.6, `smooth flight, no jumps (max ${r.maxStep.toFixed(2)} m per frame)`);
+  assert.ok(r.maxTurn < 0.35, `no sudden turns (max ${r.maxTurn.toFixed(2)} rad per frame)`);
+  assert.ok(r.perched && r.perched.onPerch && r.perched.folded, 'a bird lands and perches, wings folded: ' + JSON.stringify(r.perched));
   assert.deepEqual(page.errors, []);
 });

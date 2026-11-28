@@ -54,6 +54,8 @@ export class Radio {
       if (!this.queue.length) return;
       this.gap = (this.gap || 0) - dt;
       if (this.gap > 0) return;
+      // (on a phone the boot ladder sits where the handset does: it waits for it)
+      if (document.body.classList.contains('touch') && document.getElementById('ladderstrip')) return;
       this._open(this.queue.shift());
       return;
     }

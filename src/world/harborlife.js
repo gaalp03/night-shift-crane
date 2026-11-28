@@ -1,8 +1,9 @@
-// Harbour life: a tug that takes the ship in and out, and gulls that ride the night air
+// Harbour life: a tug that takes the ship in and out, and seabirds that ride the night air
 // over the lit water. Pure scenery — nothing here touches the physics or the rules.
 import * as THREE from 'three';
 import { Vox, MAT, glowSprite, lightCone } from './vox.js';
 import { clamp, damp, rand } from '../core/util.js';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 const _v = new THREE.Vector3();
 
@@ -114,96 +115,261 @@ export class Tug {
 
 // ------------------------------------------------------------------ gulls
 
-function gullGeometry() {
-  // body and two wings as separate pieces so the wings can beat
-  const body = new THREE.ConeGeometry(0.15, 0.85, 5);
+
+/** A herring gull, built small: a smooth body with head, beak and tail; two-panel wings that bend at the wrist. */
+function seabirdGeometry() {
+  const paint = (g, rgb) => {
+    g.deleteAttribute('uv');
+    const n = g.attributes.position.count;
+    const c = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) c.set(rgb, i * 3);
+    g.setAttribute('color', new THREE.BufferAttribute(c, 3));
+    return g;
+  };
+  // body: a lathe profile tail -> breast -> neck -> head, turned to point along +Z
+  const prof = [
+    [0.0, -0.42],
+    [0.05, -0.36],
+    [0.09, -0.26],
+    [0.125, -0.12],
+    [0.135, 0.0],
+    [0.125, 0.1],
+    [0.095, 0.18],
+    [0.08, 0.23],
+    [0.088, 0.29],
+    [0.075, 0.35],
+    [0.04, 0.39],
+    [0.0, 0.405],
+  ].map(([r, y]) => new THREE.Vector2(r, y));
+  const body = new THREE.LatheGeometry(prof, 9);
   body.rotateX(Math.PI / 2);
-  const bc = new Float32Array(body.attributes.position.count * 3).fill(0.92);
-  body.setAttribute('color', new THREE.BufferAttribute(bc, 3));
-  // the gull's crooked wing: inner panel lifted, outer panel swept back and down, black tips
-  const R0f = [0, 0, 0.16];
-  const R0b = [0, 0, -0.18];
-  const Ef = [0.48, 0.13, 0.08];
-  const Eb = [0.48, 0.13, -0.2];
-  const T = [1.12, -0.02, -0.36];
-  const pos = [...R0f, ...Ef, ...R0b, ...R0b, ...Ef, ...Eb, ...Ef, ...T, ...Eb];
-  const W = [0.93, 0.92, 0.88];
-  const D = [0.16, 0.17, 0.18];
-  const col = [...W, ...W, ...W, ...W, ...W, ...W, ...W, ...D, ...W];
-  const wing = new THREE.BufferGeometry();
-  wing.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3));
-  wing.setAttribute('color', new THREE.BufferAttribute(new Float32Array(col), 3));
-  wing.computeVertexNormals();
-  return { body, wing };
+  body.scale(0.82, 0.74, 1.18); // (long and slim: a gull, not a ball)
+  paint(body, [0.96, 0.96, 0.94]);
+  const beak = new THREE.ConeGeometry(0.022, 0.12, 5);
+  beak.rotateX(Math.PI / 2);
+  beak.translate(0, -0.005, 0.45);
+  paint(beak, [0.95, 0.74, 0.18]);
+  // tail: a short fan behind
+  const tail = new THREE.BufferGeometry();
+  tail.setAttribute('position', new THREE.BufferAttribute(new Float32Array([0, 0.01, -0.34, -0.1, 0.0, -0.6, 0.1, 0.0, -0.6]), 3));
+  tail.computeVertexNormals();
+  paint(tail, [0.93, 0.93, 0.92]);
+  const merged = mergeGeometries([body.toNonIndexed(), beak.toNonIndexed(), tail]);
+  // wings, root at x = 0 (the shoulder), spanning +x; the left one is mirrored
+  const panel = (pts, cols) => {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pts.flat()), 3));
+    g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(cols.flat()), 3));
+    g.computeVertexNormals();
+    return g;
+  };
+  const M = [0.8, 0.82, 0.85]; // mantle grey
+  const W = [0.95, 0.95, 0.94];
+  const K = [0.12, 0.12, 0.13]; // black tips
+  // inner panel: shoulder to wrist (0.42 m), slightly cambered
+  const a = [0, 0, 0.15];
+  const b = [0, 0, -0.2];
+  const c = [0.42, 0.035, 0.12];
+  const d = [0.42, 0.035, -0.18];
+  const inner = panel([a, c, b, b, c, d], [W, M, W, W, M, M]);
+  // outer panel: wrist to tip (0.52 m), swept back, black at the tip
+  const e = [0, 0, 0.12];
+  const f = [0, 0, -0.18];
+  const g = [0.3, -0.01, 0.05];
+  const h = [0.3, -0.01, -0.18];
+  const t = [0.54, -0.03, -0.24];
+  const outer = panel([e, g, f, f, g, h, g, t, h], [M, M, M, M, M, M, K, K, K]);
+  return { body: merged, inner, outer };
 }
 
-const _m = new THREE.Matrix4();
-const _w = new THREE.Matrix4();
-const _q = new THREE.Quaternion();
-const _e = new THREE.Euler();
-const _p = new THREE.Vector3();
-const _s = new THREE.Vector3();
-const _mirror = new THREE.Matrix4().makeScale(-1, 1, 1);
+const _bm = new THREE.Matrix4();
+const _bi = new THREE.Matrix4();
+const _bo = new THREE.Matrix4();
+const _bt = new THREE.Matrix4();
+const _bq = new THREE.Quaternion();
+const _be = new THREE.Euler(0, 0, 0, 'YXZ');
+const _bp = new THREE.Vector3();
+const _bs = new THREE.Vector3();
+const _mirrorX = new THREE.Matrix4().makeScale(-1, 1, 1);
+const SHOULDER = new THREE.Vector3(0.055, 0.04, 0.06);
+const WRIST = new THREE.Vector3(0.42, 0.035, 0);
 
-/** A handful of gulls drawn as three instanced meshes (bodies, left wings, right wings): 3 draw calls in all. */
-export class Gulls {
-  constructor(scene, count = 7) {
-    const geo = gullGeometry();
+/**
+ * Seabirds over the harbour: circle on the night air, flap and glide, cross to a new patch of sky,
+ * now and then come down onto a lamp head or a bollard, sit a while and go again. Five instanced
+ * meshes (bodies, inner and outer wing panels each side): five draw calls in all.
+ */
+export class Seabirds {
+  constructor(scene, count = 6) {
+    const geo = seabirdGeometry();
     this.geo = geo;
-    // (a little self-light: at night gulls read as pale shapes catching the port's glow from below)
-    this.mat = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide, emissive: 0x3a362f });
-    this.body = new THREE.InstancedMesh(geo.body, this.mat, count);
-    this.left = new THREE.InstancedMesh(geo.wing, this.mat, count);
-    this.right = new THREE.InstancedMesh(geo.wing, this.mat, count);
-    for (const m of [this.body, this.left, this.right]) {
+    // (a little self-light: at night they read as pale shapes catching the port's glow)
+    this.mat = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide, emissive: 0x2e2c28 });
+    const im = (g) => {
+      const m = new THREE.InstancedMesh(g, this.mat, count);
       m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       m.frustumCulled = false;
       scene.add(m);
-    }
+      return m;
+    };
+    this.body = im(geo.body);
+    this.inL = im(geo.inner);
+    this.inR = im(geo.inner);
+    this.outL = im(geo.outer);
+    this.outR = im(geo.outer);
+    this.meshes = [this.body, this.inL, this.inR, this.outL, this.outR];
+    this.perches = [];
     this.birds = [];
     for (let i = 0; i < count; i++) {
-      this.birds.push({
-        // each circles its own thermal over the water
-        cx: rand(10, 44),
-        cz: rand(-40, 40),
-        rad: rand(9, 22),
-        h: rand(12, 22),
-        sp: rand(0.12, 0.22) * (Math.random() < 0.5 ? -1 : 1),
-        ph: rand(0, 6.28),
-        flap: rand(0, 6),
-        glide: 0,
-      });
+      const b = { pos: new THREE.Vector3(rand(4, 40), rand(14, 22), rand(-40, 40)), prev: new THREE.Vector3(), yaw: 0, bank: 0, pitch: 0, flap: rand(0, 6), flapAmp: 0, mode: 'soar', t: 0, seg: null, perch: null, burst: rand(1, 4) };
+      this._soar(b, true);
+      b.prev.copy(b.pos);
+      this.birds.push(b);
     }
     this.visible = true;
+    this.scale = 1.35;
+  }
+
+  /** Where they may land: [{ pos: Vector3 (the top to stand on), yaw }] */
+  setPerches(list) {
+    this.perches = list.map((p) => ({ pos: p.pos.clone(), yaw: p.yaw || 0, taken: false }));
+  }
+
+  _soar(b, start) {
+    b.mode = 'soar';
+    b.cx = rand(-6, 42);
+    b.cz = rand(-38, 38);
+    b.rad = rand(8, 18);
+    b.h = rand(12, 24);
+    b.w = rand(0.16, 0.26) * (Math.random() < 0.5 ? -1 : 1);
+    b.ph = start ? rand(0, 6.28) : Math.atan2((b.pos.z - b.cz) / 0.75, b.pos.x - b.cx);
+    b.t = rand(10, 24); // how long before it goes somewhere else
+  }
+
+  /** A smooth flight from where it is to `to` (cubic: leaving along its heading, arriving level). */
+  _transit(b, to, mode, speed = 8.5) {
+    const p0 = b.pos.clone();
+    const dir = _bp.subVectors(b.pos, b.prev);
+    if (dir.lengthSq() < 1e-6) dir.set(Math.sin(b.yaw), 0, Math.cos(b.yaw));
+    dir.normalize();
+    const dist = p0.distanceTo(to);
+    const p1 = p0.clone().addScaledVector(dir, dist * 0.35);
+    const p2 = to.clone().add(new THREE.Vector3(0, mode === 'land' ? 2.5 : 0, 0)).addScaledVector(_bs.subVectors(to, p0).setY(0).normalize(), -dist * 0.3);
+    b.seg = { p0, p1, p2, p3: to.clone(), dur: Math.max(2.5, dist / speed), u: 0 };
+    b.mode = mode;
   }
 
   update(dt, t, wind) {
     if (!this.visible) return;
+    const S = this.scale;
     for (let i = 0; i < this.birds.length; i++) {
-      const B = this.birds[i];
-      B.ph += B.sp * dt;
-      const x = B.cx + Math.cos(B.ph) * B.rad + (wind ? wind.x * 2 : 0);
-      const z = B.cz + Math.sin(B.ph) * B.rad * 0.7;
-      const y = B.h + Math.sin(t * 0.4 + B.cx) * 1.5;
-      // heading along the circle, banked into the turn
-      const hd = Math.atan2(-Math.sin(B.ph) * B.sp, Math.cos(B.ph) * B.sp * 0.7);
-      _q.setFromEuler(_e.set(0, hd, -Math.sign(B.sp) * 0.35));
-      _m.compose(_p.set(x, y, z), _q, _s.set(1.45, 1.45, 1.45));
-      this.body.setMatrixAt(i, _m);
-      // mostly gliding, a few beats now and then
-      B.glide -= dt;
-      if (B.glide < -1.2) B.glide = rand(2, 6);
-      const beat = B.glide > 0 ? 0.12 : Math.sin(t * 11 + B.flap) * 0.6;
-      this.left.setMatrixAt(i, _w.multiplyMatrices(_m, _w.makeRotationZ(beat)));
-      _w.makeRotationZ(beat);
-      this.right.setMatrixAt(i, _w.premultiply(_mirror).premultiply(_m));
+      const b = this.birds[i];
+      b.prev.copy(b.pos);
+      let flapping = false;
+      if (b.mode === 'soar') {
+        b.ph += b.w * dt;
+        b.pos.set(b.cx + Math.cos(b.ph) * b.rad + (wind ? wind.x * 1.5 : 0), b.h + Math.sin(t * 0.37 + i) * 1.2, b.cz + Math.sin(b.ph) * b.rad * 0.75);
+        // gulls mostly glide: a short burst of beats now and then
+        b.burst -= dt;
+        if (b.burst < 0) {
+          flapping = true;
+          if (b.burst < -1.4) b.burst = rand(3, 8);
+        }
+        b.t -= dt;
+        if (b.t <= 0) {
+          const free = this.perches.filter((p) => !p.taken);
+          if (free.length && Math.random() < 0.5) {
+            const p = free[Math.floor(Math.random() * free.length)];
+            p.taken = true;
+            b.perch = p;
+            this._transit(b, p.pos, 'land', 7);
+          } else {
+            const to = new THREE.Vector3(rand(-6, 42), rand(12, 24), rand(-38, 38));
+            this._transit(b, to, 'cruise');
+            b.next = to;
+          }
+        }
+      } else if (b.mode === 'cruise' || b.mode === 'land' || b.mode === 'takeoff') {
+        const sg = b.seg;
+        sg.u = Math.min(1, sg.u + dt / sg.dur);
+        const u = sg.u;
+        const v = 1 - u;
+        b.pos.set(0, 0, 0).addScaledVector(sg.p0, v * v * v).addScaledVector(sg.p1, 3 * v * v * u).addScaledVector(sg.p2, 3 * v * u * u).addScaledVector(sg.p3, u * u * u);
+        flapping = b.mode !== 'cruise' || Math.sin(t * 0.9 + i) > 0.2 || u > 0.85;
+        if (u >= 1) {
+          if (b.mode === 'land') {
+            b.mode = 'perched';
+            b.t = rand(8, 20);
+            b.yaw = b.perch.yaw + rand(-0.6, 0.6);
+          } else {
+            this._soar(b, false);
+            if (b.next) {
+              b.cx = b.next.x - Math.cos(b.ph) * b.rad;
+              b.cz = b.next.z - Math.sin(b.ph) * b.rad * 0.75;
+              b.h = b.next.y;
+            }
+          }
+        }
+      } else if (b.mode === 'perched') {
+        b.pos.copy(b.perch.pos);
+        b.t -= dt;
+        if (b.t <= 0) {
+          b.perch.taken = false;
+          const up = b.pos.clone().add(new THREE.Vector3(rand(-8, 8), rand(6, 10), rand(-8, 8)));
+          b.prev.set(b.pos.x - Math.sin(b.yaw) * 0.1, b.pos.y - 0.05, b.pos.z - Math.cos(b.yaw) * 0.1);
+          this._transit(b, up, 'takeoff', 6);
+          b.perch = null;
+        }
+      }
+      // heading, pitch and bank from the motion (smoothed): banked into turns, nose with the climb
+      const perched = b.mode === 'perched';
+      if (!perched) {
+        _bp.subVectors(b.pos, b.prev);
+        const sp = _bp.length() / Math.max(dt, 1e-4);
+        if (sp > 0.2) {
+          const yaw = Math.atan2(_bp.x, _bp.z);
+          let dy = yaw - b.yaw;
+          dy = Math.atan2(Math.sin(dy), Math.cos(dy));
+          b.yaw += dy * Math.min(1, dt * 6);
+          const turn = dt > 0 ? dy / dt : 0;
+          b.bank = damp(b.bank, clamp(-turn * 0.35, -0.7, 0.7), 4, dt);
+          b.pitch = damp(b.pitch, clamp(-Math.atan2(_bp.y, Math.hypot(_bp.x, _bp.z)), -0.5, 0.5), 4, dt);
+        }
+      } else {
+        b.bank = damp(b.bank, 0, 6, dt);
+        b.pitch = damp(b.pitch, -0.25, 6, dt);
+      }
+      // wings: smooth beats with the outer panel lagging (the wrist flex), held in a shallow V gliding
+      b.flapAmp = damp(b.flapAmp, flapping ? 1 : 0, 5, dt);
+      b.flap += dt * (b.mode === 'land' || b.mode === 'takeoff' ? 4.2 : 3.1) * Math.PI * 2 * Math.max(0.25, b.flapAmp);
+      const beat = Math.sin(b.flap) * 0.62 * b.flapAmp + 0.14 * (1 - b.flapAmp);
+      const flex = Math.sin(b.flap - 0.9) * 0.45 * b.flapAmp - 0.06 * (1 - b.flapAmp);
+      _bq.setFromEuler(_be.set(b.pitch, b.yaw, b.bank));
+      const bob = perched ? Math.max(0, Math.sin(t * 2.3 + i)) * 0.02 : 0;
+      _bm.compose(_bp.set(b.pos.x, b.pos.y + bob + (perched ? 0.12 * S : 0), b.pos.z), _bq, _bs.set(S, S, S));
+      this.body.setMatrixAt(i, _bm);
+      for (const side of [1, -1]) {
+        // shoulder -> inner panel (beat about the body's long axis); wrist -> outer panel (flex)
+        _bi.copy(_bm);
+        if (side < 0) _bi.multiply(_mirrorX);
+        _bi.multiply(_bt.makeTranslation(SHOULDER.x, SHOULDER.y, SHOULDER.z));
+        if (perched) {
+          // folded along the back
+          _bi.multiply(_bt.makeRotationY(1.35)).multiply(_bt.makeRotationZ(0.25)).multiply(_bt.makeScale(0.62, 1, 0.75));
+        } else _bi.multiply(_bt.makeRotationZ(beat));
+        _bo.copy(_bi).multiply(_bt.makeTranslation(WRIST.x, WRIST.y, WRIST.z));
+        if (perched) _bo.multiply(_bt.makeRotationY(-2.6)).multiply(_bt.makeScale(0.7, 1, 0.8));
+        else _bo.multiply(_bt.makeRotationZ(flex));
+        (side > 0 ? this.inR : this.inL).setMatrixAt(i, _bi);
+        (side > 0 ? this.outR : this.outL).setMatrixAt(i, _bo);
+      }
     }
-    for (const m of [this.body, this.left, this.right]) m.instanceMatrix.needsUpdate = true;
+    for (const m of this.meshes) m.instanceMatrix.needsUpdate = true;
   }
 
   setVisible(v) {
     if (v === this.visible) return;
     this.visible = v;
-    this.body.visible = this.left.visible = this.right.visible = v;
+    for (const m of this.meshes) m.visible = v;
   }
 }

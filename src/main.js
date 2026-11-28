@@ -34,7 +34,7 @@ import { Screens } from './ui/screens.js';
 import { Radio } from './ui/radio.js';
 import { DeepLight } from './world/deep.js';
 import { WetShine } from './world/shine.js';
-import { Tug } from './world/harborlife.js';
+import { Tug, Seabirds } from './world/harborlife.js';
 import { BLACK_ORDER, CLIFFHANGERS, episodeFor, SHIFT_OPEN, SHIFT_BEATS, CHECK_INTRO, LONG_INTRO, BLACK_BOXES, BLACKOUT, SMUGGLE_FOUND, epilogue, OPENING_CALL, OPENING_NOTED, NIGHT_TEASERS } from './game/story.js';
 
 const $ = (id) => document.getElementById(id);
@@ -726,7 +726,7 @@ function showShipCard(s, e, cash) {
   };
   const night = save.data.night || 1;
   const k = nightShips(s);
-  const head = h('div.t1', { html: icon(e.complete ? 'check' : 'box') + `<span>NIGHT ${night} · ${e.placed}/${e.quota} · Pier Seven</span>` });
+  const head = h('div.t1', { html: icon(e.complete ? 'check' : 'box') + `<span>NIGHT ${night} · ${e.placed}/${e.quota}<em> · Pier Seven</em></span>` });
   const hour = h('div.hour', `${String((22 + k) % 24).padStart(2, '0')}:00 · ${SHIFT_SHIPS - k} ship${SHIFT_SHIPS - k === 1 ? '' : 's'} to 06:00`);
   const teaser = night === 1 && k === 1 ? h('div.teaser', 'Tomorrow’s box has a name on it.') : null;
   // the card always ends on one named next goal, and this week's record
@@ -964,8 +964,13 @@ function dailyRow() {
 }
 
 /** Boot: the daily challenge and the 7-day ladder for a moment, tomorrow's item lit (never in the way). */
-function showLadderStrip(dur = 3000) {
+function showLadderStrip(dur = 3000, tries = 0) {
   if ($('ladderstrip')) return;
+  // (on a phone it shares the low spot with the radio: it waits until the radio is quiet)
+  if (document.body.classList.contains('touch') && app.radio.busy) {
+    if (tries < 40 && app.mode === 'play') setTimeout(() => showLadderStrip(dur, tries + 1), 1000);
+    return;
+  }
   const L = save.data.login || { streak: 1 };
   const tomorrow = Math.min(7, (L.streak || 1) + 1);
   const el = h('div#ladderstrip', { html: dailyRow().outerHTML + `<div class="lhead">${icon('gift')}<span>COME BACK TOMORROW · DAY ${tomorrow}</span></div>` + ladderRow(tomorrow) });
@@ -1863,6 +1868,12 @@ async function boot() {
   app.radio = new Radio();
   app.deep = new DeepLight(scene);
   app.tug = new Tug(scene);
+  // seabirds: they circle, cross the harbour, and land on the lamp heads and bollards near the crane
+  app.birds = new Seabirds(scene, mobile ? 4 : 6);
+  app.birds.setPerches([
+    ...app.harbor.mainLamps.map((l) => ({ pos: l.pos.clone().add(new THREE.Vector3(0, 0.55, 0)), yaw: Math.PI / 2 })),
+    ...app.harbor.bollards.filter((b) => Math.abs(b.z) < 40).map((b) => ({ pos: b.clone().add(new THREE.Vector3(0, 0.3, 0)), yaw: -Math.PI / 2 })),
+  ]);
   app.wet = new WetShine(scene, { y: DIM.QUAY_Y, bounds: { minX: -90, maxX: -0.3, halfZ: 160 }, count: mobile ? 12 : 22 });
   app.hud = new Hud({ onPause: () => app.pause(), onCamera: toggleCamera, onUpgrade: () => app.openWorkshopInPlay(), onMute: () => app.toggleMute(), isMuted: () => !!save.data.settings.muted, onDrop: (ev) => {
     app.lastInput = performance.now();
@@ -2699,6 +2710,9 @@ function tick(raw) {
   app.tweens.update(dt);
   app.radio.update(frozen ? 0 : raw);
   app.deep.update(dt, app.time);
+  // seabirds keep off in a storm or snow
+  app.birds.setVisible(app.weather.cur.storm < 0.4 && app.weather.cur.snow < 0.5);
+  app.birds.update(dt, app.time, app.weather.wind);
   // the tug comes out whenever a ship is being moved
   app.tug.update(dt, s && s.ship, !!(s && s.ship && Math.abs(s.ship.offsetZ) > 0.3), app.water);
   app.crane.setPower(app.harbor.powerNow);

@@ -136,8 +136,10 @@ export class CameraRig {
     let dist = lerp(39, 44, 1 - drop) * this.zoom;
     let fov = 42;
     if (portrait) {
-      dist *= 1.0 + (1 - aspect) * 0.9;
-      fov = 58;
+      // (upright phone: closer in, so the box and its slot are big enough to aim at; the lens shift
+      // keeps them above the thumbs)
+      dist *= 1.0 + (1 - aspect) * 0.5;
+      fov = 56;
     } else if (aspect < 1.5) {
       dist *= 1.0 + (1.5 - aspect) * 0.5;
     }

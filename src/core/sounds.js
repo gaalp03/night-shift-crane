@@ -65,9 +65,9 @@ export const SOUNDS = {
     splash_big: { files: ['splash_big.mp3'], vol: 1.0, rateVar: 0.06 },
     splash_small: { files: ['splash_small.mp3'], vol: 0.7, rateVar: 0.1 },
     bubbles: { files: ['bubbles.mp3'], vol: 0.5, rateVar: 0.08 },
-    sea_loop: { files: ['sea_loop.mp3'], vol: 0.7, bus: 'amb', x: 1.3 },
-    waves_loop: { files: ['waves_loop.mp3'], vol: 0.6, bus: 'amb', x: 1.3 },
-    rain_loop: { files: ['rain_loop.mp3'], vol: 0.8, bus: 'amb', x: 1.3 },
+    sea_loop: { files: ['sea_loop.mp3'], vol: 0.3, bus: 'amb', x: 1.3 }, // (under the gameplay: about -7 dB from before)
+    waves_loop: { files: ['waves_loop.mp3'], vol: 0.28, bus: 'amb', x: 1.3 },
+    rain_loop: { files: ['rain_loop.mp3'], vol: 0.5, bus: 'amb', x: 1.3 },
     rain_cab_loop: { files: ['rain_cab_loop.mp3'], vol: 0.8, bus: 'amb', x: 1.3 },
     wind_loop: { files: ['wind_loop.mp3'], vol: 0.9, bus: 'amb', x: 1.3 },
     gust: { files: v('gust', 2), vol: 0.5, bus: 'amb', rateVar: 0.12 },
